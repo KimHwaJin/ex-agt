@@ -1,0 +1,125 @@
+x-model-hosts: &model-hosts
+  - "model.frodo.com:${MODEL_HOST_IP:-10.250.110.99}"
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg17
+    environment:
+      POSTGRES_DB: agent
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - agent-postgres:/var/lib/postgresql/data
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "56379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - agent-redis:/data
+
+  migrate:
+    build: .
+    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+    environment: &agent-environment
+      AGENT_DATABASE_URL: >-
+        postgresql+psycopg://agent:agent@postgres:5432/agent
+      AGENT_CHECKPOINT_DATABASE_URL: >-
+        postgresql://agent:agent@postgres:5432/agent
+      AGENT_REDIS_URL: ${AGENT_REDIS_URL:-redis://redis:6379/0}
+      EXECUTOR_BASE_URL: >-
+        ${EXECUTOR_BASE_URL:-http://host.docker.internal:8000/api/v1}
+      EXECUTOR_SHARED_STORAGE_ROOT: /workspace/shared
+      EXECUTOR_SOURCE_MODE: PATH
+      AGENT_MODEL: ${AGENT_MODEL:-qwen38-27b-fp8}
+      AGENT_MODEL_PROVIDER: ${AGENT_MODEL_PROVIDER:-openai}
+      AGENT_MODEL_BASE_URL: >-
+        ${AGENT_MODEL_BASE_URL:-http://model.frodo.com/v1}
+      AGENT_MODEL_API_KEY: ${AGENT_MODEL_API_KEY:-EMPTY}
+      AGENT_MODEL_ENABLE_THINKING: >-
+        ${AGENT_MODEL_ENABLE_THINKING:-false}
+      AGENT_EMBEDDING_PROVIDER: >-
+        ${AGENT_EMBEDDING_PROVIDER:-dummy}
+      AGENT_EMBEDDING_MODEL: >-
+        ${AGENT_EMBEDDING_MODEL:-dummy-hash-v1}
+      AGENT_EMBEDDING_BASE_URL: >-
+        ${AGENT_EMBEDDING_BASE_URL:-http://model.frodo.com/v1}
+      AGENT_EMBEDDING_API_KEY: >-
+        ${AGENT_EMBEDDING_API_KEY:-EMPTY}
+      AGENT_EMBEDDING_DIMENSIONS: >-
+        ${AGENT_EMBEDDING_DIMENSIONS:-1024}
+    extra_hosts: *model-hosts
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    command: ["ex-agent-api"]
+    environment: *agent-environment
+    extra_hosts: *model-hosts
+    ports:
+      - "8010:8010"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - ${EXECUTOR_SHARED_DIR:-./shared_dir}:/workspace/shared
+
+  worker:
+    build: .
+    command: ["ex-agent-worker"]
+    environment: *agent-environment
+    extra_hosts: *model-hosts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    volumes:
+      - ${EXECUTOR_SHARED_DIR:-./shared_dir}:/workspace/shared
+
+  test:
+    build:
+      context: .
+      target: test
+    command:
+      - uv
+      - run
+      - --no-sync
+      - pytest
+      - -m
+      - postgres or redis
+    environment:
+      <<: *agent-environment
+      TEST_DATABASE_URL: >-
+        postgresql+psycopg://agent:agent@postgres:5432/agent
+      TEST_REDIS_URL: redis://redis:6379/0
+    extra_hosts: *model-hosts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+    profiles: ["test"]
+
+volumes:
+  agent-postgres:
+  agent-redis:

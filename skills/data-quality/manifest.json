@@ -1,0 +1,15 @@
+{
+  "skill": {"name": "data-quality", "version": "0.1.0"},
+  "tools": [
+    {
+      "name": "profile_missing_values",
+      "version": "0.1.0",
+      "source": "tools/profile_missing_values.py",
+      "description": "Calculate null count and percentage for every column.",
+      "creation_rationale": "Makes completeness limitations visible before analysis.",
+      "parameters": {
+        "path": {"type": "string", "required": true}
+      }
+    }
+  ]
+}

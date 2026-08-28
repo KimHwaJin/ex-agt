@@ -1,0 +1,17 @@
+{
+  "skill": {"name": "visualization", "version": "0.1.0"},
+  "tools": [
+    {
+      "name": "plot_distribution",
+      "version": "0.1.0",
+      "source": "tools/plot_distribution.py",
+      "description": "Create a PNG histogram for one numeric column.",
+      "creation_rationale": "Adds an auditable visual representation of a distribution.",
+      "parameters": {
+        "path": {"type": "string", "required": true},
+        "column": {"type": "string", "required": true},
+        "bins": {"type": "integer", "required": false}
+      }
+    }
+  ]
+}

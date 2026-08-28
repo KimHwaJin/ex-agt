@@ -1,0 +1,18 @@
+{
+  "skill": {"name": "data-access", "version": "0.1.0"},
+  "tools": [
+    {
+      "name": "fetch_dataset",
+      "version": "0.1.0",
+      "source": "tools/fetch_dataset.py",
+      "description": "Create deterministic sample analysis data for an external query.",
+      "creation_rationale": "Provides a stable data-lake adapter contract before the real query runner is delivered.",
+      "parameters": {
+        "query": {"type": "string", "required": true},
+        "dataset_name": {"type": "string", "required": true},
+        "output_format": {"type": "string", "required": false},
+        "seed": {"type": "integer", "required": false}
+      }
+    }
+  ]
+}

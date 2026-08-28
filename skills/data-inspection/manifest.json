@@ -1,0 +1,16 @@
+{
+  "skill": {"name": "data-inspection", "version": "0.1.0"},
+  "tools": [
+    {
+      "name": "inspect_dataset",
+      "version": "0.1.0",
+      "source": "tools/inspect_dataset.py",
+      "description": "Inspect schema, shape, sample rows, and memory usage.",
+      "creation_rationale": "Prevents analysis plans from assuming an unverified schema.",
+      "parameters": {
+        "path": {"type": "string", "required": true},
+        "sample_rows": {"type": "integer", "required": false}
+      }
+    }
+  ]
+}

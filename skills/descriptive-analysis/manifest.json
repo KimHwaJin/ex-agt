@@ -1,0 +1,29 @@
+{
+  "skill": {"name": "descriptive-analysis", "version": "0.1.0"},
+  "tools": [
+    {
+      "name": "summarize_numeric_columns",
+      "version": "0.1.0",
+      "source": "tools/summarize_numeric_columns.py",
+      "description": "Compute descriptive statistics for numeric columns.",
+      "creation_rationale": "Provides a reproducible baseline numeric summary.",
+      "parameters": {
+        "path": {"type": "string", "required": true},
+        "columns": {"type": "array", "required": false}
+      }
+    },
+    {
+      "name": "group_aggregate",
+      "version": "0.1.0",
+      "source": "tools/group_aggregate.py",
+      "description": "Aggregate a numeric value by one categorical column.",
+      "creation_rationale": "Supports common segment comparisons with explicit aggregation.",
+      "parameters": {
+        "path": {"type": "string", "required": true},
+        "group_by": {"type": "string", "required": true},
+        "value": {"type": "string", "required": true},
+        "aggregation": {"type": "string", "required": false}
+      }
+    }
+  ]
+}

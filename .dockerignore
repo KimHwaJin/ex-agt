@@ -1,0 +1,8 @@
+.git
+.venv
+.pytest_cache
+.ruff_cache
+.ty
+__pycache__
+*.pyc
+shared_dir
