@@ -210,6 +210,48 @@ owner를 찾는다. 해당 컨테이너만 종료한 뒤 생존 Worker의 재cla
 - 완료 후 Session lock 누수 0건
 - command와 Executor event consumer group pending 모두 0건
 
+## 장기 실행과 Worker rolling restart
+
+두 Worker 중 한 대씩 번갈아 컨테이너를 제거·재생성하면서 장기 Executor
+작업과 독립 Session의 일반 질의를 함께 처리하는 검증은 다음과 같이 실행한다.
+항상 다른 Worker 한 대가 살아 있으므로 Kubernetes rolling update에 가까운
+조건이다. 실제 `AGENT_REDIS_URL`에 대응하는 host 주소를 지정해야 한다.
+
+```bash
+uv run --no-sync python scripts/live_soak_e2e.py \
+  --redis-url redis://127.0.0.1:6379/0 \
+  --execution-seconds 300 \
+  --restart-interval-seconds 60 \
+  --probe-count 6 \
+  --probe-interval-seconds 30 \
+  --output /tmp/ex-agent-rolling-soak-e2e.json
+```
+
+스크립트는 다음 조건을 검증하고 JSON으로 latency와 수렴 시간을 기록한다.
+
+- 기본 Worker와 임시 Worker의 실제 container ID가 교대로 교체됨
+- 장기 실행 중 Session lock이 유지되고 성공 후 해제됨
+- 장기 Task와 Executor가 모두 `SUCCEEDED`로 종료됨
+- 일반 질의 probe가 코드 실행 없이 모두 성공함
+- Executor binding 1개, `task.completed` 1개, 완료 경계 2개
+- failure compensation과 Session lock 누수가 없음
+- command와 Executor event consumer group pending이 모두 0건임
+
+2026-08-30 실제 qwen/Executor/Jupyter 환경에서 70초 장기 셀, 20초 교체
+간격, 일반 질의 3건으로 측정한 결과는 다음과 같다.
+
+- 총 162.4초 동안 Worker container 교체 4회
+- 장기 Task 137.3초에 성공, 감사 상태 수렴 0.32초
+- 일반 질의 3/3 성공, latency p50 2.14초, p95/max 2.88초
+- binding 1개, 완료 event 1개, Executor 완료 경계 2개
+- failure compensation 0건, Session lock 누수 0건
+- command와 Executor event pending 모두 0건
+
+별도 재현에서는 Task 성공 시점에 마지막 `execution.completed` event를 소유한
+Worker가 교체되어 완료 경계가 일시적으로 1개만 보였다. stale lease 회수 후
+21.8초에 두 번째 경계가 수렴했다. 따라서 검증은 Task status만 보지 않고 최종
+감사 경계와 Redis pending이 제한 시간 안에 수렴하는지도 함께 확인한다.
+
 4번과 5번 및 서로 다른 Execution의 실제 병렬 처리는 다음 Compose 테스트가
 Redis consumer group/lock/ACK와 PostgreSQL binding/inbox를 함께 사용해 검증한다.
 
