@@ -7,6 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ex_agent.domain.audit import AGENT_ACTOR, EXECUTOR_ACTOR
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.persistence.database import transaction
 from ex_agent.persistence.models import (
@@ -44,6 +45,7 @@ class ExecutionRepository:
         async with transaction(self._sessions) as session:
             task = await _required_task(session, task_id, for_update=True)
             task.execution_id = execution_id
+            task.updated_by = AGENT_ACTOR
             lock = await session.get(SessionLock, task.session_id)
             if lock:
                 lock.execution_id = execution_id
@@ -176,6 +178,7 @@ class ExecutionRepository:
                 return False
             task = await _required_task(session, task_id, for_update=True)
             task.status = TaskStatus.EXECUTING.value
+            task.updated_by = EXECUTOR_ACTOR
             task.version += 1
             session.add(
                 TaskEvent(

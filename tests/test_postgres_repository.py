@@ -48,11 +48,16 @@ async def test_task_and_durable_events_round_trip() -> None:
             idempotency_key=f"create-{task_id}",
         )
         await repository.update_status(task_id, TaskStatus.CLASSIFYING)
+        updated_task = await repository.get_task(task_id)
         events = await repository.events_after(task_id, 0)
     finally:
         await engine.dispose()
 
     assert task.status == TaskStatus.ACCEPTED.value
+    assert task.created_by == "integration-user"
+    assert task.updated_by == "integration-user"
+    assert updated_task is not None
+    assert updated_task.updated_by == "AGENT"
     assert [event.event_type for event in events] == [
         "task.accepted",
         "task.status_changed",

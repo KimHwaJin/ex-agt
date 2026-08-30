@@ -7,6 +7,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ex_agent.api.container import ApiContainer, api_container, current_user
+from ex_agent.api.contracts import error_responses
 from ex_agent.application.promotions import (
     WorkflowPromotionForbiddenError,
     WorkflowPromotionNotEligibleError,
@@ -31,11 +32,15 @@ from ex_agent.persistence.repositories.workflow_lifecycle import (
 
 
 def workflow_router() -> APIRouter:
-    router = APIRouter(prefix="/api/v1/workflows")
+    router = APIRouter(
+        prefix="/api/v1/workflows",
+        responses=error_responses(401, 403, 404, 409, 422),
+    )
 
     @router.get(
         "/{workflow_id}",
         response_model=WorkflowOperationsView,
+        operation_id="getWorkflow",
     )
     async def workflow_overview(
         workflow_id: UUID,
@@ -52,6 +57,7 @@ def workflow_router() -> APIRouter:
     @router.get(
         "/{workflow_id}/versions",
         response_model=WorkflowVersionPage,
+        operation_id="listWorkflowVersions",
     )
     async def workflow_versions(
         workflow_id: UUID,
@@ -72,6 +78,7 @@ def workflow_router() -> APIRouter:
     @router.get(
         "/{workflow_id}/versions/{workflow_version_id}",
         response_model=WorkflowVersionDetail,
+        operation_id="getWorkflowVersion",
     )
     async def workflow_version_detail(
         workflow_id: UUID,
@@ -90,6 +97,7 @@ def workflow_router() -> APIRouter:
     @router.get(
         "/{workflow_id}/lifecycle-actions",
         response_model=WorkflowLifecycleActionPage,
+        operation_id="listWorkflowLifecycleActions",
     )
     async def workflow_lifecycle_actions(
         workflow_id: UUID,
@@ -111,6 +119,7 @@ def workflow_router() -> APIRouter:
         "/{workflow_id}/versions",
         response_model=WorkflowLifecycleResult,
         status_code=201,
+        operation_id="createWorkflowVersion",
     )
     async def create_version(
         workflow_id: UUID,
@@ -129,6 +138,7 @@ def workflow_router() -> APIRouter:
     @router.post(
         "/{workflow_id}/versions/{workflow_version_id}/reviews",
         response_model=WorkflowLifecycleResult,
+        operation_id="reviewWorkflowVersion",
     )
     async def review_version(
         workflow_id: UUID,
@@ -149,6 +159,7 @@ def workflow_router() -> APIRouter:
     @router.post(
         "/{workflow_id}/versions/{workflow_version_id}/activate",
         response_model=WorkflowLifecycleResult,
+        operation_id="activateWorkflowVersion",
     )
     async def activate_version(
         workflow_id: UUID,
@@ -169,6 +180,7 @@ def workflow_router() -> APIRouter:
     @router.post(
         "/{workflow_id}/status",
         response_model=WorkflowLifecycleResult,
+        operation_id="updateWorkflowStatus",
     )
     async def update_status(
         workflow_id: UUID,

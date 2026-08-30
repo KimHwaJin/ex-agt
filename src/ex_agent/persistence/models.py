@@ -21,6 +21,8 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
+from ex_agent.domain.audit import SYSTEM_ACTOR
+
 
 class Base(DeclarativeBase):
     pass
@@ -66,6 +68,14 @@ class Task(Base, TimestampMixin):
     )
     terminal_message: Mapped[str | None] = mapped_column(Text, nullable=True)
     version: Mapped[int] = mapped_column(Integer, default=1)
+    created_by: Mapped[str] = mapped_column(
+        String(255),
+        default=SYSTEM_ACTOR,
+    )
+    updated_by: Mapped[str] = mapped_column(
+        String(255),
+        default=SYSTEM_ACTOR,
+    )
 
 
 class Message(Base, TimestampMixin):
@@ -318,6 +328,14 @@ class Workflow(Base, TimestampMixin):
         String(255),
         nullable=True,
     )
+    created_by: Mapped[str] = mapped_column(
+        String(255),
+        default=SYSTEM_ACTOR,
+    )
+    updated_by: Mapped[str] = mapped_column(
+        String(255),
+        default=SYSTEM_ACTOR,
+    )
 
 
 class WorkflowVersion(Base, TimestampMixin):
@@ -415,6 +433,14 @@ class WorkflowVersion(Base, TimestampMixin):
         nullable=True,
     )
     review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(
+        String(255),
+        default=SYSTEM_ACTOR,
+    )
+    updated_by: Mapped[str] = mapped_column(
+        String(255),
+        default=SYSTEM_ACTOR,
+    )
 
 
 class WorkflowStep(Base):

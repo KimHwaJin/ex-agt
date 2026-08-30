@@ -132,7 +132,11 @@ class WorkflowLifecycleService:
             if next_version is not None
             else None
         )
-        return WorkflowVersionPage(items=items, next_cursor=next_cursor)
+        return WorkflowVersionPage(
+            items=items,
+            next_cursor=next_cursor,
+            has_more=next_cursor is not None,
+        )
 
     async def version_detail(
         self,
@@ -197,6 +201,7 @@ class WorkflowLifecycleService:
         return WorkflowLifecycleActionPage(
             items=items,
             next_cursor=next_cursor,
+            has_more=next_cursor is not None,
         )
 
     async def create_version(

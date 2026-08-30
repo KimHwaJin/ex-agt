@@ -20,6 +20,7 @@ from ex_agent.api.contracts import (
     TaskAcceptedResponse,
     TaskCreateRequest,
     TaskResponse,
+    error_responses,
 )
 from ex_agent.config import Settings
 from ex_agent.domain.contracts import (
@@ -36,12 +37,16 @@ _resume_adapter = TypeAdapter(ResumeSignal)
 
 
 def task_router(settings: Settings) -> APIRouter:
-    router = APIRouter(prefix="/api/v1")
+    router = APIRouter(
+        prefix="/api/v1",
+        responses=error_responses(401, 404, 409, 422, 423),
+    )
 
     @router.post(
         "/projects/{project_id}/sessions/{session_id}/tasks",
         response_model=TaskAcceptedResponse,
         status_code=202,
+        operation_id="createTask",
     )
     async def create_task(
         project_id: str,
@@ -65,9 +70,13 @@ def task_router(settings: Settings) -> APIRouter:
                 status_code=423,
                 detail={"active_task_id": str(error.active_task_id)},
             ) from error
-        return TaskAcceptedResponse(task_id=task.id, status=task.status)
+        return task_accepted_response(task)
 
-    @router.get("/tasks/{task_id}", response_model=TaskResponse)
+    @router.get(
+        "/tasks/{task_id}",
+        response_model=TaskResponse,
+        operation_id="getTask",
+    )
     async def get_task(
         task_id: UUID,
         user_id: str = Depends(current_user),
@@ -82,6 +91,7 @@ def task_router(settings: Settings) -> APIRouter:
         "/tasks/{task_id}/resume",
         response_model=TaskAcceptedResponse,
         status_code=202,
+        operation_id="resumeTask",
     )
     async def resume_task(
         task_id: UUID,
@@ -106,12 +116,13 @@ def task_router(settings: Settings) -> APIRouter:
             payload=payload,
             lock_session=lock_session,
         )
-        return TaskAcceptedResponse(task_id=task.id, status=task.status)
+        return task_accepted_response(task)
 
     @router.post(
         "/tasks/{task_id}/cancel",
         response_model=TaskAcceptedResponse,
         status_code=202,
+        operation_id="cancelTask",
     )
     async def cancel_task(
         task_id: UUID,
@@ -135,9 +146,12 @@ def task_router(settings: Settings) -> APIRouter:
             idempotency_key=body.idempotency_key,
             payload=signal,
         )
-        return TaskAcceptedResponse(task_id=task.id, status=task.status)
+        return task_accepted_response(task)
 
-    @router.get("/tasks/{task_id}/events")
+    @router.get(
+        "/tasks/{task_id}/events",
+        operation_id="streamTaskEvents",
+    )
     async def task_events(
         task_id: UUID,
         request: Request,
@@ -216,6 +230,21 @@ def task_response(task: Any) -> TaskResponse:
         current_interrupt=task.current_interrupt,
         terminal_message=task.terminal_message,
         version=task.version,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        created_by=task.created_by,
+        updated_by=task.updated_by,
+    )
+
+
+def task_accepted_response(task: Any) -> TaskAcceptedResponse:
+    return TaskAcceptedResponse(
+        task_id=task.id,
+        status=task.status,
+        created_at=task.created_at,
+        updated_at=task.updated_at,
+        created_by=task.created_by,
+        updated_by=task.updated_by,
     )
 
 
@@ -253,6 +282,7 @@ def validate_signal_against_interrupt(
 
 __all__ = [
     "owned_task",
+    "task_accepted_response",
     "task_response",
     "task_router",
     "validate_signal_against_interrupt",

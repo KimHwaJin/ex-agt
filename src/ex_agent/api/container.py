@@ -55,7 +55,7 @@ def api_container(request: Request) -> ApiContainer:
 
 
 async def current_user(
-    forwarded_user_id: ForwardedUserId,
+    forwarded_user_id: ForwardedUserId = None,
     container: ApiContainer = Depends(api_container),
 ) -> str:
     return await container.identity.user_id(forwarded_user_id)

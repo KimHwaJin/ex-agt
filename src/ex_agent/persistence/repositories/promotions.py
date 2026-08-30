@@ -207,6 +207,8 @@ class WorkflowPromotionRepository:
                 status="ACTIVE",
                 latest_version=1,
                 access_policy={"version": "service-v1"},
+                created_by=actor_user_id,
+                updated_by=actor_user_id,
             )
             session.add(workflow)
             try:
@@ -261,6 +263,8 @@ class WorkflowPromotionRepository:
                 review_status="APPROVED",
                 reviewed_by=actor_user_id,
                 reviewed_at=datetime.now(UTC),
+                created_by=actor_user_id,
+                updated_by=actor_user_id,
             )
             session.add(version)
             await session.flush()

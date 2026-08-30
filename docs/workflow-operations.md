@@ -4,6 +4,7 @@ Workflow 운영 API는 BFF가 전달한 `X-User-ID`와 Workflow owner를 비교�
 현재 V1은 owner만 조회·변경할 수 있으며 application policy port를 교체해 향후
 관리자·조직 권한을 추가할 수 있다. 공개 Workflow 실행 후보 검색은 이 운영 권한과
 별개다.
+`X-User-ID`가 없으면 `401`, owner가 아니면 `403`을 반환한다.
 
 ## 조회 API
 

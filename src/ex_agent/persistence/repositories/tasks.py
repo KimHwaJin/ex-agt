@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ex_agent.domain.audit import AGENT_ACTOR
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.persistence.database import transaction
 from ex_agent.persistence.models import (
@@ -80,6 +81,8 @@ class TaskRepository:
                 session_id=session_id,
                 user_message=content,
                 status=TaskStatus.ACCEPTED.value,
+                created_by=user_id,
+                updated_by=user_id,
             )
             session.add(task)
             await session.flush()
@@ -175,6 +178,7 @@ class TaskRepository:
         async with transaction(self._sessions) as session:
             task = await required_task(session, task_id, for_update=True)
             task.status = status.value
+            task.updated_by = AGENT_ACTOR
             task.version += 1
             session.add(
                 TaskEvent(
@@ -196,6 +200,7 @@ class TaskRepository:
             task = await required_task(session, task_id, for_update=True)
             task.current_interrupt = payload
             task.status = _interrupt_status(payload).value
+            task.updated_by = AGENT_ACTOR
             task.version += 1
             session.add(
                 TaskEvent(
@@ -209,6 +214,7 @@ class TaskRepository:
         async with transaction(self._sessions) as session:
             task = await required_task(session, task_id, for_update=True)
             task.current_interrupt = None
+            task.updated_by = AGENT_ACTOR
 
     async def commit_message(
         self,
@@ -223,6 +229,7 @@ class TaskRepository:
             task.status = status.value
             task.terminal_message = content
             task.current_interrupt = None
+            task.updated_by = AGENT_ACTOR
             task.version += 1
             session.add(
                 Message(

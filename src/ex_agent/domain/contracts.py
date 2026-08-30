@@ -22,6 +22,13 @@ class ContractModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ResourceAuditFields(ContractModel):
+    created_at: datetime
+    updated_at: datetime
+    created_by: str
+    updated_by: str
+
+
 class IntentDecision(ContractModel):
     intent: Intent
     confidence: float = Field(ge=0, le=1)
@@ -151,6 +158,20 @@ class WorkflowPromotionDraft(ContractModel):
 
 
 class WorkflowPromotionRequest(ContractModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "idempotency_key": "workflow-promote-0001",
+                "name": "월별 매출 분석",
+                "description": "월별 매출 추이와 변동을 분석합니다.",
+                "request_examples": ["지난달 매출을 분석해줘"],
+                "tags": ["revenue", "monthly"],
+                "public_parameter_defaults": {},
+            }
+        },
+    )
+
     idempotency_key: str = Field(min_length=1, max_length=255)
     name: str = Field(min_length=1, max_length=255)
     description: str = Field(min_length=1, max_length=4000)
@@ -172,6 +193,19 @@ class WorkflowPromotionResult(ContractModel):
 
 
 class WorkflowVersionCreateRequest(ContractModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "idempotency_key": "workflow-version-0002",
+                "source_task_id": ("00000000-0000-4000-8000-000000000003"),
+                "request_examples": ["최신 매출을 분석해줘"],
+                "tags": ["revenue"],
+                "public_parameter_defaults": {},
+            }
+        },
+    )
+
     idempotency_key: str = Field(min_length=1, max_length=255)
     source_task_id: UUID
     request_examples: list[
@@ -184,6 +218,17 @@ class WorkflowVersionCreateRequest(ContractModel):
 
 
 class WorkflowVersionReviewRequest(ContractModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "idempotency_key": "workflow-review-0002",
+                "decision": "APPROVE",
+                "reason": "검증 완료",
+            }
+        },
+    )
+
     idempotency_key: str = Field(min_length=1, max_length=255)
     decision: Literal["APPROVE", "REJECT"]
     reason: str | None = Field(default=None, max_length=4000)
@@ -195,6 +240,17 @@ class WorkflowVersionActivationRequest(ContractModel):
 
 
 class WorkflowStatusRequest(ContractModel):
+    model_config = ConfigDict(
+        extra="forbid",
+        json_schema_extra={
+            "example": {
+                "idempotency_key": "workflow-status-0001",
+                "status": "INACTIVE",
+                "reason": "운영 점검",
+            }
+        },
+    )
+
     idempotency_key: str = Field(min_length=1, max_length=255)
     status: Literal["ACTIVE", "INACTIVE"]
     reason: str | None = Field(default=None, max_length=4000)
@@ -222,7 +278,7 @@ class WorkflowLifecycleResult(ContractModel):
     applied: bool
 
 
-class WorkflowOperationsView(ContractModel):
+class WorkflowOperationsView(ResourceAuditFields):
     workflow_id: UUID
     name: str
     description: str
@@ -235,11 +291,9 @@ class WorkflowOperationsView(ContractModel):
     active_version: int | None = Field(default=None, ge=1)
     access_policy: dict[str, Any]
     required_permission: str | None
-    created_at: datetime
-    updated_at: datetime
 
 
-class WorkflowVersionSummary(ContractModel):
+class WorkflowVersionSummary(ResourceAuditFields):
     workflow_version_id: UUID
     workflow_id: UUID
     version: int = Field(ge=1)
@@ -263,8 +317,6 @@ class WorkflowVersionSummary(ContractModel):
     reviewed_by: str | None
     reviewed_at: datetime | None
     review_reason: str | None
-    created_at: datetime
-    updated_at: datetime
 
 
 class WorkflowStepView(ContractModel):
@@ -290,9 +342,10 @@ class WorkflowVersionDetail(WorkflowVersionSummary):
 class WorkflowVersionPage(ContractModel):
     items: list[WorkflowVersionSummary]
     next_cursor: str | None = None
+    has_more: bool
 
 
-class WorkflowLifecycleActionView(ContractModel):
+class WorkflowLifecycleActionView(ResourceAuditFields):
     action_id: UUID
     workflow_id: UUID
     workflow_version_id: UUID | None
@@ -303,12 +356,12 @@ class WorkflowLifecycleActionView(ContractModel):
     reason: str | None
     policy_version: str
     result: WorkflowLifecycleResult
-    created_at: datetime
 
 
 class WorkflowLifecycleActionPage(ContractModel):
     items: list[WorkflowLifecycleActionView]
     next_cursor: str | None = None
+    has_more: bool
 
 
 class PlanReviewDecision(ContractModel):

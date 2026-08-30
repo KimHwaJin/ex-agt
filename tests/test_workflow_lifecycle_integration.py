@@ -257,6 +257,8 @@ async def test_workflow_versions_are_reviewed_switched_and_audited() -> None:
             actor_user_id="lifecycle-owner",
         )
         assert overview.latest_version == 4
+        assert overview.created_by == "lifecycle-owner"
+        assert overview.updated_by == "lifecycle-owner"
         assert (
             overview.active_workflow_version_id == promoted.workflow_version_id
         )
@@ -268,6 +270,7 @@ async def test_workflow_versions_are_reviewed_switched_and_audited() -> None:
         )
         assert [item.version for item in first_versions.items] == [4, 3]
         assert first_versions.next_cursor is not None
+        assert first_versions.has_more is True
         second_versions = await lifecycle.versions(
             workflow_id,
             actor_user_id="lifecycle-owner",
@@ -276,6 +279,7 @@ async def test_workflow_versions_are_reviewed_switched_and_audited() -> None:
         )
         assert [item.version for item in second_versions.items] == [2, 1]
         assert second_versions.next_cursor is None
+        assert second_versions.has_more is False
         detail = await lifecycle.version_detail(
             workflow_id,
             created.workflow_version_id,
@@ -285,6 +289,8 @@ async def test_workflow_versions_are_reviewed_switched_and_audited() -> None:
         assert detail.plan.steps[0].tool.name == "fetch_dataset"
         assert detail.steps[0].skill_ref["name"] == "data-access"
         assert detail.steps[0].selection_rationale
+        assert detail.created_by == "lifecycle-owner"
+        assert detail.updated_by == "lifecycle-owner"
         assert "private_source_" not in detail.model_dump_json()
 
         action_ids: list[UUID] = []
@@ -298,6 +304,11 @@ async def test_workflow_versions_are_reviewed_switched_and_audited() -> None:
             )
             assert all(
                 len(item.request_hash) == 64 for item in action_page.items
+            )
+            assert all(
+                item.created_by == "lifecycle-owner"
+                and item.updated_by == "lifecycle-owner"
+                for item in action_page.items
             )
             action_ids.extend(item.action_id for item in action_page.items)
             action_cursor = action_page.next_cursor

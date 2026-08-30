@@ -7,6 +7,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ex_agent.domain.audit import AGENT_ACTOR
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.persistence.database import transaction
 from ex_agent.persistence.models import (
@@ -116,6 +117,7 @@ class CommandRepository:
                 and not TaskStatus(task.status).is_terminal
             ):
                 task.status = TaskStatus.CANCEL_REQUESTED.value
+                task.updated_by = AGENT_ACTOR
                 task.version += 1
                 session.add(
                     TaskEvent(
@@ -156,6 +158,7 @@ class CommandRepository:
             task.status = TaskStatus.FAILED.value
             task.terminal_message = content
             task.current_interrupt = None
+            task.updated_by = AGENT_ACTOR
             task.version += 1
             session.add(
                 Message(

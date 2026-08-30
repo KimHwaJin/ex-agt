@@ -81,6 +81,8 @@ class WorkflowLifecycleRepository:
                     "required_permission": workflow.required_permission,
                     "created_at": workflow.created_at,
                     "updated_at": workflow.updated_at,
+                    "created_by": workflow.created_by,
+                    "updated_by": workflow.updated_by,
                 }
             )
 
@@ -285,9 +287,12 @@ class WorkflowLifecycleRepository:
                 promoted_by=actor_user_id,
                 active=False,
                 review_status="PENDING_REVIEW",
+                created_by=actor_user_id,
+                updated_by=actor_user_id,
             )
             session.add(version)
             workflow.latest_version = next_version
+            workflow.updated_by = actor_user_id
             await session.flush()
             add_workflow_steps(session, version.id, plan, source)
             result = WorkflowLifecycleResult.model_validate(
@@ -364,9 +369,15 @@ class WorkflowLifecycleRepository:
             version.reviewed_by = actor_user_id
             version.reviewed_at = now
             version.review_reason = reason
+            version.updated_by = actor_user_id
             if decision == "APPROVE":
-                await _deactivate_versions(session, workflow.id)
+                await _deactivate_versions(
+                    session,
+                    workflow.id,
+                    actor_user_id=actor_user_id,
+                )
                 version.active = True
+                workflow.updated_by = actor_user_id
             result = _version_result(
                 workflow,
                 version,
@@ -415,8 +426,14 @@ class WorkflowLifecycleRepository:
                 raise WorkflowLifecycleConflictError(
                     "Only APPROVED versions can be activated"
                 )
-            await _deactivate_versions(session, workflow.id)
+            await _deactivate_versions(
+                session,
+                workflow.id,
+                actor_user_id=actor_user_id,
+            )
             version.active = True
+            version.updated_by = actor_user_id
+            workflow.updated_by = actor_user_id
             result = _version_result(
                 workflow,
                 version,
@@ -462,6 +479,7 @@ class WorkflowLifecycleRepository:
                 return replay
             workflow = await _locked_workflow(session, workflow_id)
             workflow.status = status
+            workflow.updated_by = actor_user_id
             result = WorkflowLifecycleResult.model_validate(
                 {
                     "workflow_id": workflow.id,
@@ -515,11 +533,17 @@ async def _workflow_version(
 async def _deactivate_versions(
     session: AsyncSession,
     workflow_id: UUID,
+    *,
+    actor_user_id: str,
 ) -> None:
     await session.execute(
         update(WorkflowVersion)
         .where(WorkflowVersion.workflow_id == workflow_id)
-        .values(active=False)
+        .values(
+            active=False,
+            updated_by=actor_user_id,
+            updated_at=func.now(),
+        )
     )
 
 
@@ -667,6 +691,8 @@ def _version_summary(version: WorkflowVersion) -> WorkflowVersionSummary:
             "review_reason": version.review_reason,
             "created_at": version.created_at,
             "updated_at": version.updated_at,
+            "created_by": version.created_by,
+            "updated_by": version.updated_by,
         }
     )
 
@@ -701,6 +727,9 @@ def _action_view(
         policy_version=action.policy_version,
         result=WorkflowLifecycleResult.model_validate(action.result_payload),
         created_at=action.created_at,
+        updated_at=action.updated_at,
+        created_by=action.actor_user_id,
+        updated_by=action.actor_user_id,
     )
 
 
