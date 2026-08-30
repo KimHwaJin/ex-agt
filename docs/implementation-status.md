@@ -44,6 +44,9 @@
   delivery/catalog/audit/execution repository를 기능 단위 모듈로 분리하면서
   기존 공개 import façade를 유지한다. execution repository는 binding, inbox
   중복 제거와 event sequence 전진을 같은 transaction 경계로 보존한다.
+  Task 생성·resume·Session lock·interrupt·메시지·event와 Plan revision/step
+  저장도 각각 전용 repository로 분리했다. failure compensation은 Command,
+  Task와 Session lock을 함께 변경하므로 단일 transaction에 유지한다.
   `DefaultWorkflowServices`는 대화, 계획, 실행, 리포팅 capability를 조립하는
   façade로 축소했으며 Graph가 사용하는 20개 service 메서드 계약을 유지한다.
   `WorkflowNodes`도 대화, 계획, 실행, 종료 node group으로 분리하되 façade와

@@ -15,8 +15,8 @@ composition root와 프로세스로 실행된다.
 - `middleware`, `planners`, `tools`: 계획 생성과 Skill/Tool compilation
 - `executor`: Executor REST와 Artifact/result contract
 - `persistence`: SQLAlchemy model, transaction, repository facade
-- `persistence/repositories`: outbox, 실행 binding/event ingestion, Workflow
-  catalog, model audit처럼 독립적인 저장 기능
+- `persistence/repositories`: Task/Session, Plan revision, outbox, 실행
+  binding/event ingestion, Workflow catalog, model audit 저장 기능
 - `transport`: Redis publisher와 재사용 가능한 Stream consumer runtime
 - `workers`: command/event processor, Stream handler, observer, checkpoint helper
 - `api/routers`: health/metrics와 Task REST/SSE route
