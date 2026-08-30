@@ -3,10 +3,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
-from uuid import UUID, uuid4
+from uuid import UUID
 
-from sqlalchemy import delete
-from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ex_agent.domain.contracts import (
@@ -16,18 +14,16 @@ from ex_agent.domain.contracts import (
     WorkflowCandidate,
 )
 from ex_agent.domain.enums import TaskStatus
-from ex_agent.persistence.database import transaction
 from ex_agent.persistence.models import (
     ExecutorBinding,
-    Message,
     PlanStep,
-    SessionLock,
     Task,
     TaskEvent,
     WorkflowCommand,
     WorkflowVersion,
 )
 from ex_agent.persistence.repositories.audit import AuditRepository
+from ex_agent.persistence.repositories.commands import CommandRepository
 from ex_agent.persistence.repositories.delivery import DeliveryRepository
 from ex_agent.persistence.repositories.executions import (
     ExecutionRepository,
@@ -39,10 +35,7 @@ from ex_agent.persistence.repositories.plans import PlanRepository
 from ex_agent.persistence.repositories.tasks import (
     SessionLockedError as SessionLockedError,
 )
-from ex_agent.persistence.repositories.tasks import (
-    TaskRepository,
-    required_task,
-)
+from ex_agent.persistence.repositories.tasks import TaskRepository
 from ex_agent.persistence.repositories.workflows import (
     WorkflowCatalogRepository,
 )
@@ -53,8 +46,8 @@ class AgentRepository:
         self,
         sessions: async_sessionmaker[AsyncSession],
     ) -> None:
-        self._sessions = sessions
         self.audit = AuditRepository(sessions)
+        self.commands = CommandRepository(sessions)
         self.delivery = DeliveryRepository(sessions)
         self.executions = ExecutionRepository(sessions)
         self.plans = PlanRepository(sessions)
@@ -105,22 +98,12 @@ class AgentRepository:
         idempotency_key: str,
         payload: dict[str, Any],
     ) -> UUID:
-        command_id = uuid4()
-        statement = (
-            insert(WorkflowCommand)
-            .values(
-                id=command_id,
-                task_id=task_id,
-                command_type=command_type,
-                idempotency_key=idempotency_key,
-                payload=payload,
-            )
-            .on_conflict_do_nothing(constraint="uq_agent_command_idem")
-            .returning(WorkflowCommand.id)
+        return await self.commands.create_system_command(
+            task_id=task_id,
+            command_type=command_type,
+            idempotency_key=idempotency_key,
+            payload=payload,
         )
-        async with transaction(self._sessions) as session:
-            resolved = await session.scalar(statement)
-        return resolved or command_id
 
     async def claim_pending_commands(
         self,
@@ -185,26 +168,13 @@ class AgentRepository:
         state: str,
         error: str | None = None,
     ) -> None:
-        async with transaction(self._sessions) as session:
-            command = await session.get(
-                WorkflowCommand,
-                command_id,
-                with_for_update=True,
-            )
-            if command is None:
-                return
-            command.state = state
-            command.last_error = error
-            command.publish_claimed_at = None
-            if state == "PROCESSING":
-                command.attempt_count += 1
+        await self.commands.set_state(command_id, state, error)
 
     async def get_task(self, task_id: UUID) -> Task | None:
         return await self.tasks.get(task_id)
 
     async def get_command(self, command_id: UUID) -> WorkflowCommand | None:
-        async with self._sessions() as session:
-            return await session.get(WorkflowCommand, command_id)
+        return await self.commands.get(command_id)
 
     async def prepare_failure_compensation(
         self,
@@ -212,36 +182,11 @@ class AgentRepository:
         task_id: UUID,
         failure_message: str,
     ) -> None:
-        async with transaction(self._sessions) as session:
-            command = await session.get(
-                WorkflowCommand,
-                command_id,
-                with_for_update=True,
-            )
-            task = await required_task(session, task_id, for_update=True)
-            if command is None:
-                raise LookupError(f"Unknown command: {command_id}")
-            command.command_type = "FAILURE_COMPENSATION"
-            command.payload = {"failure_message": failure_message}
-            command.state = "PENDING"
-            command.last_error = failure_message
-            command.publish_claimed_at = None
-            if (
-                task.execution_id is not None
-                and not TaskStatus(task.status).is_terminal
-            ):
-                task.status = TaskStatus.CANCEL_REQUESTED.value
-                task.version += 1
-                session.add(
-                    TaskEvent(
-                        task_id=task_id,
-                        event_type="task.status_changed",
-                        payload={
-                            "status": TaskStatus.CANCEL_REQUESTED.value,
-                            "reason": "agent_failure_compensation",
-                        },
-                    )
-                )
+        await self.commands.prepare_failure_compensation(
+            command_id,
+            task_id,
+            failure_message,
+        )
 
     async def complete_failure_compensation(
         self,
@@ -252,52 +197,13 @@ class AgentRepository:
         failure_message: str,
         executor_status: str,
     ) -> None:
-        async with transaction(self._sessions) as session:
-            command = await session.get(
-                WorkflowCommand,
-                command_id,
-                with_for_update=True,
-            )
-            task = await required_task(session, task_id, for_update=True)
-            if command is None:
-                raise LookupError(f"Unknown command: {command_id}")
-            if command.state == "FAILED":
-                return
-            command.state = "FAILED"
-            command.last_error = failure_message
-            command.publish_claimed_at = None
-            if TaskStatus(task.status).is_terminal:
-                return
-            task.status = TaskStatus.FAILED.value
-            task.terminal_message = content
-            task.current_interrupt = None
-            task.version += 1
-            session.add(
-                Message(
-                    task_id=task_id,
-                    role="assistant",
-                    content=content,
-                    metadata_json={
-                        "failure_message": failure_message,
-                        "executor_cleanup_status": executor_status,
-                    },
-                )
-            )
-            session.add(
-                TaskEvent(
-                    task_id=task_id,
-                    event_type="task.completed",
-                    payload={
-                        "status": TaskStatus.FAILED.value,
-                        "executor_cleanup_status": executor_status,
-                    },
-                )
-            )
-            await session.execute(
-                delete(SessionLock).where(
-                    SessionLock.active_task_id == task_id
-                )
-            )
+        await self.commands.complete_failure_compensation(
+            command_id,
+            task_id,
+            content,
+            failure_message=failure_message,
+            executor_status=executor_status,
+        )
 
     async def update_status(
         self,

@@ -1,6 +1,7 @@
 """Focused persistence repositories used by the compatibility facade."""
 
 from ex_agent.persistence.repositories.audit import AuditRepository
+from ex_agent.persistence.repositories.commands import CommandRepository
 from ex_agent.persistence.repositories.delivery import DeliveryRepository
 from ex_agent.persistence.repositories.executions import (
     ExecutionRepository,
@@ -17,6 +18,7 @@ from ex_agent.persistence.repositories.workflows import (
 
 __all__ = [
     "AuditRepository",
+    "CommandRepository",
     "DeliveryRepository",
     "ExecutionRepository",
     "ExecutorEventSequenceGapError",

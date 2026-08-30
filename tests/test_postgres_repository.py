@@ -114,6 +114,49 @@ async def test_approval_command_locks_session_atomically() -> None:
 
 @pytest.mark.postgres
 @pytest.mark.asyncio
+async def test_system_command_idempotency_returns_persisted_id() -> None:
+    database_url = os.environ["TEST_DATABASE_URL"]
+    engine = create_engine(database_url)
+    repository = AgentRepository(create_session_factory(engine))
+    task_id = uuid4()
+    idempotency_key = f"system-{task_id}"
+    try:
+        await repository.create_task(
+            task_id=task_id,
+            input_message_id=uuid4(),
+            user_id="integration-user",
+            project_id="integration-project",
+            session_id=f"session-{task_id}",
+            content="시스템 명령 테스트",
+            idempotency_key=f"create-{task_id}",
+        )
+        first = await repository.create_system_command(
+            task_id=task_id,
+            command_type="SYSTEM_TEST",
+            idempotency_key=idempotency_key,
+            payload={"value": 1},
+        )
+        duplicate = await repository.create_system_command(
+            task_id=task_id,
+            command_type="SYSTEM_TEST",
+            idempotency_key=idempotency_key,
+            payload={"value": 1},
+        )
+        with pytest.raises(ValueError, match="payload mismatch"):
+            await repository.create_system_command(
+                task_id=task_id,
+                command_type="SYSTEM_TEST",
+                idempotency_key=idempotency_key,
+                payload={"value": 2},
+            )
+    finally:
+        await engine.dispose()
+
+    assert duplicate == first
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
 async def test_failure_compensation_keeps_lock_until_executor_terminal() -> (
     None
 ):
