@@ -28,6 +28,9 @@ class FakePipeline:
     def xack(self, stream: str, group: str, message_id: str) -> None:
         self.commands.append(("xack", (stream, group, message_id)))
 
+    def delete(self, key: str) -> None:
+        self.commands.append(("delete", (key,)))
+
     def eval(
         self,
         script: str,
@@ -74,6 +77,11 @@ class FakePipeline:
         self._redis.pipeline_modes.append(self._transaction)
         if self._transaction:
             self._redis.transactions.append(self.commands)
+            for name, args in self.commands:
+                if name == "delete":
+                    await self._redis.delete(*args)
+                elif name == "xack":
+                    await self._redis.xack(*args)
             return [1] * len(self.commands)
         results: list[Any] = []
         for name, args in self.commands:
@@ -105,6 +113,7 @@ class FakeRedis:
         self.autoclaim_response: Any = ["0-0", [], []]
         self.autoclaim_calls: list[dict[str, Any]] = []
         self.xclaim_calls: list[dict[str, Any]] = []
+        self.retry_attempts: dict[str, int] = {}
 
     async def set(
         self,
@@ -128,11 +137,22 @@ class FakeRedis:
         value: str,
         *args: str,
     ) -> int:
-        del key_count, args
+        del key_count
+        if "incr" in script:
+            del value, args
+            attempts = self.retry_attempts.get(key, 0) + 1
+            self.retry_attempts[key] = attempts
+            return attempts
+        del args
         if "del" in script and self.locks.get(key) == value:
             del self.locks[key]
             return 1
         return int(self.locks.get(key) == value)
+
+    async def delete(self, key: str) -> int:
+        existed = key in self.retry_attempts
+        self.retry_attempts.pop(key, None)
+        return int(existed)
 
     async def xack(self, stream: str, group: str, message_id: str) -> int:
         del stream, group
@@ -264,11 +284,13 @@ class Handler:
         lock_key: str | None = "lock:one",
         permanent_error: str | None = None,
         handle_error: str | None = None,
+        transient_error: str | None = None,
     ) -> None:
         self._result = result
         self._lock_key = lock_key
         self._permanent_error = permanent_error
         self._handle_error = handle_error
+        self._transient_error = transient_error
         self.calls = 0
 
     def lock_key(self, message: StreamMessage) -> str | None:
@@ -282,6 +304,8 @@ class Handler:
         self.calls += 1
         if self._handle_error is not None:
             raise PermanentMessageError(self._handle_error)
+        if self._transient_error is not None:
+            raise RuntimeError(self._transient_error)
         return self._result
 
 
@@ -355,6 +379,56 @@ async def test_retry_decision_leaves_message_pending() -> None:
 
     assert redis.acknowledged == []
     assert redis.transactions == []
+    assert list(redis.retry_attempts.values()) == [1]
+
+
+@pytest.mark.asyncio
+async def test_retry_limit_moves_message_to_dlq() -> None:
+    redis = FakeRedis()
+    handler = Handler(
+        HandlerResult(
+            AckDecision.RETRY,
+            outcome="dependency_unavailable",
+            reason="dependency unavailable",
+        )
+    )
+    consumer = _consumer(redis, handler, max_retry_attempts=2)
+    message = StreamMessage("2-0", {"job": "one"})
+
+    await consumer.process_message("consumer-0", handler, message)
+    await consumer.process_message(
+        "consumer-0",
+        handler,
+        StreamMessage(message.message_id, message.fields, reclaimed=True),
+    )
+
+    assert handler.calls == 2
+    assert redis.acknowledged == ["2-0"]
+    assert redis.retry_attempts == {}
+    commands = redis.transactions[-1]
+    assert [name for name, _ in commands] == ["delete", "xadd", "xack"]
+    assert commands[1][1][1]["retry_attempts"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_retryable_handler_exception_uses_retry_budget() -> None:
+    redis = FakeRedis()
+    handler = Handler(
+        HandlerResult(AckDecision.ACK),
+        transient_error="dependency timeout",
+    )
+    consumer = _consumer(redis, handler, max_retry_attempts=1)
+
+    await consumer.process_message(
+        "consumer-0",
+        handler,
+        StreamMessage("3-0", {"job": "one"}),
+    )
+
+    assert handler.calls == 1
+    assert redis.acknowledged == ["3-0"]
+    commands = redis.transactions[-1]
+    assert commands[1][1][1]["reason"] == ("RuntimeError: dependency timeout")
 
 
 @pytest.mark.asyncio
@@ -376,9 +450,9 @@ async def test_permanent_message_error_moves_to_dlq_and_acks_atomically() -> (
     assert handler.calls == 0
     assert len(redis.transactions) == 1
     commands = redis.transactions[0]
-    assert [name for name, _ in commands] == ["xadd", "xack"]
-    assert commands[0][1][0] == "source.dlq"
-    assert commands[1][1] == ("source", "group", "9-0")
+    assert [name for name, _ in commands] == ["delete", "xadd", "xack"]
+    assert commands[1][1][0] == "source.dlq"
+    assert commands[2][1] == ("source", "group", "9-0")
 
 
 @pytest.mark.asyncio
@@ -399,7 +473,7 @@ async def test_handler_permanent_error_is_finalized_while_lock_is_held() -> (
 
     assert handler.calls == 1
     assert len(redis.transactions) == 1
-    assert redis.transactions[0][0][1][1]["reason"] == "unsupported job"
+    assert redis.transactions[0][1][1][1]["reason"] == "unsupported job"
     assert redis.locks == {}
 
 
@@ -418,6 +492,29 @@ async def test_lock_contention_does_not_process_or_ack() -> None:
     assert handler.calls == 0
     assert redis.acknowledged == []
     assert redis.locks == {"lock:one": "other-owner"}
+    assert redis.retry_attempts == {}
+
+
+@pytest.mark.asyncio
+async def test_reclaimed_success_clears_retry_state_with_ack() -> None:
+    redis = FakeRedis()
+    handler = Handler(HandlerResult(AckDecision.ACK))
+    consumer = _consumer(redis, handler)
+    retry_key = consumer._retry_state_key("4-0")
+    redis.retry_attempts[retry_key] = 1
+
+    await consumer.process_message(
+        "consumer-0",
+        handler,
+        StreamMessage("4-0", {"job": "recovered"}, reclaimed=True),
+    )
+
+    assert redis.acknowledged == ["4-0"]
+    assert redis.retry_attempts == {}
+    assert [name for name, _ in redis.transactions[-1]] == [
+        "delete",
+        "xack",
+    ]
 
 
 @pytest.mark.asyncio
@@ -662,4 +759,15 @@ def test_consumer_config_rejects_unsafe_lease_timing() -> None:
             consumer_prefix="consumer",
             claim_idle_milliseconds=10_000,
             lock_renew_interval_seconds=10,
+        )
+
+
+def test_consumer_config_rejects_retry_state_expiring_too_early() -> None:
+    with pytest.raises(ValueError, match="retry state TTL"):
+        RedisStreamConsumerConfig(
+            stream="source",
+            group="group",
+            consumer_prefix="consumer",
+            max_retry_attempts=5,
+            retry_state_ttl_seconds=150,
         )

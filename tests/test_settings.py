@@ -23,3 +23,12 @@ def test_outbox_active_poll_does_not_exceed_idle_poll() -> None:
 def test_worker_shutdown_grace_is_bounded() -> None:
     with pytest.raises(ValidationError, match="less than or equal to 300"):
         Settings(worker_shutdown_grace_seconds=301)
+
+
+def test_retry_state_outlives_each_stream_retry_window() -> None:
+    with pytest.raises(ValidationError, match="executor event retry window"):
+        Settings(
+            executor_event_claim_idle_milliseconds=30000,
+            executor_event_max_retry_attempts=100,
+            stream_retry_state_ttl_seconds=3000,
+        )
