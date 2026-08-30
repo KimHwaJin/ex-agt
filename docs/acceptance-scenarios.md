@@ -104,6 +104,19 @@ Tool로 대체하지만 PostgreSQL/pgvector, Redis, Executor/Jupyter는 실제 c
 - 원본 parameter는 Workflow 입력 placeholder가 되고 사용자가 명시한 공개 기본값만
   version에 남는다.
 
+### A14. Workflow version 운영
+
+- 소유자는 다른 성공 Tool-only Task에서 기존 Workflow의 새 immutable version을
+  만들 수 있으며, 새 version은 `PENDING_REVIEW`와 비활성 상태로 시작한다.
+- 승인 transaction은 기존 활성 version을 내리고 승인 version 하나만 활성화한다.
+- 거절된 version은 활성화할 수 없고, 승인된 과거 version은 운영 롤백 대상으로
+  다시 활성화할 수 있다.
+- Workflow 전체를 비활성화하면 공개 검색에서 빠지고, 재활성화하면 현재 활성
+  version이 다시 검색된다.
+- 생성·승인·거절·version 전환·Workflow 상태 전환은 요청자, 사유, 정책 version,
+  요청 hash와 결과를 감사하며 동일 idempotency key 재요청은 상태를 중복 변경하지
+  않는다.
+
 ## 7. 완료 품질 게이트
 
 - unit, PostgreSQL, Redis, Executor contract/E2E test 통과

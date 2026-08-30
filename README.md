@@ -67,6 +67,12 @@ Executor의 `executor.events`를 같은 Redis에서 소비하는 배치라면
 - `POST /api/v1/tasks/{task_id}/resume`
 - `POST /api/v1/tasks/{task_id}/cancel`
 - `GET /api/v1/tasks/{task_id}/events` (`Last-Event-ID` 기반 SSE)
+- `GET /api/v1/tasks/{task_id}/workflow-promotion-draft`
+- `POST /api/v1/tasks/{task_id}/workflow-promotions`
+- `POST /api/v1/workflows/{workflow_id}/versions`
+- `POST /api/v1/workflows/{workflow_id}/versions/{version_id}/reviews`
+- `POST /api/v1/workflows/{workflow_id}/versions/{version_id}/activate`
+- `POST /api/v1/workflows/{workflow_id}/status`
 
 BFF는 모든 요청에 신뢰된 `X-User-ID`를 전달한다. Task 생성 시 BFF가
 채번한 `task_id`와 `input_message_id`를 body에 넣는다. API는 작업을

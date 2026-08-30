@@ -7,6 +7,7 @@ from ex_agent.api.identity import (
     TrustedHeaderIdentityProvider,
 )
 from ex_agent.application.promotions import WorkflowPromotionService
+from ex_agent.application.workflow_lifecycle import WorkflowLifecycleService
 from ex_agent.config import Settings
 from ex_agent.llm.factory import build_embeddings
 from ex_agent.metrics import record_readiness
@@ -31,6 +32,11 @@ class ApiContainer:
             self.repository,
             registry,
             build_embeddings(settings),
+        )
+        self.workflow_lifecycle = WorkflowLifecycleService(
+            settings,
+            self.repository,
+            self.promotions,
         )
         self.redis = Redis.from_url(
             settings.agent_redis_url,

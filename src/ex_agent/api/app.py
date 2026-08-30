@@ -11,6 +11,7 @@ from ex_agent.api.routers.tasks import (
     task_router,
     validate_signal_against_interrupt,
 )
+from ex_agent.api.routers.workflows import workflow_router
 from ex_agent.config import Settings, get_settings
 
 
@@ -34,6 +35,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health_router(resolved))
     app.include_router(task_router(resolved))
     app.include_router(promotion_router())
+    app.include_router(workflow_router())
     return app
 
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
@@ -257,10 +258,13 @@ class WorkflowPromotionRepository:
                 embedding=embedding,
                 promoted_by=actor_user_id,
                 active=True,
+                review_status="APPROVED",
+                reviewed_by=actor_user_id,
+                reviewed_at=datetime.now(UTC),
             )
             session.add(version)
             await session.flush()
-            _add_steps(session, version.id, plan, source)
+            add_workflow_steps(session, version.id, plan, source)
             session.add(
                 WorkflowPromotion(
                     task_id=source.task.id,
@@ -329,7 +333,7 @@ async def _existing_result(
     )
 
 
-def _add_steps(
+def add_workflow_steps(
     session: AsyncSession,
     version_id: UUID,
     plan: PlanDraft,
@@ -373,4 +377,5 @@ __all__ = [
     "PromotionSource",
     "WorkflowPromotionConflictError",
     "WorkflowPromotionRepository",
+    "add_workflow_steps",
 ]

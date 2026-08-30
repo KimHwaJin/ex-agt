@@ -170,6 +170,57 @@ class WorkflowPromotionResult(ContractModel):
     public_payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
+class WorkflowVersionCreateRequest(ContractModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    source_task_id: UUID
+    request_examples: list[
+        Annotated[str, Field(min_length=1, max_length=1000)]
+    ] = Field(default_factory=list, max_length=20)
+    tags: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(
+        default_factory=list, max_length=50
+    )
+    public_parameter_defaults: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowVersionReviewRequest(ContractModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    decision: Literal["APPROVE", "REJECT"]
+    reason: str | None = Field(default=None, max_length=4000)
+
+
+class WorkflowVersionActivationRequest(ContractModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    reason: str | None = Field(default=None, max_length=4000)
+
+
+class WorkflowStatusRequest(ContractModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    status: Literal["ACTIVE", "INACTIVE"]
+    reason: str | None = Field(default=None, max_length=4000)
+
+
+class WorkflowLifecycleResult(ContractModel):
+    workflow_id: UUID
+    workflow_version_id: UUID | None = None
+    version: int | None = Field(default=None, ge=1)
+    public_payload_hash: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+    )
+    action: Literal[
+        "VERSION_CREATED",
+        "VERSION_APPROVED",
+        "VERSION_REJECTED",
+        "VERSION_ACTIVATED",
+        "WORKFLOW_ACTIVATED",
+        "WORKFLOW_DEACTIVATED",
+    ]
+    workflow_status: Literal["ACTIVE", "INACTIVE"]
+    review_status: Literal["PENDING_REVIEW", "APPROVED", "REJECTED"] | None
+    version_active: bool | None
+    applied: bool
+
+
 class PlanReviewDecision(ContractModel):
     type: Literal[ResumeSignalType.PLAN_REVIEW] = ResumeSignalType.PLAN_REVIEW
     decision: PlanDecisionType
