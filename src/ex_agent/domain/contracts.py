@@ -117,6 +117,15 @@ class PlanDraft(ContractModel):
         return self
 
 
+class CompiledStep(ContractModel):
+    sequence: int
+    source: str
+    source_sha256: str
+    skill_name: str | None
+    tool_name: str | None
+    parameters: dict[str, Any]
+
+
 class WorkflowCandidate(ContractModel):
     workflow_version_id: UUID
     name: str

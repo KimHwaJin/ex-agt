@@ -12,6 +12,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ex_agent.domain.contracts import (
+    CompiledStep,
     PersistedPlan,
     PlanDraft,
     WorkflowCandidate,
@@ -33,7 +34,6 @@ from ex_agent.persistence.models import (
     WorkflowCommand,
     WorkflowVersion,
 )
-from ex_agent.tools.compiler import CompiledStep
 
 
 class AgentRepository:

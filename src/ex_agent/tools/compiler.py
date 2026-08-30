@@ -6,23 +6,10 @@ import pprint
 from pathlib import Path
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
-
-from ex_agent.domain.contracts import PlanStepDraft
+from ex_agent.domain.contracts import CompiledStep, PlanStepDraft
 from ex_agent.domain.enums import PlanningKind
 from ex_agent.executor.files import materialize_input_file
 from ex_agent.tools.registry import ParameterSpec, ToolRegistry
-
-
-class CompiledStep(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    sequence: int
-    source: str
-    source_sha256: str
-    skill_name: str | None
-    tool_name: str | None
-    parameters: dict[str, Any]
 
 
 class SourceCompiler:

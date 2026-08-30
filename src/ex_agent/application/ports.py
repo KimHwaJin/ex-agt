@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Protocol
 
+from ex_agent.application.state import AgentGraphState
 from ex_agent.domain.contracts import (
     ExecutorBoundarySignal,
     ExecutorReconciliation,
@@ -15,7 +16,6 @@ from ex_agent.domain.contracts import (
     WorkflowCandidate,
 )
 from ex_agent.domain.enums import TaskStatus
-from ex_agent.graph.state import AgentGraphState
 
 
 class WorkflowServices(Protocol):
