@@ -402,6 +402,19 @@ class WorkflowVersion(Base, TimestampMixin):
     )
     promoted_by: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+    review_status: Mapped[str] = mapped_column(
+        String(32),
+        default="APPROVED",
+    )
+    reviewed_by: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    reviewed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    review_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class WorkflowStep(Base):
@@ -497,6 +510,38 @@ class WorkflowPromotion(Base, TimestampMixin):
         ForeignKey("agent_workflow_versions.id", ondelete="RESTRICT"),
     )
     policy_version: Mapped[str] = mapped_column(String(128))
+
+
+class WorkflowLifecycleAction(Base, TimestampMixin):
+    __tablename__ = "agent_workflow_lifecycle_actions"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_agent_workflow_lifecycle_action_idem",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    workflow_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_workflows.id", ondelete="RESTRICT"),
+        index=True,
+    )
+    workflow_version_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("agent_workflow_versions.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
+    actor_user_id: Mapped[str] = mapped_column(String(255))
+    action: Mapped[str] = mapped_column(String(64))
+    idempotency_key: Mapped[str] = mapped_column(String(255))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    policy_version: Mapped[str] = mapped_column(String(128))
+    result_payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
 
 
 class ModelCallAudit(Base):

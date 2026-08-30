@@ -29,6 +29,7 @@ class WorkflowCatalogRepository:
                     .join(Workflow, Workflow.id == WorkflowVersion.workflow_id)
                     .where(
                         WorkflowVersion.active.is_(True),
+                        WorkflowVersion.review_status == "APPROVED",
                         WorkflowVersion.embedding.is_not(None),
                         Workflow.status == "ACTIVE",
                         Workflow.visibility == "SERVICE",
@@ -52,8 +53,18 @@ class WorkflowCatalogRepository:
 
     async def version(self, version_id: UUID) -> WorkflowVersion:
         async with self._sessions() as session:
-            version = await session.get(WorkflowVersion, version_id)
-            if version is None or not version.active:
+            version = await session.scalar(
+                select(WorkflowVersion)
+                .join(Workflow, Workflow.id == WorkflowVersion.workflow_id)
+                .where(
+                    WorkflowVersion.id == version_id,
+                    WorkflowVersion.active.is_(True),
+                    WorkflowVersion.review_status == "APPROVED",
+                    Workflow.status == "ACTIVE",
+                    Workflow.visibility == "SERVICE",
+                )
+            )
+            if version is None:
                 raise LookupError(f"Unknown Workflow version: {version_id}")
             return version
 

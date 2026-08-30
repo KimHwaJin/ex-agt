@@ -40,6 +40,15 @@ class PromotionPolicyDecision:
     reason: str
 
 
+@dataclass(frozen=True)
+class PreparedWorkflowVersion:
+    plan: PlanDraft
+    input_contract: dict[str, dict[str, Any]]
+    embedding: list[float]
+    registry_snapshot_hash: str
+    searchable_text: str
+
+
 class PromotionPolicy(Protocol):
     def evaluate(
         self,
@@ -96,7 +105,7 @@ class WorkflowPromotionService:
         *,
         actor_user_id: str,
     ) -> WorkflowPromotionDraft:
-        source = await self._eligible_source(task_id, actor_user_id)
+        source = await self.eligible_source(task_id, actor_user_id)
         plan, input_contract = self._template_plan(source, {})
         return WorkflowPromotionDraft(
             task_id=task_id,
@@ -133,45 +142,18 @@ class WorkflowPromotionService:
         )
         if existing is not None:
             return existing
-        source = await self._eligible_source(task_id, actor_user_id)
+        source = await self.eligible_source(task_id, actor_user_id)
         decision = self._policy.evaluate(
             actor_user_id=actor_user_id,
             source=source,
         )
-        plan, input_contract = self._template_plan(
-            source,
-            request.public_parameter_defaults,
-        )
-        plan = plan.model_copy(
-            update={
-                "objective": request.name,
-                "strategy_summary": request.description,
-                "assumptions": [],
-                "expected_artifacts": [],
-            }
-        )
-        searchable_text = _searchable_text(
-            request.name,
-            request.description,
-            request.request_examples,
-            request.tags,
-            plan,
-        )
-        embedding = await self._embeddings.aembed_query(searchable_text)
-        if len(embedding) != self._settings.agent_embedding_dimensions:
-            raise ValueError(
-                "Embedding dimension does not match the configured "
-                "pgvector dimension"
-            )
-        registry_hashes = sorted(
-            {row.registry_snapshot_hash for row in source.steps}
-        )
-        registry_snapshot_hash = (
-            registry_hashes[0]
-            if len(registry_hashes) == 1
-            else hashlib.sha256(
-                "\n".join(registry_hashes).encode()
-            ).hexdigest()
+        prepared = await self.prepare_version(
+            source=source,
+            name=request.name,
+            description=request.description,
+            request_examples=request.request_examples,
+            tags=request.tags,
+            public_parameter_defaults=request.public_parameter_defaults,
         )
         return await self._repository.promote_workflow(
             source=source,
@@ -182,16 +164,16 @@ class WorkflowPromotionService:
             description=request.description,
             request_examples=request.request_examples,
             tags=request.tags,
-            plan=plan,
-            input_contract=input_contract,
-            embedding=embedding,
+            plan=prepared.plan,
+            input_contract=prepared.input_contract,
+            embedding=prepared.embedding,
             embedding_model=self._settings.agent_embedding_model,
-            registry_snapshot_hash=registry_snapshot_hash,
+            registry_snapshot_hash=prepared.registry_snapshot_hash,
             policy_version=decision.policy_version,
-            searchable_text=searchable_text,
+            searchable_text=prepared.searchable_text,
         )
 
-    async def _eligible_source(
+    async def eligible_source(
         self,
         task_id: UUID,
         actor_user_id: str,
@@ -238,6 +220,59 @@ class WorkflowPromotionService:
                     "Source Plan revision lineage is incomplete"
                 )
         return source
+
+    async def prepare_version(
+        self,
+        *,
+        source: PromotionSource,
+        name: str,
+        description: str,
+        request_examples: list[str],
+        tags: list[str],
+        public_parameter_defaults: dict[str, Any],
+    ) -> PreparedWorkflowVersion:
+        plan, input_contract = self._template_plan(
+            source,
+            public_parameter_defaults,
+        )
+        plan = plan.model_copy(
+            update={
+                "objective": name,
+                "strategy_summary": description,
+                "assumptions": [],
+                "expected_artifacts": [],
+            }
+        )
+        searchable_text = _searchable_text(
+            name,
+            description,
+            request_examples,
+            tags,
+            plan,
+        )
+        embedding = await self._embeddings.aembed_query(searchable_text)
+        if len(embedding) != self._settings.agent_embedding_dimensions:
+            raise ValueError(
+                "Embedding dimension does not match the configured "
+                "pgvector dimension"
+            )
+        registry_hashes = sorted(
+            {row.registry_snapshot_hash for row in source.steps}
+        )
+        registry_snapshot_hash = (
+            registry_hashes[0]
+            if len(registry_hashes) == 1
+            else hashlib.sha256(
+                "\n".join(registry_hashes).encode()
+            ).hexdigest()
+        )
+        return PreparedWorkflowVersion(
+            plan=plan,
+            input_contract=input_contract,
+            embedding=embedding,
+            registry_snapshot_hash=registry_snapshot_hash,
+            searchable_text=searchable_text,
+        )
 
     def _template_plan(
         self,
@@ -413,6 +448,7 @@ def _request_hash(request: WorkflowPromotionRequest) -> str:
 
 __all__ = [
     "AuthenticatedServicePromotionPolicy",
+    "PreparedWorkflowVersion",
     "PromotionPolicy",
     "PromotionPolicyDecision",
     "WorkflowPromotionForbiddenError",

@@ -12,6 +12,7 @@ from ex_agent.domain.contracts import (
     PersistedPlan,
     PlanDraft,
     WorkflowCandidate,
+    WorkflowLifecycleResult,
     WorkflowPromotionResult,
 )
 from ex_agent.domain.enums import TaskStatus
@@ -20,6 +21,7 @@ from ex_agent.persistence.models import (
     PlanStep,
     Task,
     TaskEvent,
+    Workflow,
     WorkflowCommand,
     WorkflowVersion,
 )
@@ -41,6 +43,9 @@ from ex_agent.persistence.repositories.tasks import (
     SessionLockedError as SessionLockedError,
 )
 from ex_agent.persistence.repositories.tasks import TaskRepository
+from ex_agent.persistence.repositories.workflow_lifecycle import (
+    WorkflowLifecycleRepository,
+)
 from ex_agent.persistence.repositories.workflows import (
     WorkflowCatalogRepository,
 )
@@ -59,6 +64,7 @@ class AgentRepository:
         self.promotions = WorkflowPromotionRepository(sessions)
         self.tasks = TaskRepository(sessions)
         self.workflows = WorkflowCatalogRepository(sessions)
+        self.workflow_lifecycle = WorkflowLifecycleRepository(sessions)
 
     async def create_task(
         self,
@@ -439,3 +445,36 @@ class AgentRepository:
         **values: Any,
     ) -> WorkflowPromotionResult:
         return await self.promotions.create(**values)
+
+    async def lifecycle_workflow(self, workflow_id: UUID) -> Workflow:
+        return await self.workflow_lifecycle.workflow(workflow_id)
+
+    async def existing_workflow_lifecycle_action(
+        self,
+        **values: Any,
+    ) -> WorkflowLifecycleResult | None:
+        return await self.workflow_lifecycle.existing(**values)
+
+    async def create_workflow_version(
+        self,
+        **values: Any,
+    ) -> WorkflowLifecycleResult:
+        return await self.workflow_lifecycle.create_version(**values)
+
+    async def review_workflow_version(
+        self,
+        **values: Any,
+    ) -> WorkflowLifecycleResult:
+        return await self.workflow_lifecycle.review_version(**values)
+
+    async def activate_workflow_version(
+        self,
+        **values: Any,
+    ) -> WorkflowLifecycleResult:
+        return await self.workflow_lifecycle.activate_version(**values)
+
+    async def update_workflow_status(
+        self,
+        **values: Any,
+    ) -> WorkflowLifecycleResult:
+        return await self.workflow_lifecycle.update_status(**values)

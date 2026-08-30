@@ -53,6 +53,11 @@
   추적하고, CUSTOM_CODE와 불완전 lineage를 차단한다. 원본 parameter는 입력 template로
   바꾸며 명시적 공개 기본값 외 실제 값은 Workflow snapshot과 embedding text에서
   제거한다. 동일 idempotency key 재요청은 같은 immutable version을 반환한다.
+- 기존 Workflow의 새 immutable version 생성, 검토 승인/거절, 승인 version 간
+  원자적 활성 전환, Workflow 비활성화/재활성화 API를 제공한다. 새 version은
+  `PENDING_REVIEW`로 시작하며 승인된 version만 활성화할 수 있다. Workflow owner
+  정책 port, 요청 hash 기반 멱등성, 변경 사유와 결과 snapshot 감사 기록을 모든
+  상태 변경에 공통 적용한다.
 - Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
   먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
   뒤 DB/Redis/HTTP/metrics 자원을 닫는다.
@@ -137,7 +142,6 @@
   `SafeStreamTrimmer`를 재사용하며 CronJob 등 스케줄러 연계는 배포 단계에서
   별도로 결정한다.
 - 실제 embedding 모델 확보 후 Workflow 의미 검색 품질 검증 및 재인덱싱
-- 기존 Workflow의 새 version 생성, 비활성화와 재검토 운영 API
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
 - pgvector ANN index와 Workflow risk 사전 계산은
