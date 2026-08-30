@@ -4,6 +4,8 @@ import shutil
 import sys
 from pathlib import Path
 
+import pytest
+
 from ex_agent.application.ports import (
     ConversationServices,
     ExecutionServices,
@@ -57,17 +59,29 @@ def test_package_dependency_direction() -> None:
     assert violations == []
 
 
-def test_reusable_consumer_has_no_agent_domain_dependency() -> None:
-    consumer = _PACKAGE_ROOT / "transport" / "consumer.py"
+@pytest.mark.parametrize("filename", ["consumer.py", "dlq.py"])
+def test_reusable_redis_modules_have_no_agent_domain_dependency(
+    filename: str,
+) -> None:
+    module = _PACKAGE_ROOT / "transport" / filename
 
-    assert _internal_imports(consumer) == set()
+    assert _internal_imports(module) == set()
 
 
+@pytest.mark.parametrize(
+    ("filename", "public_type"),
+    [
+        ("consumer.py", "RedisStreamConsumer"),
+        ("dlq.py", "DeadLetterManager"),
+    ],
+)
 def test_reusable_consumer_loads_as_a_standalone_file(
     tmp_path: Path,
+    filename: str,
+    public_type: str,
 ) -> None:
-    source = _PACKAGE_ROOT / "transport" / "consumer.py"
-    standalone = tmp_path / "standalone_consumer.py"
+    source = _PACKAGE_ROOT / "transport" / filename
+    standalone = tmp_path / f"standalone_{filename}"
     shutil.copyfile(source, standalone)
     module_name = "standalone_consumer"
     spec = importlib.util.spec_from_file_location(module_name, standalone)
@@ -81,7 +95,7 @@ def test_reusable_consumer_loads_as_a_standalone_file(
     finally:
         sys.modules.pop(module_name, None)
 
-    assert module.RedisStreamConsumer.__module__ == module_name
+    assert getattr(module, public_type).__module__ == module_name
 
 
 def test_default_services_implements_every_capability_contract() -> None:
