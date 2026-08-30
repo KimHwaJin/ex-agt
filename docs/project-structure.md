@@ -10,12 +10,13 @@ composition root와 프로세스로 실행된다.
 - `application`: workflow service contract와 framework 독립 상태
 - `application/capabilities`: 대화, 계획, 실행, 리포팅 service 구현
 - `graph`: LangGraph node, route, graph builder 및 state compatibility adapter
+- `graph/node_groups`: 대화, 계획, 실행, 종료 단계별 node 구현
 - `llm`: chat model과 embedding 생성
 - `middleware`, `planners`, `tools`: 계획 생성과 Skill/Tool compilation
 - `executor`: Executor REST와 Artifact/result contract
 - `persistence`: SQLAlchemy model, transaction, repository facade
-- `persistence/repositories`: outbox, 실행 binding/event ingestion, Workflow
-  catalog, model audit처럼 독립적인 저장 기능
+- `persistence/repositories`: Task/Session, Plan revision, outbox, 실행
+  binding/event ingestion, Workflow catalog, model audit 저장 기능
 - `transport`: Redis publisher와 재사용 가능한 Stream consumer runtime
 - `workers`: command/event processor, Stream handler, observer, checkpoint helper
 - `api/routers`: health/metrics와 Task REST/SSE route
@@ -53,7 +54,6 @@ Agent domain 비의존성을 검사한다.
 
 ## 후속 분리 후보
 
-- `WorkflowNodes`를 대화, 계획, 실행, 종료 node group으로 분리
 - 테스트 수가 더 증가하면 `unit`, `integration`, `e2e` 디렉터리로 물리 분리
 
 이 후보들은 현재 동작에 문제가 있어서가 아니라 여러 개발자의 병렬 변경 충돌과

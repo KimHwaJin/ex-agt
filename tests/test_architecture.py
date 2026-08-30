@@ -9,6 +9,7 @@ from ex_agent.application.ports import (
     ReportingServices,
 )
 from ex_agent.application.services import DefaultWorkflowServices
+from ex_agent.graph.nodes import WorkflowNodes
 
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "ex_agent"
 _FORBIDDEN_PACKAGE_EDGES = {
@@ -79,4 +80,27 @@ def test_default_services_implements_every_capability_contract() -> None:
         if not callable(getattr(DefaultWorkflowServices, name, None))
     )
 
+    assert missing == []
+
+
+def test_workflow_node_facade_covers_every_registered_node() -> None:
+    builder = _PACKAGE_ROOT / "graph" / "builder.py"
+    tree = ast.parse(builder.read_text(), filename=str(builder))
+    registered = {
+        call.args[0].value
+        for call in ast.walk(tree)
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr == "add_node"
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and isinstance(call.args[0].value, str)
+    }
+    missing = sorted(
+        name
+        for name in registered
+        if not callable(getattr(WorkflowNodes, name, None))
+    )
+
+    assert len(registered) == 31
     assert missing == []
