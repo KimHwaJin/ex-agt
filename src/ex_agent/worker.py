@@ -8,8 +8,6 @@ from uuid import UUID, uuid4
 from wsgiref.simple_server import WSGIServer
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
-from langgraph.types import Command, Interrupt
 from psycopg.rows import dict_row
 from psycopg_pool import AsyncConnectionPool
 from redis.asyncio import Redis
@@ -17,23 +15,17 @@ from redis.exceptions import ResponseError
 
 from ex_agent.application.services import DefaultWorkflowServices
 from ex_agent.config import Settings
-from ex_agent.domain.enums import TaskStatus
-from ex_agent.executor.client import ExecutorClient, ExecutorRequestError
+from ex_agent.executor.client import ExecutorClient
 from ex_agent.executor.contracts import ExecutorEvent
 from ex_agent.graph.builder import build_workflow_graph
 from ex_agent.metrics import (
     CHECKPOINT_POOL,
     DELIVERY_BACKLOG,
-    LOCK_CONTENTION,
     OUTBOX_PUBLISHED,
     OUTBOX_RELAY_SECONDS,
-    REDIS_DEAD_LETTERED,
     REDIS_STREAM_LAG,
     REDIS_STREAM_PENDING,
-    WORKER_ACTIVE,
     WORKER_CONFIGURED_SLOTS,
-    WORKER_OPERATION_SECONDS,
-    WORKER_OPERATIONS,
     WORKER_RETRIES,
     record_readiness,
     start_worker_metrics_server,
@@ -51,145 +43,29 @@ from ex_agent.readiness import (
 )
 from ex_agent.tools.registry import ToolRegistry
 from ex_agent.transport.consumer import (
-    AckDecision,
-    ConsumerObserver,
-    HandlerResult,
-    PermanentMessageError,
     RedisStreamConsumer,
     RedisStreamConsumerConfig,
     StreamMessage,
-    _autoclaim_page,
 )
 from ex_agent.transport.streams import CommandPublisher
+from ex_agent.workers.checkpoints import autoclaim_entries, task_graph_config
+from ex_agent.workers.checkpoints import (
+    checkpoint_serializer as _checkpoint_serializer,
+)
+from ex_agent.workers.commands import CommandProcessor
+from ex_agent.workers.executor_events import (
+    ExecutorEventProcessor,
+    merge_contiguous_events,
+)
+from ex_agent.workers.handlers import CommandHandler as _CommandHandler
+from ex_agent.workers.handlers import (
+    ExecutorEventHandler as _ExecutorEventHandler,
+)
+from ex_agent.workers.observers import (
+    WorkerConsumerObserver as _WorkerConsumerObserver,
+)
 
 logger = logging.getLogger(__name__)
-
-_FAILURE_COMPENSATION = "FAILURE_COMPENSATION"
-_EXECUTOR_TERMINAL_STATUSES = {"CANCELLED", "SUCCEEDED", "FAILED"}
-
-
-class _WorkerConsumerObserver(ConsumerObserver):
-    def __init__(
-        self,
-        *,
-        kind: str,
-        lock_kind: str,
-        retry_component: str,
-        stream: str,
-    ) -> None:
-        self._kind = kind
-        self._lock_kind = lock_kind
-        self._retry_component = retry_component
-        self._stream = stream
-
-    def operation_started(self) -> None:
-        WORKER_ACTIVE.labels(kind=self._kind).inc()
-
-    def lock_contended(self) -> None:
-        LOCK_CONTENTION.labels(kind=self._lock_kind).inc()
-
-    def operation_finished(self, outcome: str, duration: float) -> None:
-        WORKER_ACTIVE.labels(kind=self._kind).dec()
-        WORKER_OPERATIONS.labels(
-            kind=self._kind,
-            outcome=outcome,
-        ).inc()
-        WORKER_OPERATION_SECONDS.labels(kind=self._kind).observe(duration)
-
-    def transport_retry(self) -> None:
-        WORKER_RETRIES.labels(component=self._retry_component).inc()
-
-    def dead_lettered(self) -> None:
-        REDIS_DEAD_LETTERED.labels(stream=self._stream).inc()
-
-
-class _CommandHandler:
-    def __init__(self, worker: WorkflowWorker, graph: Any) -> None:
-        self._worker = worker
-        self._graph = graph
-
-    def lock_key(self, message: StreamMessage) -> str:
-        try:
-            task_id = UUID(message.fields["task_id"])
-        except (KeyError, ValueError) as error:
-            raise PermanentMessageError(
-                f"Invalid command task_id: {error}"
-            ) from error
-        return f"agent:task-lock:{task_id}"
-
-    async def handle(self, message: StreamMessage) -> HandlerResult:
-        try:
-            command_id = UUID(message.fields["command_id"])
-            task_id = UUID(message.fields["task_id"])
-        except (KeyError, ValueError) as error:
-            raise PermanentMessageError(
-                f"Invalid command envelope: {error}"
-            ) from error
-        try:
-            await self._worker._process_command(self._graph, command_id)
-        except Exception as error:
-            logger.exception(
-                "Workflow command failed",
-                extra={"task_id": str(task_id)},
-            )
-            current = await self._worker._repository.get_command(command_id)
-            failure_message = f"{type(error).__name__}: {error}"
-            if (
-                current is not None
-                and current.command_type == _FAILURE_COMPENSATION
-            ):
-                await self._worker._repository.set_command_state(
-                    command_id,
-                    "PENDING",
-                    failure_message,
-                )
-            elif current is not None and current.attempt_count >= 3:
-                await self._worker._repository.prepare_failure_compensation(
-                    command_id,
-                    task_id,
-                    failure_message,
-                )
-            else:
-                await self._worker._repository.set_command_state(
-                    command_id,
-                    "PENDING",
-                    failure_message,
-                )
-            return HandlerResult(AckDecision.ACK, outcome="failed")
-        return HandlerResult(AckDecision.ACK)
-
-
-class _ExecutorEventHandler:
-    def __init__(self, worker: WorkflowWorker, stream: str) -> None:
-        self._worker = worker
-        self._stream = stream
-
-    def _event(self, message: StreamMessage) -> ExecutorEvent:
-        try:
-            return ExecutorEvent.from_redis(message.fields)
-        except (KeyError, TypeError, ValueError) as error:
-            raise PermanentMessageError(
-                f"Invalid Executor event envelope: {error}"
-            ) from error
-
-    def lock_key(self, message: StreamMessage) -> str:
-        event = self._event(message)
-        return f"agent:execution-lock:{event.execution_id}"
-
-    async def handle(self, message: StreamMessage) -> HandlerResult:
-        event = self._event(message)
-        processed = await self._worker._process_executor_event(
-            self._stream,
-            event,
-            catch_up=message.reclaimed,
-        )
-        if processed is False:
-            return HandlerResult(
-                AckDecision.RETRY,
-                outcome="binding_pending",
-                reason="Executor binding is not visible yet",
-            )
-        return HandlerResult(AckDecision.ACK)
 
 
 class WorkflowWorker:
@@ -211,6 +87,16 @@ class WorkflowWorker:
         self._executor = ExecutorClient(
             settings.executor_base_url,
             timeout_seconds=settings.executor_request_timeout_seconds,
+        )
+        self._command_processor = CommandProcessor(
+            settings,
+            self._repository,
+            self._executor,
+        )
+        self._executor_event_processor = ExecutorEventProcessor(
+            self._repository,
+            self._executor,
+            self._publisher,
         )
         self._registry = ToolRegistry(settings.agent_skill_root)
         self._registry.load()
@@ -544,114 +430,34 @@ class WorkflowWorker:
         graph: Any,
         command_id: UUID,
     ) -> None:
-        command = await self._repository.get_command(command_id)
-        if command is None or command.state in {"DONE", "FAILED"}:
-            return
-        task = await self._repository.get_task(command.task_id)
-        if task is not None and TaskStatus(task.status).is_terminal:
-            await self._repository.set_command_state(command_id, "DONE")
-            return
-        await self._repository.set_command_state(command_id, "PROCESSING")
-        if command.command_type == _FAILURE_COMPENSATION:
-            await self._run_failure_compensation(command)
-            return
-        await self._run_graph_command(graph, command)
-        await self._repository.set_command_state(command_id, "DONE")
+        await self._commands().process(graph, command_id)
 
     async def _run_graph_command(self, graph: Any, command: Any) -> None:
-        task = await self._repository.get_task(command.task_id)
-        if task is None:
-            raise LookupError(f"Unknown task: {command.task_id}")
-        config = _task_graph_config(task.id)
-        if command.command_type == "START":
-            graph_input: Any = {
-                "user_id": task.user_id,
-                "project_id": task.project_id,
-                "session_id": task.session_id,
-                "active_task_id": str(task.id),
-                "current_input_message_id": str(task.input_message_id),
-                "user_message": task.user_message,
-            }
-        else:
-            await self._repository.clear_interrupt(task.id)
-            graph_input = Command(resume=command.payload)
-        result = await graph.ainvoke(graph_input, config=config)
-        interrupts = result.get("__interrupt__", ())
-        if interrupts:
-            payload = _interrupt_payload(interrupts[0])
-            await self._repository.record_interrupt(task.id, payload)
+        await self._commands().run_graph(graph, command)
 
     async def _run_failure_compensation(self, command: Any) -> None:
-        raw_message = command.payload.get("failure_message")
-        if not isinstance(raw_message, str) or not raw_message:
-            raise ValueError("Failure compensation omitted failure_message")
-        executor_status = await self._compensate_failed_execution(
-            command.task_id,
-            raw_message,
-        )
-        if executor_status == "NOT_REQUIRED":
-            cleanup_message = "연결된 Executor 실행은 생성되지 않았습니다."
-        elif executor_status == "CANCELLED":
-            cleanup_message = "연결된 Executor 실행의 취소를 확인했습니다."
-        else:
-            cleanup_message = (
-                "연결된 Executor 실행이 이미 "
-                f"{executor_status} 상태로 종료된 것을 확인했습니다."
-            )
-        content = (
-            f"Agent workflow 처리에 실패했습니다: {raw_message}. "
-            f"{cleanup_message}"
-        )
-        await self._repository.complete_failure_compensation(
-            command.id,
-            command.task_id,
-            content,
-            failure_message=raw_message,
-            executor_status=executor_status,
-        )
+        await self._commands().run_failure_compensation(command)
 
     async def _compensate_failed_execution(
         self,
         task_id: UUID,
         failure_message: str,
     ) -> str:
-        task = await self._repository.get_task(task_id)
-        if task is None:
-            raise LookupError(f"Unknown task: {task_id}")
-        if task.execution_id is None:
-            return "NOT_REQUIRED"
-        execution_id = task.execution_id
-        async with asyncio.timeout(
-            self._settings.executor_failure_cleanup_timeout_seconds
-        ):
-            result = await self._executor.result(execution_id)
-            status = result.execution.state.status
-            if status in _EXECUTOR_TERMINAL_STATUSES:
-                return status
-            try:
-                response = await self._executor.cancel(
-                    execution_id,
-                    idempotency_key=(f"task:{task_id}:agent-failure-cancel"),
-                    actor_type="AGENT",
-                    actor_id="ex-agent",
-                    reason=f"Agent workflow failed: {failure_message}",
-                )
-            except ExecutorRequestError as error:
-                if error.status_code not in {409, 422}:
-                    raise
-            else:
-                await self._repository.update_binding(
-                    task_id,
-                    execution_version=response.state.version,
-                )
-            while True:
-                result = await self._executor.result(execution_id)
-                status = result.execution.state.status
-                if status in _EXECUTOR_TERMINAL_STATUSES:
-                    return status
-                await asyncio.sleep(
-                    self._settings.executor_failure_cleanup_poll_seconds
-                )
+        return await self._commands().compensate_failed_execution(
+            task_id,
+            failure_message,
+        )
+
+    def _commands(self) -> CommandProcessor:
+        processor = getattr(self, "_command_processor", None)
+        if processor is None:
+            processor = CommandProcessor(
+                self._settings,
+                self._repository,
+                self._executor,
+            )
+            self._command_processor = processor
+        return processor
 
     async def _handle_executor_event(
         self,
@@ -682,40 +488,12 @@ class WorkflowWorker:
         *,
         catch_up: bool = False,
     ) -> bool:
-        binding = await self._repository.binding_for_execution(
-            event.execution_id
-        )
-        if binding is None:
-            return False
-        history: list[ExecutorEvent] = []
-        if catch_up:
-            history = await self._executor.events_after(
-                event.execution_id,
-                after_sequence=binding.last_event_sequence,
-                limit=500,
-            )
-            event = max(
-                [event, *history],
-                key=lambda item: item.event_sequence,
-            )
-        elif event.event_sequence > binding.last_event_sequence + 1:
-            history = await self._executor.events_after(
-                event.execution_id,
-                after_sequence=binding.last_event_sequence,
-                limit=(event.event_sequence - binding.last_event_sequence),
-            )
-        ordered = _merge_contiguous_events(
+        return await self._executor_events().process(
+            stream,
             event,
-            history,
-            after_sequence=binding.last_event_sequence,
+            catch_up=catch_up,
+            persist_event=self._persist_executor_event,
         )
-        for ordered_event in ordered:
-            await self._persist_executor_event(
-                stream,
-                binding.task_id,
-                ordered_event,
-            )
-        return True
 
     async def _persist_executor_event(
         self,
@@ -723,42 +501,28 @@ class WorkflowWorker:
         task_id: UUID,
         event: ExecutorEvent,
     ) -> None:
-        dedupe_id = f"event:{event.event_id}"
-        if event.event_type not in {
-            "execution.operation_completed",
-            "execution.completed",
-        }:
-            await self._repository.record_executor_progress(
-                stream_name=stream,
-                message_id=dedupe_id,
-                task_id=task_id,
-                event_type=event.event_type,
-                event_sequence=event.event_sequence,
-                payload={
-                    "execution_id": str(event.execution_id),
-                    "event_id": str(event.event_id),
-                    "event_sequence": event.event_sequence,
-                    "executor_payload": event.payload,
-                },
+        await self._executor_events().persist(stream, task_id, event)
+
+    def _executor_events(self) -> ExecutorEventProcessor:
+        processor = getattr(self, "_executor_event_processor", None)
+        if processor is None:
+            processor = ExecutorEventProcessor(
+                self._repository,
+                getattr(self, "_executor", None),
+                getattr(self, "_publisher", None),
             )
-            return
-        payload = {
-            "type": "EXECUTOR_BOUNDARY",
-            "execution_id": str(event.execution_id),
-            "event_id": str(event.event_id),
-            "event_sequence": event.event_sequence,
-            "event_type": event.event_type,
-        }
-        inserted = await self._repository.ingest_executor_signal(
-            stream_name=stream,
-            message_id=dedupe_id,
-            task_id=task_id,
-            idempotency_key=f"executor-event:{event.event_id}",
-            event_sequence=event.event_sequence,
-            payload=payload,
-        )
-        if inserted:
-            await self._publisher.publish_pending()
+            self._executor_event_processor = processor
+        return processor
+
+
+def _autoclaim_entries(
+    response: Any,
+) -> list[tuple[str, dict[str, str]]]:
+    return autoclaim_entries(response)
+
+
+def _task_graph_config(task_id: UUID) -> dict[str, Any]:
+    return task_graph_config(task_id)
 
 
 def _merge_contiguous_events(
@@ -767,55 +531,8 @@ def _merge_contiguous_events(
     *,
     after_sequence: int,
 ) -> list[ExecutorEvent]:
-    if current.event_sequence <= after_sequence:
-        return []
-    by_sequence: dict[int, ExecutorEvent] = {}
-    for event in [*history, current]:
-        if event.execution_id != current.execution_id:
-            raise ValueError("Executor history mixed execution IDs")
-        if not after_sequence < event.event_sequence <= current.event_sequence:
-            continue
-        existing = by_sequence.get(event.event_sequence)
-        if existing is not None and existing.event_id != event.event_id:
-            raise ValueError("Executor history has conflicting event IDs")
-        by_sequence[event.event_sequence] = event
-    expected = list(range(after_sequence + 1, current.event_sequence + 1))
-    if sorted(by_sequence) != expected:
-        raise ValueError("Executor event history did not close sequence gap")
-    return [by_sequence[sequence] for sequence in expected]
-
-
-def _interrupt_payload(value: Any) -> dict[str, Any]:
-    if isinstance(value, Interrupt):
-        raw = value.value
-    else:
-        raw = getattr(value, "value", value)
-    if not isinstance(raw, dict):
-        raise TypeError("Graph interrupt payload must be an object")
-    return raw
-
-
-def _autoclaim_entries(
-    response: Any,
-) -> list[tuple[str, dict[str, str]]]:
-    return _autoclaim_page(response)[1]
-
-
-def _task_graph_config(task_id: UUID) -> dict[str, Any]:
-    return {"configurable": {"thread_id": str(task_id)}}
-
-
-def _checkpoint_serializer() -> JsonPlusSerializer:
-    return JsonPlusSerializer(
-        allowed_msgpack_modules=[
-            ("ex_agent.domain.contracts", "IntentDecision"),
-            ("ex_agent.domain.contracts", "PlanDraft"),
-            ("ex_agent.domain.contracts", "RiskReview"),
-            ("ex_agent.domain.contracts", "WorkflowCandidate"),
-            ("ex_agent.domain.enums", "ExecutionMode"),
-            ("ex_agent.domain.enums", "Intent"),
-            ("ex_agent.domain.enums", "PlanningKind"),
-            ("ex_agent.domain.enums", "RiskLevel"),
-            ("ex_agent.domain.enums", "TaskStatus"),
-        ]
+    return merge_contiguous_events(
+        current,
+        history,
+        after_sequence=after_sequence,
     )
