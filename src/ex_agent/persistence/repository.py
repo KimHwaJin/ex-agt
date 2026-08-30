@@ -22,7 +22,6 @@ from ex_agent.persistence.database import transaction
 from ex_agent.persistence.models import (
     ExecutorBinding,
     Message,
-    ModelCallAudit,
     Plan,
     PlanRevision,
     PlanStep,
@@ -30,11 +29,14 @@ from ex_agent.persistence.models import (
     StreamInbox,
     Task,
     TaskEvent,
-    Workflow,
     WorkflowCommand,
     WorkflowVersion,
 )
+from ex_agent.persistence.repositories.audit import AuditRepository
 from ex_agent.persistence.repositories.delivery import DeliveryRepository
+from ex_agent.persistence.repositories.workflows import (
+    WorkflowCatalogRepository,
+)
 
 
 class AgentRepository:
@@ -43,7 +45,9 @@ class AgentRepository:
         sessions: async_sessionmaker[AsyncSession],
     ) -> None:
         self._sessions = sessions
+        self.audit = AuditRepository(sessions)
         self.delivery = DeliveryRepository(sessions)
+        self.workflows = WorkflowCatalogRepository(sessions)
 
     async def create_task(
         self,
@@ -764,56 +768,23 @@ class AgentRepository:
         succeeded: bool,
         metadata: dict[str, Any],
     ) -> None:
-        async with transaction(self._sessions) as session:
-            session.add(
-                ModelCallAudit(
-                    task_id=UUID(task_id),
-                    component=component,
-                    duration_ms=duration_ms,
-                    succeeded=succeeded,
-                    metadata_json=metadata,
-                )
-            )
+        await self.audit.record_model_call(
+            task_id=task_id,
+            component=component,
+            duration_ms=duration_ms,
+            succeeded=succeeded,
+            metadata=metadata,
+        )
 
     async def workflow_candidates(
         self,
         embedding: list[float],
         limit: int = 3,
     ) -> list[WorkflowCandidate]:
-        distance = WorkflowVersion.embedding.cosine_distance(embedding)
-        async with self._sessions() as session:
-            rows = (
-                await session.execute(
-                    select(
-                        WorkflowVersion, Workflow, distance.label("distance")
-                    )
-                    .join(Workflow, Workflow.id == WorkflowVersion.workflow_id)
-                    .where(
-                        WorkflowVersion.active.is_(True),
-                        WorkflowVersion.embedding.is_not(None),
-                    )
-                    .order_by(distance)
-                    .limit(limit)
-                )
-            ).all()
-        return [
-            WorkflowCandidate(
-                workflow_version_id=version.id,
-                name=workflow.name,
-                description=workflow.description,
-                score=max(0.0, 1.0 - float(distance_value)),
-                plan=PlanDraft.model_validate(version.plan_payload),
-                public_payload_hash=version.public_payload_hash,
-            )
-            for version, workflow, distance_value in rows
-        ]
+        return await self.workflows.candidates(embedding, limit)
 
     async def workflow_version(self, version_id: UUID) -> WorkflowVersion:
-        async with self._sessions() as session:
-            version = await session.get(WorkflowVersion, version_id)
-            if version is None or not version.active:
-                raise LookupError(f"Unknown Workflow version: {version_id}")
-            return version
+        return await self.workflows.version(version_id)
 
 
 class SessionLockedError(RuntimeError):
