@@ -9,7 +9,7 @@ from wsgiref.util import setup_testing_defaults
 import pytest
 from fastapi.testclient import TestClient
 
-import ex_agent.api.app as app_module
+import ex_agent.api.routers.health as health_module
 from ex_agent.api.app import create_app
 from ex_agent.config import Settings
 from ex_agent.metrics import _worker_http_application
@@ -65,7 +65,7 @@ def test_api_readiness_returns_dependency_status(
     async def probe(*args: object, **kwargs: object) -> ReadinessResult:
         return _result(ready=True)
 
-    monkeypatch.setattr(app_module, "probe_dependencies", probe)
+    monkeypatch.setattr(health_module, "probe_dependencies", probe)
     with TestClient(create_app(Settings())) as client:
         response = client.get("/readyz")
 
@@ -80,7 +80,7 @@ def test_api_readiness_returns_503_when_dependency_is_unavailable(
     async def probe(*args: object, **kwargs: object) -> ReadinessResult:
         return _result(ready=False)
 
-    monkeypatch.setattr(app_module, "probe_dependencies", probe)
+    monkeypatch.setattr(health_module, "probe_dependencies", probe)
     with TestClient(create_app(Settings())) as client:
         response = client.get("/readyz")
 
