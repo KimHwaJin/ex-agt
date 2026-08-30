@@ -126,6 +126,14 @@ def test_worker_readiness_rejects_stale_probe(
     assert payload["stale"] is True
 
 
+def test_stopping_readiness_is_distinct_from_starting() -> None:
+    result = ReadinessResult.stopping()
+
+    assert result.ready is False
+    assert result.checks["postgres"].error == "stopping"
+    assert result.checks["redis"].error == "stopping"
+
+
 def test_readiness_staleness_must_exceed_refresh_interval() -> None:
     with pytest.raises(ValueError, match="must exceed"):
         Settings(

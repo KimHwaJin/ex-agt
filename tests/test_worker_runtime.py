@@ -36,6 +36,7 @@ async def test_worker_starts_bounded_graph_slots() -> None:
         executor_event_consumer_group=f"test-executor-group-{suffix}",
         worker_command_concurrency=2,
         checkpoint_pool_max_size=2,
+        command_block_milliseconds=100,
         outbox_poll_milliseconds=50,
         worker_metrics_enabled=False,
     )
@@ -51,9 +52,13 @@ async def test_worker_starts_bounded_graph_slots() -> None:
         )
         assert readiness["ready"] is True
     finally:
-        run_task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await run_task
+        await worker.shutdown(grace_period_seconds=1)
+        await run_task
+        stopping = worker._readiness.payload(
+            settings.worker_readiness_stale_seconds
+        )
+        assert stopping["ready"] is False
+        assert stopping["checks"]["redis"]["error"] == "stopping"
         redis = Redis.from_url(redis_url, decode_responses=True)
         await redis.delete(command_stream, executor_stream)
         await redis.aclose()

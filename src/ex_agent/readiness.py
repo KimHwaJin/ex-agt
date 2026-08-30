@@ -58,11 +58,19 @@ class ReadinessResult:
 
     @classmethod
     def starting(cls) -> ReadinessResult:
+        return cls.unavailable("starting")
+
+    @classmethod
+    def stopping(cls) -> ReadinessResult:
+        return cls.unavailable("stopping")
+
+    @classmethod
+    def unavailable(cls, reason: str) -> ReadinessResult:
         checks = {
             name: DependencyStatus(
                 ready=False,
                 latency_seconds=0,
-                error="starting",
+                error=reason,
             )
             for name in ("postgres", "redis")
         }

@@ -115,6 +115,11 @@ class Settings(BaseSettings):
     sse_heartbeat_seconds: float = Field(default=15, ge=1)
     worker_retry_initial_seconds: float = Field(default=0.5, ge=0.1)
     worker_retry_max_seconds: float = Field(default=30, ge=1)
+    worker_shutdown_grace_seconds: float = Field(
+        default=25,
+        ge=0,
+        le=300,
+    )
     worker_metrics_enabled: bool = True
     worker_metrics_host: str = "0.0.0.0"
     worker_metrics_port: int = Field(default=8011, ge=1, le=65535)
