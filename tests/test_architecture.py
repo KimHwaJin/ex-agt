@@ -1,6 +1,15 @@
 import ast
 from pathlib import Path
 
+from ex_agent.application.ports import (
+    ConversationServices,
+    ExecutionServices,
+    LifecycleServices,
+    PlanningServices,
+    ReportingServices,
+)
+from ex_agent.application.services import DefaultWorkflowServices
+
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "ex_agent"
 _FORBIDDEN_PACKAGE_EDGES = {
     ("application", "api"),
@@ -47,3 +56,27 @@ def test_reusable_consumer_has_no_agent_domain_dependency() -> None:
     consumer = _PACKAGE_ROOT / "transport" / "consumer.py"
 
     assert _internal_imports(consumer) == set()
+
+
+def test_default_services_implements_every_capability_contract() -> None:
+    contracts = (
+        ConversationServices,
+        ExecutionServices,
+        LifecycleServices,
+        PlanningServices,
+        ReportingServices,
+    )
+    required = {
+        name
+        for contract in contracts
+        for name, value in vars(contract).items()
+        if callable(value) and not name.startswith("_")
+    }
+
+    missing = sorted(
+        name
+        for name in required
+        if not callable(getattr(DefaultWorkflowServices, name, None))
+    )
+
+    assert missing == []
