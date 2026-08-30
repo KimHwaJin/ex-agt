@@ -101,6 +101,8 @@ Worker가 복구한다. liveness는 프로세스가 실제 종료될 때까지 �
 | `EXECUTOR_EVENT_MAX_RETRY_ATTEMPTS` | 100 | Executor event retry 상한 |
 | `STREAM_RETRY_STATE_TTL_SECONDS` | 604800 | retry counter 보존기간 |
 | `DLQ_ACTION_MARKER_TTL_SECONDS` | 7776000 | DLQ action 멱등성 보존기간 |
+| `STREAM_RETENTION_SECONDS` | 604800 | safe trim 최소 시간 보존기간 |
+| `STREAM_MINIMUM_RETAINED_ENTRIES` | 1000 | Stream별 최소 최근 entry 수 |
 
 stale 기준은 갱신 주기보다 반드시 커야 한다.
 

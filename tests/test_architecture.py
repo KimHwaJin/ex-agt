@@ -59,7 +59,10 @@ def test_package_dependency_direction() -> None:
     assert violations == []
 
 
-@pytest.mark.parametrize("filename", ["consumer.py", "dlq.py"])
+@pytest.mark.parametrize(
+    "filename",
+    ["consumer.py", "dlq.py", "stream_maintenance.py"],
+)
 def test_reusable_redis_modules_have_no_agent_domain_dependency(
     filename: str,
 ) -> None:
@@ -73,6 +76,7 @@ def test_reusable_redis_modules_have_no_agent_domain_dependency(
     [
         ("consumer.py", "RedisStreamConsumer"),
         ("dlq.py", "DeadLetterManager"),
+        ("stream_maintenance.py", "SafeStreamTrimmer"),
     ],
 )
 def test_reusable_consumer_loads_as_a_standalone_file(

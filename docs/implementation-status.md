@@ -45,6 +45,9 @@
 - versioned DLQ envelope와 비동기 관리 모듈을 제공한다. 운영 CLI의 replay와
   discard는 source/audit/DLQ/action marker를 원자적으로 변경하며 응답 유실 후
   반복 요청도 중복 발행하지 않는다.
+- Redis Stream safe trim 모듈과 dry-run/실행 CLI를 제공한다. 보존기간, 최근
+  최소 entry 수, 모든 group의 진행 ID와 가장 오래된 pending ID 중 가장 보수적인
+  경계를 Lua 안에서 다시 계산하고 exact trim까지 원자적으로 수행한다.
 - Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
   먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
   뒤 DB/Redis/HTTP/metrics 자원을 닫는다.
@@ -127,6 +130,5 @@
 - Workflow 승격 command/API와 승격 권한 정책
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
-- Redis Stream 보존기간과 모든 consumer group을 고려한 safe trim 정책
 - pgvector ANN index와 Workflow risk 사전 계산은
   `docs/performance-backlog.md`의 benchmark 선행 작업으로 관리

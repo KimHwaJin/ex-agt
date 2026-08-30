@@ -20,9 +20,16 @@ from ex_agent.transport.dlq import (
     DeadLetterManager,
     DeadLetterPage,
 )
+from ex_agent.transport.stream_maintenance import (
+    ConsumerGroupBoundary,
+    SafeStreamTrimmer,
+    StreamTrimPlan,
+    StreamTrimResult,
+)
 
 __all__ = [
     "AckDecision",
+    "ConsumerGroupBoundary",
     "ConsumerObserver",
     "DeadLetterAction",
     "DeadLetterActionResult",
@@ -35,7 +42,10 @@ __all__ = [
     "PermanentMessageError",
     "RedisStreamConsumer",
     "RedisStreamConsumerConfig",
+    "SafeStreamTrimmer",
     "StreamLeaseLostError",
     "StreamMessage",
     "StreamMessageHandler",
+    "StreamTrimPlan",
+    "StreamTrimResult",
 ]
