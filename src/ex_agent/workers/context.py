@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from wsgiref.simple_server import WSGIServer
 
@@ -36,6 +37,14 @@ class WorkerContext:
     _graphs: list[Any]
     _readiness: ReadinessState
     _metrics_server: WSGIServer | None
+    _command_stream_consumer: RedisStreamConsumer | None
+    _executor_stream_consumer: RedisStreamConsumer | None
+    _runtime_tasks: set[asyncio.Task[None]]
+    _run_task: asyncio.Task[None] | None
+    _stop_requested: asyncio.Event
+    _stopped: asyncio.Event
+    _shutdown_lock: asyncio.Lock
+    _running: bool
 
     def _command_consumer(
         self,

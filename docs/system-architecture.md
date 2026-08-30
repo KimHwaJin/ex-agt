@@ -106,6 +106,11 @@ API lifespan에서 workflow consumer와 Executor event subscriber를 background 
 - Pod 종료 시 새 command claim을 멈추고 in-flight graph node를 bounded drain한다.
 - drain deadline을 넘긴 node는 checkpoint/idempotency를 통해 다른 Pod가 복구한다.
 
+Worker entrypoint는 `SIGTERM`과 `SIGINT`를 asyncio 종료 event로 변환한다. 종료
+event가 들어오면 readiness를 먼저 `stopping`으로 전환하고 command/Executor event
+consumer, outbox relay와 metrics loop에 중단을 전파한다. grace deadline을 넘긴
+task만 취소하며 ACK되지 않은 Stream message는 PEL reclaim으로 복구한다.
+
 ### Same-Pod에서 감수할 제약
 
 - API 트래픽과 Agent 처리량을 독립적으로 autoscale할 수 없다.

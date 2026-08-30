@@ -67,6 +67,28 @@ readinessProbe:
 Worker는 port만 `8011`로 바꾸고 `startupProbe` 또는 최소 20초의 초기 유예를
 둔다. Compose에도 같은 `/readyz` healthcheck가 설정되어 있다.
 
+## Worker 종료 계약
+
+Worker는 `SIGTERM` 또는 `SIGINT`를 받으면 즉시 readiness를 `503`과
+`error=stopping`으로 전환해 새 traffic에서 제외한다. 이후 새 Redis Stream
+message claim을 중단하고 진행 중 handler를 bounded drain한다. outbox와 metrics
+loop도 새 iteration을 시작하지 않는다.
+
+```yaml
+spec:
+  terminationGracePeriodSeconds: 30
+  containers:
+    - name: agent-worker
+      env:
+        - name: WORKER_SHUTDOWN_GRACE_SECONDS
+          value: "25"
+```
+
+`terminationGracePeriodSeconds`는 `WORKER_SHUTDOWN_GRACE_SECONDS`보다 크게 두어
+checkpoint pool, Redis, HTTP client와 metrics server를 닫을 시간을 남긴다. grace
+초과 시 runtime task를 취소하지만 메시지를 ACK하지 않으므로 claim idle 이후 다른
+Worker가 복구한다. liveness는 프로세스가 실제 종료될 때까지 유지된다.
+
 설정 가능한 환경 변수:
 
 | 환경 변수 | 기본값 | 의미 |
@@ -74,6 +96,7 @@ Worker는 port만 `8011`로 바꾸고 `startupProbe` 또는 최소 20초의 초�
 | `READINESS_PROBE_TIMEOUT_SECONDS` | 2 | 개별 DB/Redis probe timeout |
 | `WORKER_METRICS_REFRESH_SECONDS` | 10 | Worker snapshot 갱신 주기 |
 | `WORKER_READINESS_STALE_SECONDS` | 30 | Worker snapshot 최대 허용 나이 |
+| `WORKER_SHUTDOWN_GRACE_SECONDS` | 25 | 종료 시 in-flight drain 상한 |
 
 stale 기준은 갱신 주기보다 반드시 커야 한다.
 

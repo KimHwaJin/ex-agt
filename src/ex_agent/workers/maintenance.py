@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 class WorkerMaintenance(WorkerContext):
     async def _metrics_loop(self) -> None:
-        while True:
+        while not self._stop_requested.is_set():
             try:
                 readiness = await probe_dependencies(
                     self._engine,
@@ -33,6 +33,8 @@ class WorkerMaintenance(WorkerContext):
                         self._settings.readiness_probe_timeout_seconds
                     ),
                 )
+                if self._stop_requested.is_set():
+                    return
                 self._readiness.update(readiness)
                 record_readiness("worker", readiness)
                 if readiness.ready:
@@ -40,7 +42,10 @@ class WorkerMaintenance(WorkerContext):
             except Exception:
                 logger.exception("Runtime metrics collection failed")
                 WORKER_RETRIES.labels(component="metrics").inc()
-            await asyncio.sleep(self._settings.worker_metrics_refresh_seconds)
+            if await self._wait_for_stop(
+                self._settings.worker_metrics_refresh_seconds
+            ):
+                return
 
     async def _collect_runtime_metrics(self) -> None:
         update_database_pool_metrics("worker", self._engine)
@@ -92,7 +97,7 @@ class WorkerMaintenance(WorkerContext):
     async def _outbox_loop(self) -> None:
         retry_delay = self._settings.worker_retry_initial_seconds
         poll_milliseconds = self._settings.outbox_poll_milliseconds
-        while True:
+        while not self._stop_requested.is_set():
             started_at = perf_counter()
             try:
                 published = await self._publisher.publish_pending()
@@ -108,12 +113,24 @@ class WorkerMaintenance(WorkerContext):
             except Exception:
                 logger.exception("Outbox relay iteration failed")
                 WORKER_RETRIES.labels(component="outbox").inc()
-                await asyncio.sleep(retry_delay)
+                if await self._wait_for_stop(retry_delay):
+                    return
                 retry_delay = self._next_retry_delay(retry_delay)
                 continue
             finally:
                 OUTBOX_RELAY_SECONDS.observe(perf_counter() - started_at)
-            await asyncio.sleep(poll_milliseconds / 1000)
+            if await self._wait_for_stop(poll_milliseconds / 1000):
+                return
+
+    async def _wait_for_stop(self, timeout_seconds: float) -> bool:
+        try:
+            await asyncio.wait_for(
+                self._stop_requested.wait(),
+                timeout=timeout_seconds,
+            )
+        except TimeoutError:
+            return False
+        return True
 
     def _next_retry_delay(self, current: float) -> float:
         return min(current * 2, self._settings.worker_retry_max_seconds)

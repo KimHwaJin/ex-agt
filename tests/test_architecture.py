@@ -134,6 +134,7 @@ def test_workflow_node_facade_covers_every_registered_node() -> None:
 def test_worker_facade_preserves_runtime_contract() -> None:
     required = {
         "run",
+        "shutdown",
         "close",
         "_command_consumer",
         "_executor_event_consumer",

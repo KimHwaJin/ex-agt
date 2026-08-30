@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 from uuid import UUID, uuid4
 from wsgiref.simple_server import WSGIServer
@@ -86,6 +87,15 @@ class WorkflowWorker(
         self._graphs: list[Any] = []
         self._readiness = ReadinessState()
         self._metrics_server: WSGIServer | None = None
+        self._command_stream_consumer = None
+        self._executor_stream_consumer = None
+        self._runtime_tasks: set[asyncio.Task[None]] = set()
+        self._run_task: asyncio.Task[None] | None = None
+        self._stop_requested = asyncio.Event()
+        self._stopped = asyncio.Event()
+        self._stopped.set()
+        self._shutdown_lock = asyncio.Lock()
+        self._running = False
         record_readiness("worker", ReadinessResult.starting())
 
 

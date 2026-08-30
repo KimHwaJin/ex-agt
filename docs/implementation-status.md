@@ -39,6 +39,9 @@
   malformed envelope DLQ, pending 없는 idle consumer GC, grace period 기반 drain과
   취소 복구를 지원한다. 단일 파일 standalone import도 회귀 테스트로 보장한다.
   실행 binding보다 먼저 도착한 event는 ACK하지 않고 binding 생성 후 재claim한다.
+- Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
+  먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
+  뒤 DB/Redis/HTTP/metrics 자원을 닫는다.
 - application workflow state를 LangGraph adapter 밖으로 이동해
   `application → graph` 역의존을 제거했다. Worker command/event processor와
   Stream handler, FastAPI container/router, LLM factory와

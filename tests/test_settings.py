@@ -18,3 +18,8 @@ def test_outbox_active_poll_does_not_exceed_idle_poll() -> None:
             outbox_poll_milliseconds=1000,
             outbox_idle_max_milliseconds=500,
         )
+
+
+def test_worker_shutdown_grace_is_bounded() -> None:
+    with pytest.raises(ValidationError, match="less than or equal to 300"):
+        Settings(worker_shutdown_grace_seconds=301)
