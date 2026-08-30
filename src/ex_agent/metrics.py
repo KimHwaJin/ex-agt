@@ -70,6 +70,11 @@ REDIS_STREAM_LAG = Gauge(
     "Redis Stream consumer group lag by logical stream.",
     ["stream"],
 )
+REDIS_DEAD_LETTERED = Counter(
+    "ex_agent_redis_dead_lettered_total",
+    "Redis Stream records moved to a dead-letter stream.",
+    ["stream"],
+)
 CHECKPOINT_POOL = Gauge(
     "ex_agent_checkpoint_pool",
     "LangGraph checkpoint pool values.",

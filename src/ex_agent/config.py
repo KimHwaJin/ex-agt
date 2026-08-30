@@ -29,10 +29,12 @@ class Settings(BaseSettings):
     agent_redis_url: str = "redis://127.0.0.1:56379/0"
     agent_command_stream: str = "agent.commands"
     agent_command_consumer_group: str = "agent-workflow-workers-v1"
+    agent_command_dead_letter_stream: str = "agent.commands.dlq"
     agent_product_event_stream: str = "agent.product-events"
     agent_product_event_channel_prefix: str = "agent.task-events"
     executor_event_stream: str = "executor.events"
     executor_event_consumer_group: str = "agent-executor-events-v1"
+    executor_event_dead_letter_stream: str = "executor.events.agent-dlq"
 
     executor_base_url: str = "http://127.0.0.1:8000/api/v1"
     executor_shared_storage_root: Path = Path("./shared_dir")
@@ -84,6 +86,11 @@ class Settings(BaseSettings):
 
     command_block_milliseconds: int = Field(default=5000, ge=100)
     command_claim_idle_milliseconds: int = Field(default=30000, ge=1000)
+    stream_claim_batch_size: int = Field(default=10, ge=1, le=1000)
+    consumer_gc_idle_milliseconds: int = Field(
+        default=86400000,
+        ge=60000,
+    )
     worker_instance_id: str | None = Field(default=None, max_length=128)
     worker_command_concurrency: int = Field(default=4, ge=1, le=64)
     worker_executor_event_concurrency: int = Field(default=8, ge=1, le=64)

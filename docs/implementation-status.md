@@ -34,6 +34,15 @@
 - Executor event는 서로 다른 Execution을 bounded concurrency로 처리하고 같은
   `execution_id`는 분산 락과 Stream lease로 직렬화한다. transport 장애에는
   지수 backoff를 적용하며 실패 event는 ACK하지 않고 재claim한다.
+- Redis Stream 소비 런타임을 Agent/LangGraph와 분리했다. command와 Executor
+  event가 같은 공개 consumer contract를 사용하며 cursor 기반 batch reclaim,
+  malformed envelope DLQ, pending 없는 idle consumer GC를 지원한다. 실행 binding
+  보다 먼저 도착한 event는 ACK하지 않고 binding 생성 후 재claim한다.
+- application workflow state를 LangGraph adapter 밖으로 이동해
+  `application → graph` 역의존을 제거했다. Worker command/event processor와
+  Stream handler, FastAPI container/router, LLM factory, delivery/catalog/audit
+  repository를 기능 단위 모듈로 분리하면서 기존 공개 import façade를 유지한다.
+  architecture test가 domain 순수성과 금지된 package 의존을 검사한다.
 - API/Worker Prometheus endpoint와 API 동시 요청 부하 스크립트가 있으며,
   active slot, 처리시간, retry, DB outbox backlog, Redis pending/lag와 checkpoint
   pool 상태를 관측한다.
@@ -92,6 +101,6 @@
 - Workflow 승격 command/API와 승격 권한 정책
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
-- 종료된 Worker의 pending 없는 Redis consumer metadata 안전 GC 정책
+- Redis Stream 보존기간과 모든 consumer group을 고려한 safe trim 정책
 - pgvector ANN index와 Workflow risk 사전 계산은
   `docs/performance-backlog.md`의 benchmark 선행 작업으로 관리

@@ -64,7 +64,14 @@ def _worker(redis: FakeLockRedis) -> Any:
     worker: Any = WorkflowWorker.__new__(WorkflowWorker)
     worker._settings = Settings(worker_metrics_enabled=False)
     worker._redis = redis
+    worker._consumer = "worker-test"
     return worker
+
+
+class MissingBindingRepository:
+    async def binding_for_execution(self, execution_id: UUID) -> None:
+        del execution_id
+        return None
 
 
 @pytest.mark.asyncio
@@ -77,13 +84,11 @@ async def test_different_executions_are_processed_concurrently() -> None:
 
     async def process(
         stream: str,
-        group: str,
-        message_id: str,
         event: ExecutorEvent,
         *,
         catch_up: bool = False,
-    ) -> None:
-        del stream, group, message_id, event, catch_up
+    ) -> bool:
+        del stream, event, catch_up
         nonlocal active, maximum_active
         active += 1
         maximum_active = max(maximum_active, active)
@@ -93,6 +98,7 @@ async def test_different_executions_are_processed_concurrently() -> None:
             await release.wait()
         finally:
             active -= 1
+        return True
 
     worker._process_executor_event = process
     tasks = [
@@ -124,17 +130,16 @@ async def test_same_execution_is_serialized_by_lock() -> None:
 
     async def process(
         stream: str,
-        group: str,
-        message_id: str,
         event: ExecutorEvent,
         *,
         catch_up: bool = False,
-    ) -> None:
-        del stream, group, message_id, event, catch_up
+    ) -> bool:
+        del stream, event, catch_up
         nonlocal calls
         calls += 1
         started.set()
         await release.wait()
+        return True
 
     worker._process_executor_event = process
     first = asyncio.create_task(
@@ -167,16 +172,32 @@ async def test_failed_executor_event_stays_pending_and_releases_lock() -> None:
 
     async def process(
         stream: str,
-        group: str,
-        message_id: str,
         event: ExecutorEvent,
         *,
         catch_up: bool = False,
-    ) -> None:
-        del stream, group, message_id, event, catch_up
+    ) -> bool:
+        del stream, event, catch_up
         raise RuntimeError("temporary database outage")
 
     worker._process_executor_event = process
+    await worker._handle_executor_event(
+        "consumer-1",
+        "executor.events",
+        "group",
+        "1-0",
+        _event_fields(uuid4()),
+    )
+
+    assert redis.acknowledged == []
+    assert redis.locks == {}
+
+
+@pytest.mark.asyncio
+async def test_event_before_binding_stays_pending_for_reclaim() -> None:
+    redis = FakeLockRedis()
+    worker = _worker(redis)
+    worker._repository = MissingBindingRepository()
+
     await worker._handle_executor_event(
         "consumer-1",
         "executor.events",

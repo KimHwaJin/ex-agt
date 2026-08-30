@@ -5,7 +5,7 @@ import pytest
 from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from ex_agent.config import Settings
-from ex_agent.models import (
+from ex_agent.llm.factory import (
     DeterministicHashEmbeddings,
     build_chat_model,
     build_embeddings,
@@ -21,7 +21,7 @@ def test_chat_model_uses_internal_vllm(monkeypatch: Any) -> None:
         return fake
 
     monkeypatch.setattr(
-        "ex_agent.models.init_chat_model",
+        "ex_agent.llm.factory.init_chat_model",
         fake_init_chat_model,
     )
 
@@ -60,7 +60,7 @@ def test_openai_embeddings_remain_configurable(monkeypatch: Any) -> None:
         return sentinel
 
     monkeypatch.setattr(
-        "ex_agent.models.OpenAIEmbeddings",
+        "ex_agent.llm.factory.OpenAIEmbeddings",
         fake_embeddings,
     )
 

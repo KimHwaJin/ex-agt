@@ -60,7 +60,8 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 
 [tool.ruff.lint.per-file-ignores]
 "migrations/versions/*.py" = ["E501"]
-"src/ex_agent/api/app.py" = ["B008"]
+"src/ex_agent/api/*.py" = ["B008"]
+"src/ex_agent/api/**/*.py" = ["B008"]
 
 [tool.ty.environment]
 python-version = "3.12"

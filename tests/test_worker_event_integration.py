@@ -346,3 +346,78 @@ async def test_stale_event_catches_up_to_latest_executor_history() -> None:
             settings.agent_command_stream,
         )
         await worker.close()
+
+
+@pytest.mark.redis
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_event_arriving_before_binding_is_not_acknowledged() -> None:
+    worker = WorkflowWorker(_settings(uuid4()))
+    settings = worker._settings
+    execution_id = uuid4()
+    event = _event(execution_id, 1, "execution.started")
+
+    async def events_after(
+        requested_execution_id: UUID,
+        *,
+        after_sequence: int,
+        limit: int,
+    ) -> list[ExecutorEvent]:
+        assert requested_execution_id == execution_id
+        assert after_sequence == 0
+        assert limit == 500
+        return [event]
+
+    executor = cast(Any, worker._executor)
+    executor.events_after = cast(
+        Callable[..., Awaitable[list[ExecutorEvent]]],
+        events_after,
+    )
+    try:
+        await worker._ensure_group(
+            settings.executor_event_stream,
+            settings.executor_event_consumer_group,
+        )
+        await _publish(worker, event)
+        message_id, fields = await _read_one(
+            worker,
+            "binding-race-consumer",
+        )
+
+        await worker._handle_executor_event(
+            "binding-race-consumer",
+            settings.executor_event_stream,
+            settings.executor_event_consumer_group,
+            message_id,
+            fields,
+        )
+
+        pending = await worker._redis.xpending(
+            settings.executor_event_stream,
+            settings.executor_event_consumer_group,
+        )
+        assert pending["pending"] == 1
+
+        task_id = await _create_bound_task(worker, execution_id)
+        await worker._handle_executor_event(
+            "binding-race-consumer",
+            settings.executor_event_stream,
+            settings.executor_event_consumer_group,
+            message_id,
+            fields,
+            catch_up=True,
+        )
+
+        pending = await worker._redis.xpending(
+            settings.executor_event_stream,
+            settings.executor_event_consumer_group,
+        )
+        binding = await worker._repository.binding_for_task(task_id)
+        assert pending["pending"] == 0
+        assert binding.last_event_sequence == 1
+    finally:
+        await worker._redis.delete(
+            settings.executor_event_stream,
+            settings.agent_command_stream,
+        )
+        await worker.close()
