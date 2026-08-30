@@ -147,6 +147,38 @@ catch-up하도록 변경한 뒤 62.1초로 줄었다(59.6% 감소). 이 값에�
 20초 Worker 중단, 30초 claim idle, 성공 리포트 모델 호출 시간이 포함된다.
 같은 실행의 Redis pending event는 검증 종료 후 0건이었다.
 
+Redis와 PostgreSQL의 실제 outage 복구는 다음 스크립트로 검증한다. 실행 중인
+Compose 서비스를 순서대로 중단하므로 격리된 검증 환경에서만 실행한다.
+
+```bash
+uv run --no-sync python scripts/live_dependency_outage_e2e.py \
+  --scenario all \
+  --output /tmp/ex-agent-dependency-outage-e2e.json
+```
+
+`--scenario`에는 `redis`, `postgres`, `all`을 사용할 수 있다. 각 시나리오는
+Executor가 실행 중일 때 의존 서비스를 중단하고 다음 계약을 확인한다.
+
+- 같은 Task와 `execution_id`가 성공 상태까지 복원됨
+- Executor binding과 `task.completed` event가 각각 정확히 1개임
+- 단일 Operation의 Executor 완료 경계가 중복 없이 2개 저장됨
+- 완료 전 Session lock이 유지되고 완료 후 해제됨
+- 동일 Session의 후속 일반 질의가 성공함
+- Executor consumer group의 pending event가 최종 0건임
+
+2026-08-30 실제 qwen/Executor/Jupyter 환경에서 20초 설정으로 측정한 결과는
+다음과 같다. outage 시간에는 Compose stop/start 및 health 확인 시간이 포함된다.
+
+| 장애 대상 | 실제 outage | 재가동 후 Task 복구 | 전체 복구 |
+|---|---:|---:|---:|
+| Redis | 22.2초 | 16.7초 | 38.9초 |
+| PostgreSQL | 21.6초 | 16.2초 | 37.7초 |
+
+두 경우 모두 Agent와 Executor는 `SUCCEEDED`였고, 중복 binding/완료 event,
+Session lock 누수, Redis pending event는 없었다. PostgreSQL 중단 중 발생한
+SQLAlchemy와 LangGraph checkpointer 연결 오류는 Worker 재시도 경로로
+회수됐으며 프로세스를 재시작하지 않고 복구됐다.
+
 4번과 5번 및 서로 다른 Execution의 실제 병렬 처리는 다음 Compose 테스트가
 Redis consumer group/lock/ACK와 PostgreSQL binding/inbox를 함께 사용해 검증한다.
 

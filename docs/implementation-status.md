@@ -68,6 +68,10 @@
   lock 유지, Executor terminal event 복원, 성공 리포트와 lock 해제를
   검증했다. stale event 재claim 시 Executor history 최신 sequence까지 한 번에
   catch-up해 실행 단계 복구 지연을 153.6초에서 62.1초로 줄였다.
+- 실제 실행 중 Redis와 PostgreSQL을 각각 중단하고 재가동하는 장애 주입에서
+  프로세스 재시작 없이 동일 Task/Execution 복구, Session lock 유지·해제,
+  중복 방지와 pending event 해소를 검증했다. 20초 설정 기준 재가동 후
+  성공까지 Redis 16.7초, PostgreSQL 16.2초가 걸렸다.
 
 ## 다음 구현 범위
 
@@ -75,6 +79,7 @@
 - Workflow 승격 command/API와 승격 권한 정책
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
-- 다중 worker 장애 주입, 장기 실행, Redis/PostgreSQL outage recovery 테스트
+- 다중 Worker 장애 주입과 장기 실행 soak 테스트
+- API/Worker dependency-aware readiness endpoint와 장애 알림 기준
 - pgvector ANN index와 Workflow risk 사전 계산은
   `docs/performance-backlog.md`의 benchmark 선행 작업으로 관리
