@@ -64,6 +64,10 @@
 - Executor result manifest와 representation은 shared root 이탈, identity,
   complete flag, size와 SHA-256을 검증한 뒤 bounded preview만 모델 계획과
   리포트 증거에 전달한다. 파일 읽기는 event loop 밖에서 수행한다.
+- 실제 Worker `SIGKILL` 장애 주입에서 계획 command 복원, 실행 중 Session
+  lock 유지, Executor terminal event 복원, 성공 리포트와 lock 해제를
+  검증했다. stale event 재claim 시 Executor history 최신 sequence까지 한 번에
+  catch-up해 실행 단계 복구 지연을 153.6초에서 62.1초로 줄였다.
 
 ## 다음 구현 범위
 

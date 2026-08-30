@@ -80,8 +80,10 @@ async def test_different_executions_are_processed_concurrently() -> None:
         group: str,
         message_id: str,
         event: ExecutorEvent,
+        *,
+        catch_up: bool = False,
     ) -> None:
-        del stream, group, message_id, event
+        del stream, group, message_id, event, catch_up
         nonlocal active, maximum_active
         active += 1
         maximum_active = max(maximum_active, active)
@@ -125,8 +127,10 @@ async def test_same_execution_is_serialized_by_lock() -> None:
         group: str,
         message_id: str,
         event: ExecutorEvent,
+        *,
+        catch_up: bool = False,
     ) -> None:
-        del stream, group, message_id, event
+        del stream, group, message_id, event, catch_up
         nonlocal calls
         calls += 1
         started.set()
@@ -166,8 +170,10 @@ async def test_failed_executor_event_stays_pending_and_releases_lock() -> None:
         group: str,
         message_id: str,
         event: ExecutorEvent,
+        *,
+        catch_up: bool = False,
     ) -> None:
-        del stream, group, message_id, event
+        del stream, group, message_id, event, catch_up
         raise RuntimeError("temporary database outage")
 
     worker._process_executor_event = process

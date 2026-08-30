@@ -259,6 +259,7 @@ async def test_real_stream_recovers_reverse_order_and_deduplicates() -> None:
             event
             for event in events
             if event.event_type.startswith("execution.")
+            or event.event_type == "executor.boundary_received"
         ]
         pending = await worker._redis.xpending(
             settings.executor_event_stream,
@@ -274,6 +275,71 @@ async def test_real_stream_recovers_reverse_order_and_deduplicates() -> None:
             event.payload["event_sequence"] for event in executor_events
         ] == [1, 2]
         assert pending["pending"] == 0
+    finally:
+        await worker._redis.delete(
+            settings.executor_event_stream,
+            settings.agent_command_stream,
+        )
+        await worker.close()
+
+
+@pytest.mark.redis
+@pytest.mark.postgres
+@pytest.mark.asyncio
+async def test_stale_event_catches_up_to_latest_executor_history() -> None:
+    worker = WorkflowWorker(_settings(uuid4()))
+    settings = worker._settings
+    execution_id = uuid4()
+    first = _event(execution_id, 1, "execution.started")
+    second = _event(execution_id, 2, "execution.operation_completed")
+    terminal = _event(execution_id, 3, "execution.completed")
+    history_calls: list[tuple[UUID, int, int]] = []
+
+    async def events_after(
+        requested_execution_id: UUID,
+        *,
+        after_sequence: int,
+        limit: int,
+    ) -> list[ExecutorEvent]:
+        history_calls.append((requested_execution_id, after_sequence, limit))
+        return [first, second, terminal]
+
+    executor = cast(Any, worker._executor)
+    executor.events_after = cast(
+        Callable[..., Awaitable[list[ExecutorEvent]]],
+        events_after,
+    )
+    try:
+        await worker._ensure_group(
+            settings.executor_event_stream,
+            settings.executor_event_consumer_group,
+        )
+        task_id = await _create_bound_task(worker, execution_id)
+        await _publish(worker, first)
+        message_id, fields = await _read_one(worker, "stale-consumer")
+
+        await worker._handle_executor_event(
+            "stale-consumer",
+            settings.executor_event_stream,
+            settings.executor_event_consumer_group,
+            message_id,
+            fields,
+            catch_up=True,
+        )
+
+        binding = await worker._repository.binding_for_task(task_id)
+        events = await worker._repository.events_after(task_id, 0)
+        executor_events = [
+            event
+            for event in events
+            if event.event_type.startswith("execution.")
+            or event.event_type == "executor.boundary_received"
+        ]
+        assert history_calls == [(execution_id, 0, 500)]
+        assert binding.last_event_sequence == 3
+        assert [
+            event.payload["event_sequence"] for event in executor_events
+        ] == [1, 2, 3]
     finally:
         await worker._redis.delete(
             settings.executor_event_stream,

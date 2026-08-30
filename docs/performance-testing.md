@@ -123,6 +123,30 @@ ACK하지 않으며 idle timeout 이후 다른 event consumer가 다시 claim한
 `execution_id`는 Redis lock으로 직렬화되고 sequence gap은 Executor REST history로
 복구한다.
 
+실제 Worker 재시작 복구는 다음 스크립트로 검증한다. 개발 Compose의 Worker를
+두 차례 `SIGKILL`하므로 격리된 검증 환경에서만 실행한다.
+
+```bash
+uv run --no-sync python scripts/live_worker_restart_e2e.py \
+  --output /tmp/ex-agent-worker-restart-e2e.json
+```
+
+스크립트는 계획 생성 중 Worker를 종료해 동일 Task가 승인 대기 상태로
+복원되는지 확인한다. 이어서 Executor 실행 중 Worker를 다시 종료하고 다음을
+검증한다.
+
+- 실행 중인 Session의 새 Task 요청이 `409` 또는 `423`으로 거절됨
+- Worker가 없는 동안 완료된 Executor event가 재시작 후 동일 Task에 반영됨
+- Agent Task와 Executor가 모두 `SUCCEEDED`로 종료됨
+- 성공 리포트 완료 후 Session lock이 해제되어 후속 일반 질의가 성공함
+
+2026-08-30 실제 qwen/Executor/Jupyter 환경 측정에서 stale event를 하나씩
+30초 간격으로 처리하던 기준 구현은 실행 단계 복구에 153.6초가 걸렸다.
+재claim된 첫 event에서 Executor REST history의 최신 sequence까지 한 번에
+catch-up하도록 변경한 뒤 62.1초로 줄었다(59.6% 감소). 이 값에는 의도적인
+20초 Worker 중단, 30초 claim idle, 성공 리포트 모델 호출 시간이 포함된다.
+같은 실행의 Redis pending event는 검증 종료 후 0건이었다.
+
 4번과 5번 및 서로 다른 Execution의 실제 병렬 처리는 다음 Compose 테스트가
 Redis consumer group/lock/ACK와 PostgreSQL binding/inbox를 함께 사용해 검증한다.
 

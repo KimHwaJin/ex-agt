@@ -633,6 +633,7 @@ class WorkflowWorker:
                         group,
                         message_id,
                         fields,
+                        catch_up=True,
                     )
                     retry_delay = self._settings.worker_retry_initial_seconds
                     continue
@@ -689,6 +690,8 @@ class WorkflowWorker:
         group: str,
         message_id: str,
         fields: dict[str, str],
+        *,
+        catch_up: bool = False,
     ) -> None:
         event = ExecutorEvent.from_redis(fields)
         lock_key = f"agent:execution-lock:{event.execution_id}"
@@ -730,6 +733,7 @@ class WorkflowWorker:
                     group,
                     message_id,
                     event,
+                    catch_up=catch_up,
                 )
             )
             done, _ = await asyncio.wait(
@@ -781,6 +785,8 @@ class WorkflowWorker:
         group: str,
         message_id: str,
         event: ExecutorEvent,
+        *,
+        catch_up: bool = False,
     ) -> None:
         binding = await self._repository.binding_for_execution(
             event.execution_id
@@ -789,7 +795,17 @@ class WorkflowWorker:
             await self._redis.xack(stream, group, message_id)
             return
         history: list[ExecutorEvent] = []
-        if event.event_sequence > binding.last_event_sequence + 1:
+        if catch_up:
+            history = await self._executor.events_after(
+                event.execution_id,
+                after_sequence=binding.last_event_sequence,
+                limit=500,
+            )
+            event = max(
+                [event, *history],
+                key=lambda item: item.event_sequence,
+            )
+        elif event.event_sequence > binding.last_event_sequence + 1:
             history = await self._executor.events_after(
                 event.execution_id,
                 after_sequence=binding.last_event_sequence,
