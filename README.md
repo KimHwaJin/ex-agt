@@ -34,6 +34,8 @@ Liveness/readiness 계약과 Prometheus 경보 기준은
 [Reusable Redis Stream Consumer](docs/redis-stream-consumer.md)를 참고한다.
 현재 모듈 경계와 허용 import 방향은
 [Project Structure](docs/project-structure.md)를 참고한다.
+공통 audit 필드, cursor pagination과 OpenAPI 규칙은
+[API Conventions](docs/api-conventions.md)를 참고한다.
 
 결정론적 전체 수명주기 benchmark 예시:
 

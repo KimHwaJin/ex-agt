@@ -56,6 +56,8 @@ class FakeWorkflowLifecycle:
             required_permission=None,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
+            created_by="owner",
+            updated_by="owner",
         )
 
     async def versions(
@@ -78,6 +80,7 @@ class FakeWorkflowLifecycle:
         return WorkflowVersionPage(
             items=[],
             next_cursor="next-page" if cursor is None else None,
+            has_more=cursor is None,
         )
 
     async def version_detail(
@@ -110,7 +113,11 @@ class FakeWorkflowLifecycle:
             cursor=cursor,
             limit=limit,
         )
-        return WorkflowLifecycleActionPage(items=[], next_cursor=None)
+        return WorkflowLifecycleActionPage(
+            items=[],
+            next_cursor=None,
+            has_more=False,
+        )
 
     async def update_status(
         self,
@@ -182,6 +189,8 @@ def test_workflow_overview_requires_and_forwards_bff_identity() -> None:
     assert unauthorized.status_code == 401
     assert response.status_code == 200
     assert response.json()["latest_version"] == 2
+    assert response.json()["created_by"] == "owner"
+    assert response.json()["updated_by"] == "owner"
     assert lifecycle.calls[-1] == (
         "overview",
         {"workflow_id": workflow_id, "actor_user_id": "owner"},
@@ -211,8 +220,10 @@ def test_workflow_versions_forward_cursor_and_validate_limit() -> None:
 
     assert first.status_code == 200
     assert first.json()["next_cursor"] == "next-page"
+    assert first.json()["has_more"] is True
     assert second.status_code == 200
     assert second.json()["next_cursor"] is None
+    assert second.json()["has_more"] is False
     assert invalid_limit.status_code == 422
     assert lifecycle.calls[-1][1]["cursor"] == "next-page"
 

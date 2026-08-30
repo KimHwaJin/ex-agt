@@ -5,6 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 
 from ex_agent.api.container import ApiContainer, api_container, current_user
+from ex_agent.api.contracts import error_responses
 from ex_agent.api.routers.tasks import owned_task
 from ex_agent.application.promotions import (
     WorkflowPromotionForbiddenError,
@@ -21,11 +22,15 @@ from ex_agent.persistence.repositories.promotions import (
 
 
 def promotion_router() -> APIRouter:
-    router = APIRouter(prefix="/api/v1")
+    router = APIRouter(
+        prefix="/api/v1",
+        responses=error_responses(401, 403, 404, 409, 422),
+    )
 
     @router.get(
         "/tasks/{task_id}/workflow-promotion-draft",
         response_model=WorkflowPromotionDraft,
+        operation_id="getWorkflowPromotionDraft",
     )
     async def promotion_draft(
         task_id: UUID,
@@ -47,6 +52,7 @@ def promotion_router() -> APIRouter:
         "/tasks/{task_id}/workflow-promotions",
         response_model=WorkflowPromotionResult,
         status_code=201,
+        operation_id="promoteWorkflow",
     )
     async def promote_workflow(
         task_id: UUID,
