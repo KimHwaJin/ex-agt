@@ -53,6 +53,9 @@
   façade로 축소했으며 Graph가 사용하는 20개 service 메서드 계약을 유지한다.
   `WorkflowNodes`도 대화, 계획, 실행, 종료 node group으로 분리하되 façade와
   31개 node 이름, state partial update 및 기존 edge 구성을 유지한다.
+  `WorkflowWorker`는 dependency 조립만 담당하고 lifecycle, Redis consumer
+  구성, outbox/readiness/metrics maintenance, handler 호환 메서드는 전용 worker
+  모듈이 담당한다. 기존 worker runtime 메서드 계약은 façade가 유지한다.
   architecture test가 domain 순수성과 금지된 package 의존을 검사한다.
 - API/Worker Prometheus endpoint와 API 동시 요청 부하 스크립트가 있으며,
   active slot, 처리시간, retry, DB outbox backlog, Redis pending/lag와 checkpoint

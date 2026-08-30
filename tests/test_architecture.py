@@ -10,6 +10,7 @@ from ex_agent.application.ports import (
 )
 from ex_agent.application.services import DefaultWorkflowServices
 from ex_agent.graph.nodes import WorkflowNodes
+from ex_agent.worker import WorkflowWorker
 
 _PACKAGE_ROOT = Path(__file__).parents[1] / "src" / "ex_agent"
 _FORBIDDEN_PACKAGE_EDGES = {
@@ -103,4 +104,37 @@ def test_workflow_node_facade_covers_every_registered_node() -> None:
     )
 
     assert len(registered) == 31
+    assert missing == []
+
+
+def test_worker_facade_preserves_runtime_contract() -> None:
+    required = {
+        "run",
+        "close",
+        "_command_consumer",
+        "_executor_event_consumer",
+        "_ensure_groups",
+        "_ensure_group",
+        "_next_retry_delay",
+        "_metrics_loop",
+        "_collect_runtime_metrics",
+        "_set_stream_metrics",
+        "_outbox_loop",
+        "_handle_command",
+        "_process_command",
+        "_run_graph_command",
+        "_run_failure_compensation",
+        "_compensate_failed_execution",
+        "_commands",
+        "_handle_executor_event",
+        "_process_executor_event",
+        "_persist_executor_event",
+        "_executor_events",
+    }
+    missing = sorted(
+        name
+        for name in required
+        if not callable(getattr(WorkflowWorker, name, None))
+    )
+
     assert missing == []
