@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from ex_agent.api.container import ApiContainer, api_container, current_user
 from ex_agent.application.promotions import (
@@ -14,10 +15,14 @@ from ex_agent.application.workflow_lifecycle import (
     WorkflowLifecycleForbiddenError,
 )
 from ex_agent.domain.contracts import (
+    WorkflowLifecycleActionPage,
     WorkflowLifecycleResult,
+    WorkflowOperationsView,
     WorkflowStatusRequest,
     WorkflowVersionActivationRequest,
     WorkflowVersionCreateRequest,
+    WorkflowVersionDetail,
+    WorkflowVersionPage,
     WorkflowVersionReviewRequest,
 )
 from ex_agent.persistence.repositories.workflow_lifecycle import (
@@ -27,6 +32,80 @@ from ex_agent.persistence.repositories.workflow_lifecycle import (
 
 def workflow_router() -> APIRouter:
     router = APIRouter(prefix="/api/v1/workflows")
+
+    @router.get(
+        "/{workflow_id}",
+        response_model=WorkflowOperationsView,
+    )
+    async def workflow_overview(
+        workflow_id: UUID,
+        user_id: str = Depends(current_user),
+        container: ApiContainer = Depends(api_container),
+    ) -> WorkflowOperationsView:
+        return await _translate_errors(
+            lambda: container.workflow_lifecycle.overview(
+                workflow_id,
+                actor_user_id=user_id,
+            )
+        )
+
+    @router.get(
+        "/{workflow_id}/versions",
+        response_model=WorkflowVersionPage,
+    )
+    async def workflow_versions(
+        workflow_id: UUID,
+        cursor: Annotated[str | None, Query(max_length=2048)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        user_id: str = Depends(current_user),
+        container: ApiContainer = Depends(api_container),
+    ) -> WorkflowVersionPage:
+        return await _translate_errors(
+            lambda: container.workflow_lifecycle.versions(
+                workflow_id,
+                actor_user_id=user_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        )
+
+    @router.get(
+        "/{workflow_id}/versions/{workflow_version_id}",
+        response_model=WorkflowVersionDetail,
+    )
+    async def workflow_version_detail(
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+        user_id: str = Depends(current_user),
+        container: ApiContainer = Depends(api_container),
+    ) -> WorkflowVersionDetail:
+        return await _translate_errors(
+            lambda: container.workflow_lifecycle.version_detail(
+                workflow_id,
+                workflow_version_id,
+                actor_user_id=user_id,
+            )
+        )
+
+    @router.get(
+        "/{workflow_id}/lifecycle-actions",
+        response_model=WorkflowLifecycleActionPage,
+    )
+    async def workflow_lifecycle_actions(
+        workflow_id: UUID,
+        cursor: Annotated[str | None, Query(max_length=2048)] = None,
+        limit: Annotated[int, Query(ge=1, le=100)] = 50,
+        user_id: str = Depends(current_user),
+        container: ApiContainer = Depends(api_container),
+    ) -> WorkflowLifecycleActionPage:
+        return await _translate_errors(
+            lambda: container.workflow_lifecycle.actions(
+                workflow_id,
+                actor_user_id=user_id,
+                cursor=cursor,
+                limit=limit,
+            )
+        )
 
     @router.post(
         "/{workflow_id}/versions",
@@ -108,9 +187,9 @@ def workflow_router() -> APIRouter:
     return router
 
 
-async def _translate_errors(
-    operation: Callable[[], Awaitable[WorkflowLifecycleResult]],
-) -> WorkflowLifecycleResult:
+async def _translate_errors[ResponseT](
+    operation: Callable[[], Awaitable[ResponseT]],
+) -> ResponseT:
     try:
         return await operation()
     except LookupError as error:

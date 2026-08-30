@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Annotated, Any, Literal
 from uuid import UUID
 
@@ -219,6 +220,95 @@ class WorkflowLifecycleResult(ContractModel):
     review_status: Literal["PENDING_REVIEW", "APPROVED", "REJECTED"] | None
     version_active: bool | None
     applied: bool
+
+
+class WorkflowOperationsView(ContractModel):
+    workflow_id: UUID
+    name: str
+    description: str
+    owner_user_id: str | None
+    owner_project_id: str | None
+    visibility: str
+    status: Literal["ACTIVE", "INACTIVE"]
+    latest_version: int = Field(ge=1)
+    active_workflow_version_id: UUID | None
+    active_version: int | None = Field(default=None, ge=1)
+    access_policy: dict[str, Any]
+    required_permission: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowVersionSummary(ContractModel):
+    workflow_version_id: UUID
+    workflow_id: UUID
+    version: int = Field(ge=1)
+    source_task_id: UUID | None
+    source_plan_id: UUID | None
+    source_plan_revision_id: UUID | None
+    source_execution_id: UUID | None
+    objective: str | None
+    strategy_summary: str | None
+    runtime_profile: str | None
+    tool_registry_snapshot_hash: str | None
+    embedding_model: str | None
+    embedding_dimension: int | None
+    request_examples: list[str]
+    tags: list[str]
+    promotion_policy_version: str | None
+    public_payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    promoted_by: str
+    active: bool
+    review_status: Literal["PENDING_REVIEW", "APPROVED", "REJECTED"]
+    reviewed_by: str | None
+    reviewed_at: datetime | None
+    review_reason: str | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class WorkflowStepView(ContractModel):
+    sequence: int = Field(ge=0)
+    source_plan_revision_id: UUID | None
+    skill_ref: dict[str, Any]
+    tool_ref: dict[str, Any]
+    purpose: str
+    selection_rationale: str
+    parameter_template: dict[str, Any]
+    expected_outputs: list[str]
+    validation_criteria: list[str]
+    timeout_seconds: int = Field(gt=0)
+
+
+class WorkflowVersionDetail(WorkflowVersionSummary):
+    input_contract: dict[str, dict[str, Any]]
+    output_contract: dict[str, Any]
+    plan: PlanDraft
+    steps: list[WorkflowStepView]
+
+
+class WorkflowVersionPage(ContractModel):
+    items: list[WorkflowVersionSummary]
+    next_cursor: str | None = None
+
+
+class WorkflowLifecycleActionView(ContractModel):
+    action_id: UUID
+    workflow_id: UUID
+    workflow_version_id: UUID | None
+    actor_user_id: str
+    action: str
+    idempotency_key: str
+    request_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    reason: str | None
+    policy_version: str
+    result: WorkflowLifecycleResult
+    created_at: datetime
+
+
+class WorkflowLifecycleActionPage(ContractModel):
+    items: list[WorkflowLifecycleActionView]
+    next_cursor: str | None = None
 
 
 class PlanReviewDecision(ContractModel):

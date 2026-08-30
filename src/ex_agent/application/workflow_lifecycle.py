@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Protocol
 from uuid import UUID
 
@@ -11,10 +13,14 @@ from pydantic import BaseModel
 from ex_agent.application.promotions import WorkflowPromotionService
 from ex_agent.config import Settings
 from ex_agent.domain.contracts import (
+    WorkflowLifecycleActionPage,
     WorkflowLifecycleResult,
+    WorkflowOperationsView,
     WorkflowStatusRequest,
     WorkflowVersionActivationRequest,
     WorkflowVersionCreateRequest,
+    WorkflowVersionDetail,
+    WorkflowVersionPage,
     WorkflowVersionReviewRequest,
 )
 from ex_agent.persistence.models import Workflow
@@ -82,6 +88,116 @@ class WorkflowLifecycleService:
         self._repository = repository
         self._promotions = promotions
         self._policy = policy or OwnerWorkflowLifecyclePolicy()
+
+    async def overview(
+        self,
+        workflow_id: UUID,
+        *,
+        actor_user_id: str,
+    ) -> WorkflowOperationsView:
+        await self._authorized(
+            workflow_id,
+            actor_user_id=actor_user_id,
+            operation="WORKFLOW_READ",
+        )
+        return await self._repository.workflow_operations_view(workflow_id)
+
+    async def versions(
+        self,
+        workflow_id: UUID,
+        *,
+        actor_user_id: str,
+        cursor: str | None,
+        limit: int,
+    ) -> WorkflowVersionPage:
+        await self._authorized(
+            workflow_id,
+            actor_user_id=actor_user_id,
+            operation="WORKFLOW_VERSIONS_READ",
+        )
+        before_version = None
+        if cursor is not None:
+            payload = _decode_cursor(cursor, expected_kind="version")
+            before_version = _positive_int(payload.get("version"))
+        (
+            items,
+            next_version,
+        ) = await self._repository.workflow_version_summaries(
+            workflow_id,
+            before_version=before_version,
+            limit=limit,
+        )
+        next_cursor = (
+            _encode_cursor("version", {"version": next_version})
+            if next_version is not None
+            else None
+        )
+        return WorkflowVersionPage(items=items, next_cursor=next_cursor)
+
+    async def version_detail(
+        self,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+        *,
+        actor_user_id: str,
+    ) -> WorkflowVersionDetail:
+        await self._authorized(
+            workflow_id,
+            actor_user_id=actor_user_id,
+            operation="WORKFLOW_VERSION_READ",
+        )
+        return await self._repository.workflow_version_detail(
+            workflow_id,
+            workflow_version_id,
+        )
+
+    async def actions(
+        self,
+        workflow_id: UUID,
+        *,
+        actor_user_id: str,
+        cursor: str | None,
+        limit: int,
+    ) -> WorkflowLifecycleActionPage:
+        await self._authorized(
+            workflow_id,
+            actor_user_id=actor_user_id,
+            operation="WORKFLOW_ACTIONS_READ",
+        )
+        before = None
+        if cursor is not None:
+            payload = _decode_cursor(cursor, expected_kind="action")
+            try:
+                before = (
+                    datetime.fromisoformat(str(payload["created_at"])),
+                    UUID(str(payload["action_id"])),
+                )
+            except (KeyError, TypeError, ValueError) as error:
+                raise ValueError("Invalid Workflow action cursor") from error
+            if before[0].tzinfo is None:
+                raise ValueError("Invalid Workflow action cursor")
+        (
+            items,
+            next_position,
+        ) = await self._repository.workflow_lifecycle_actions(
+            workflow_id,
+            before=before,
+            limit=limit,
+        )
+        next_cursor = None
+        if next_position is not None:
+            created_at, action_id = next_position
+            next_cursor = _encode_cursor(
+                "action",
+                {
+                    "created_at": created_at.isoformat(),
+                    "action_id": str(action_id),
+                },
+            )
+        return WorkflowLifecycleActionPage(
+            items=items,
+            next_cursor=next_cursor,
+        )
 
     async def create_version(
         self,
@@ -299,6 +415,32 @@ def _request_hash(request: BaseModel, **context: Any) -> str:
         default=str,
     ).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _encode_cursor(kind: str, payload: dict[str, Any]) -> str:
+    encoded = json.dumps(
+        {"kind": kind, **payload},
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+    return urlsafe_b64encode(encoded).decode().rstrip("=")
+
+
+def _decode_cursor(cursor: str, *, expected_kind: str) -> dict[str, Any]:
+    try:
+        padding = "=" * (-len(cursor) % 4)
+        payload = json.loads(urlsafe_b64decode(cursor + padding))
+    except (ValueError, TypeError) as error:
+        raise ValueError("Invalid Workflow pagination cursor") from error
+    if not isinstance(payload, dict) or payload.get("kind") != expected_kind:
+        raise ValueError("Invalid Workflow pagination cursor")
+    return payload
+
+
+def _positive_int(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError("Invalid Workflow version cursor")
+    return value
 
 
 __all__ = [

@@ -58,6 +58,10 @@
   `PENDING_REVIEW`로 시작하며 승인된 version만 활성화할 수 있다. Workflow owner
   정책 port, 요청 hash 기반 멱등성, 변경 사유와 결과 snapshot 감사 기록을 모든
   상태 변경에 공통 적용한다.
+- Workflow 운영 조회 API는 owner 정책을 적용해 Workflow/활성 version 요약,
+  immutable version 목록과 상세 공개 Plan·Skill/Tool·source lineage, lifecycle
+  감사 이력을 제공한다. version 번호와 `(created_at, action_id)` keyset을 불투명
+  cursor로 전달해 offset pagination 없이 안정적으로 조회한다.
 - Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
   먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
   뒤 DB/Redis/HTTP/metrics 자원을 닫는다.

@@ -12,8 +12,12 @@ from ex_agent.domain.contracts import (
     PersistedPlan,
     PlanDraft,
     WorkflowCandidate,
+    WorkflowLifecycleActionView,
     WorkflowLifecycleResult,
+    WorkflowOperationsView,
     WorkflowPromotionResult,
+    WorkflowVersionDetail,
+    WorkflowVersionSummary,
 )
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.persistence.models import (
@@ -448,6 +452,51 @@ class AgentRepository:
 
     async def lifecycle_workflow(self, workflow_id: UUID) -> Workflow:
         return await self.workflow_lifecycle.workflow(workflow_id)
+
+    async def workflow_operations_view(
+        self,
+        workflow_id: UUID,
+    ) -> WorkflowOperationsView:
+        return await self.workflow_lifecycle.overview(workflow_id)
+
+    async def workflow_version_summaries(
+        self,
+        workflow_id: UUID,
+        *,
+        before_version: int | None,
+        limit: int,
+    ) -> tuple[list[WorkflowVersionSummary], int | None]:
+        return await self.workflow_lifecycle.versions(
+            workflow_id,
+            before_version=before_version,
+            limit=limit,
+        )
+
+    async def workflow_version_detail(
+        self,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+    ) -> WorkflowVersionDetail:
+        return await self.workflow_lifecycle.version_detail(
+            workflow_id,
+            workflow_version_id,
+        )
+
+    async def workflow_lifecycle_actions(
+        self,
+        workflow_id: UUID,
+        *,
+        before: tuple[datetime, UUID] | None,
+        limit: int,
+    ) -> tuple[
+        list[WorkflowLifecycleActionView],
+        tuple[datetime, UUID] | None,
+    ]:
+        return await self.workflow_lifecycle.actions(
+            workflow_id,
+            before=before,
+            limit=limit,
+        )
 
     async def existing_workflow_lifecycle_action(
         self,
