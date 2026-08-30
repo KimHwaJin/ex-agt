@@ -132,8 +132,42 @@ class WorkflowCandidate(ContractModel):
     description: str
     score: float
     plan: PlanDraft
+    input_contract: dict[str, dict[str, Any]] = Field(default_factory=dict)
     public_payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     risk: RiskReview | None = None
+
+
+class WorkflowPromotionDraft(ContractModel):
+    task_id: UUID
+    eligible: bool
+    reason: str | None = None
+    suggested_name: str | None = Field(default=None, max_length=255)
+    suggested_description: str | None = Field(default=None, max_length=4000)
+    suggested_request_examples: list[str] = Field(default_factory=list)
+    suggested_tags: list[str] = Field(default_factory=list)
+    steps: list[PlanStepDraft] = Field(default_factory=list)
+    parameter_inputs: dict[str, dict[str, Any]] = Field(default_factory=dict)
+
+
+class WorkflowPromotionRequest(ContractModel):
+    idempotency_key: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1, max_length=255)
+    description: str = Field(min_length=1, max_length=4000)
+    request_examples: list[
+        Annotated[str, Field(min_length=1, max_length=1000)]
+    ] = Field(default_factory=list, max_length=20)
+    tags: list[Annotated[str, Field(min_length=1, max_length=128)]] = Field(
+        default_factory=list, max_length=50
+    )
+    public_parameter_defaults: dict[str, Any] = Field(default_factory=dict)
+
+
+class WorkflowPromotionResult(ContractModel):
+    workflow_id: UUID
+    workflow_version_id: UUID
+    version: int = Field(ge=1)
+    created: bool
+    public_payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class PlanReviewDecision(ContractModel):
@@ -153,6 +187,7 @@ class WorkflowSelectionDecision(ContractModel):
     workflow_version_id: UUID | None = None
     proposal_version: int = Field(ge=1)
     public_payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
+    input_values: dict[str, Any] = Field(default_factory=dict)
     risk_acknowledged: bool = False
 
 

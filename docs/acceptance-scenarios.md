@@ -100,6 +100,9 @@ Tool로 대체하지만 PostgreSQL/pgvector, Redis, Executor/Jupyter는 실제 c
 - 사용자가 확인하면 immutable Workflow version과 embedding이 저장된다.
 - 공개 version에는 원본 query, 실제 data value와 user/project/session/task 식별자가 남지 않는다.
 - CUSTOM_CODE Plan은 초기 버전에서 승격할 수 없다.
+- 동일 idempotency key 재요청은 중복 Workflow를 만들지 않는다.
+- 원본 parameter는 Workflow 입력 placeholder가 되고 사용자가 명시한 공개 기본값만
+  version에 남는다.
 
 ## 7. 완료 품질 게이트
 

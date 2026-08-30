@@ -131,6 +131,7 @@ class PlanningNodes(WorkflowNodeGroup):
                 if signal.workflow_version_id
                 else ""
             ),
+            "workflow_input_values": signal.input_values,
             "execution_mode": (
                 ExecutionMode.SINGLE
                 if signal.workflow_version_id

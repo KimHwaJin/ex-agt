@@ -48,6 +48,11 @@
 - Redis Stream safe trim 모듈과 dry-run/실행 CLI를 제공한다. 보존기간, 최근
   최소 entry 수, 모든 group의 진행 ID와 가장 오래된 pending ID 중 가장 보수적인
   경계를 Lua 안에서 다시 계산하고 exact trim까지 원자적으로 수행한다.
+- 성공한 Tool-only Task를 서비스 공개 Workflow v1으로 승격하는 draft/confirm API와
+  versioned 정책 port를 제공한다. Executor 성공 경계에서 검증된 SINGLE/MULTI Step만
+  추적하고, CUSTOM_CODE와 불완전 lineage를 차단한다. 원본 parameter는 입력 template로
+  바꾸며 명시적 공개 기본값 외 실제 값은 Workflow snapshot과 embedding text에서
+  제거한다. 동일 idempotency key 재요청은 같은 immutable version을 반환한다.
 - Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
   먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
   뒤 DB/Redis/HTTP/metrics 자원을 닫는다.
@@ -132,7 +137,7 @@
   `SafeStreamTrimmer`를 재사용하며 CronJob 등 스케줄러 연계는 배포 단계에서
   별도로 결정한다.
 - 실제 embedding 모델 확보 후 Workflow 의미 검색 품질 검증 및 재인덱싱
-- Workflow 승격 command/API와 승격 권한 정책
+- 기존 Workflow의 새 version 생성, 비활성화와 재검토 운영 API
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
 - pgvector ANN index와 Workflow risk 사전 계산은

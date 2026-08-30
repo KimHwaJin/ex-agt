@@ -30,6 +30,8 @@ class WorkflowCatalogRepository:
                     .where(
                         WorkflowVersion.active.is_(True),
                         WorkflowVersion.embedding.is_not(None),
+                        Workflow.status == "ACTIVE",
+                        Workflow.visibility == "SERVICE",
                     )
                     .order_by(distance)
                     .limit(limit)
@@ -42,6 +44,7 @@ class WorkflowCatalogRepository:
                 description=workflow.description,
                 score=max(0.0, 1.0 - float(distance_value)),
                 plan=PlanDraft.model_validate(version.plan_payload),
+                input_contract=version.input_contract,
                 public_payload_hash=version.public_payload_hash,
             )
             for version, workflow, distance_value in rows
