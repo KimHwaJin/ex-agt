@@ -62,6 +62,10 @@
   immutable version 목록과 상세 공개 Plan·Skill/Tool·source lineage, lifecycle
   감사 이력을 제공한다. version 번호와 `(created_at, action_id)` keyset을 불투명
   cursor로 전달해 offset pagination 없이 안정적으로 조회한다.
+- FastAPI HTTP 계약 테스트가 BFF `X-User-ID`, owner `403`, resource `404`,
+  cursor/body `422`, idempotency `409`와 정상 pagination 직렬화를 검증한다.
+  누락된 `X-User-ID`는 FastAPI validation이 아닌 identity provider에서 일관되게
+  `401`로 처리한다.
 - Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
   먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
   뒤 DB/Redis/HTTP/metrics 자원을 닫는다.
