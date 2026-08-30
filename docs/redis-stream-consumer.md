@@ -198,4 +198,48 @@ stale reclaim 시 Executor history와 함께 복구한다.
 - 기존 Stream/group, claim idle, lock TTL/renewal, concurrency 설정
 
 Stream retention은 producer 및 모든 consumer group의 보존 요구사항을 함께
-결정해야 하므로 이 소비기 모듈이 임의로 `MAXLEN`을 적용하지 않는다.
+결정해야 하므로 소비 경로에서 임의로 `MAXLEN`을 적용하지 않는다. 대신
+`SafeStreamTrimmer`와 운영 CLI가 별도의 maintenance 경계에서 보존 정책을
+적용한다.
+
+## Safe trim 운영
+
+`ex-agent-stream-maintenance`는 다음 네 경계 중 가장 오래된 Stream ID보다
+이전인 entry만 삭제한다.
+
+- `STREAM_RETENTION_SECONDS`로 계산한 복구 보존기간
+- 모든 consumer group의 `last-delivered-id`
+- 모든 consumer group PEL의 가장 오래된 pending ID
+- `STREAM_MINIMUM_RETAINED_ENTRIES`로 보장하는 최근 tail
+
+즉 느린 group, 아직 ACK되지 않은 message와 설정된 복구기간 안의 entry는
+삭제되지 않는다. `plan`은 변경 없는 운영 점검이며, `trim`은 `--yes`를
+요구한다.
+
+```bash
+ex-agent-stream-maintenance \
+  --stream agent.commands \
+  --stream executor.events \
+  plan
+
+ex-agent-stream-maintenance \
+  --stream agent.commands \
+  --stream executor.events \
+  trim --yes
+```
+
+`plan`과 `trim` 사이의 상태는 달라질 수 있다. `trim`은 plan 결과를 입력으로
+사용하지 않고 Lua script 안에서 group, PEL, tail 경계를 다시 계산한 뒤 같은
+원자적 연산에서 exact `XTRIM MINID`를 실행한다. 따라서 계산과 삭제 사이에 새
+group이 생성되는 race가 없다. 반환되는 `trim_before_id` 자체와 그 이후 ID는
+보존되며 그보다 오래된 entry만 삭제된다.
+
+보존기간 계산은 producer가 기본 `XADD *`처럼 Unix millisecond 기반 Stream ID를
+사용한다는 전제다. 임의의 과거/미래 ID를 사용하는 Stream에는 이 age 정책을
+적용하면 안 된다. `0-0`에서 시작한 신규 group이나 방치된 group은 의도적으로
+trim을 차단한다. group 제거는 pending 0건, 해당 소비자의 폐기 여부와 replay
+요건을 별도로 확인한 뒤 수행해야 한다.
+
+현재 구현은 standalone Redis를 대상으로 검증했다. 한 번의 trim script는 한
+Stream key만 사용하므로 Redis Cluster에서도 key 간 transaction은 필요 없지만,
+운영 전 대상 Redis의 Lua/XINFO/XPENDING 정책과 Redis 7.4 호환성을 확인한다.
