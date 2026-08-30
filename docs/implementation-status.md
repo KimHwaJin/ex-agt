@@ -46,6 +46,8 @@
   중복 제거와 event sequence 전진을 같은 transaction 경계로 보존한다.
   `DefaultWorkflowServices`는 대화, 계획, 실행, 리포팅 capability를 조립하는
   façade로 축소했으며 Graph가 사용하는 20개 service 메서드 계약을 유지한다.
+  `WorkflowNodes`도 대화, 계획, 실행, 종료 node group으로 분리하되 façade와
+  31개 node 이름, state partial update 및 기존 edge 구성을 유지한다.
   architecture test가 domain 순수성과 금지된 package 의존을 검사한다.
 - API/Worker Prometheus endpoint와 API 동시 요청 부하 스크립트가 있으며,
   active slot, 처리시간, retry, DB outbox backlog, Redis pending/lag와 checkpoint
