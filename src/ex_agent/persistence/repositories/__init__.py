@@ -2,6 +2,10 @@
 
 from ex_agent.persistence.repositories.audit import AuditRepository
 from ex_agent.persistence.repositories.delivery import DeliveryRepository
+from ex_agent.persistence.repositories.executions import (
+    ExecutionRepository,
+    ExecutorEventSequenceGapError,
+)
 from ex_agent.persistence.repositories.workflows import (
     WorkflowCatalogRepository,
 )
@@ -9,5 +13,7 @@ from ex_agent.persistence.repositories.workflows import (
 __all__ = [
     "AuditRepository",
     "DeliveryRepository",
+    "ExecutionRepository",
+    "ExecutorEventSequenceGapError",
     "WorkflowCatalogRepository",
 ]

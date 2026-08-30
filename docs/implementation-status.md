@@ -40,8 +40,10 @@
   보다 먼저 도착한 event는 ACK하지 않고 binding 생성 후 재claim한다.
 - application workflow state를 LangGraph adapter 밖으로 이동해
   `application → graph` 역의존을 제거했다. Worker command/event processor와
-  Stream handler, FastAPI container/router, LLM factory, delivery/catalog/audit
-  repository를 기능 단위 모듈로 분리하면서 기존 공개 import façade를 유지한다.
+  Stream handler, FastAPI container/router, LLM factory와
+  delivery/catalog/audit/execution repository를 기능 단위 모듈로 분리하면서
+  기존 공개 import façade를 유지한다. execution repository는 binding, inbox
+  중복 제거와 event sequence 전진을 같은 transaction 경계로 보존한다.
   architecture test가 domain 순수성과 금지된 package 의존을 검사한다.
 - API/Worker Prometheus endpoint와 API 동시 요청 부하 스크립트가 있으며,
   active slot, 처리시간, retry, DB outbox backlog, Redis pending/lag와 checkpoint

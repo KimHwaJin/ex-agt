@@ -13,8 +13,8 @@ composition root와 프로세스로 실행된다.
 - `middleware`, `planners`, `tools`: 계획 생성과 Skill/Tool compilation
 - `executor`: Executor REST와 Artifact/result contract
 - `persistence`: SQLAlchemy model, transaction, repository facade
-- `persistence/repositories`: outbox, Workflow catalog, model audit처럼 독립적인
-  저장 기능
+- `persistence/repositories`: outbox, 실행 binding/event ingestion, Workflow
+  catalog, model audit처럼 독립적인 저장 기능
 - `transport`: Redis publisher와 재사용 가능한 Stream consumer runtime
 - `workers`: command/event processor, Stream handler, observer, checkpoint helper
 - `api/routers`: health/metrics와 Task REST/SSE route
@@ -54,7 +54,6 @@ Agent domain 비의존성을 검사한다.
 
 - `DefaultWorkflowServices` 구현을 conversation, planning, execution, reporting
   capability로 분리하고 현재 class는 façade로 유지
-- execution binding, inbox, event sequence repository를 transaction 단위로 분리
 - `WorkflowNodes`를 대화, 계획, 실행, 종료 node group으로 분리
 - 테스트 수가 더 증가하면 `unit`, `integration`, `e2e` 디렉터리로 물리 분리
 
