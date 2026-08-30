@@ -70,6 +70,10 @@ Executor의 `executor.events`를 같은 Redis에서 소비하는 배치라면
 - `GET /api/v1/tasks/{task_id}/workflow-promotion-draft`
 - `POST /api/v1/tasks/{task_id}/workflow-promotions`
 - `POST /api/v1/workflows/{workflow_id}/versions`
+- `GET /api/v1/workflows/{workflow_id}`
+- `GET /api/v1/workflows/{workflow_id}/versions`
+- `GET /api/v1/workflows/{workflow_id}/versions/{version_id}`
+- `GET /api/v1/workflows/{workflow_id}/lifecycle-actions`
 - `POST /api/v1/workflows/{workflow_id}/versions/{version_id}/reviews`
 - `POST /api/v1/workflows/{workflow_id}/versions/{version_id}/activate`
 - `POST /api/v1/workflows/{workflow_id}/status`
@@ -103,3 +107,5 @@ Notebook의 Markdown cell과 함께 생성한다. 리포트 본문도 INLINE API
 payload가 아니라 공유 입력 루트의 Markdown 파일로 전달한다.
 
 상세 설계는 [LangGraph Workflow Design](docs/langgraph-design.md)을 참고한다.
+Workflow version 운영 API는
+[Workflow Operations API](docs/workflow-operations.md)를 참고한다.

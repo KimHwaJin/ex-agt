@@ -252,6 +252,66 @@ async def test_workflow_versions_are_reviewed_switched_and_audited() -> None:
             concurrent_results[0].workflow_version_id
             == concurrent_results[1].workflow_version_id
         )
+        overview = await lifecycle.overview(
+            workflow_id,
+            actor_user_id="lifecycle-owner",
+        )
+        assert overview.latest_version == 4
+        assert (
+            overview.active_workflow_version_id == promoted.workflow_version_id
+        )
+        first_versions = await lifecycle.versions(
+            workflow_id,
+            actor_user_id="lifecycle-owner",
+            cursor=None,
+            limit=2,
+        )
+        assert [item.version for item in first_versions.items] == [4, 3]
+        assert first_versions.next_cursor is not None
+        second_versions = await lifecycle.versions(
+            workflow_id,
+            actor_user_id="lifecycle-owner",
+            cursor=first_versions.next_cursor,
+            limit=2,
+        )
+        assert [item.version for item in second_versions.items] == [2, 1]
+        assert second_versions.next_cursor is None
+        detail = await lifecycle.version_detail(
+            workflow_id,
+            created.workflow_version_id,
+            actor_user_id="lifecycle-owner",
+        )
+        assert detail.plan.steps[0].tool is not None
+        assert detail.plan.steps[0].tool.name == "fetch_dataset"
+        assert detail.steps[0].skill_ref["name"] == "data-access"
+        assert detail.steps[0].selection_rationale
+        assert "private_source_" not in detail.model_dump_json()
+
+        action_ids: list[UUID] = []
+        action_cursor = None
+        while True:
+            action_page = await lifecycle.actions(
+                workflow_id,
+                actor_user_id="lifecycle-owner",
+                cursor=action_cursor,
+                limit=3,
+            )
+            assert all(
+                len(item.request_hash) == 64 for item in action_page.items
+            )
+            action_ids.extend(item.action_id for item in action_page.items)
+            action_cursor = action_page.next_cursor
+            if action_cursor is None:
+                break
+        assert len(action_ids) == 8
+        assert len(set(action_ids)) == 8
+        with pytest.raises(ValueError, match="pagination cursor"):
+            await lifecycle.versions(
+                workflow_id,
+                actor_user_id="lifecycle-owner",
+                cursor="not-a-valid-cursor",
+                limit=2,
+            )
         with pytest.raises(WorkflowLifecycleForbiddenError):
             await lifecycle.update_status(
                 workflow_id,
@@ -260,6 +320,11 @@ async def test_workflow_versions_are_reviewed_switched_and_audited() -> None:
                     idempotency_key=f"forbidden-{workflow_id}",
                     status="INACTIVE",
                 ),
+            )
+        with pytest.raises(WorkflowLifecycleForbiddenError):
+            await lifecycle.overview(
+                workflow_id,
+                actor_user_id="other-user",
             )
         with pytest.raises(
             WorkflowLifecycleConflictError,

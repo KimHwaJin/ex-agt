@@ -116,6 +116,9 @@ Tool로 대체하지만 PostgreSQL/pgvector, Redis, Executor/Jupyter는 실제 c
 - 생성·승인·거절·version 전환·Workflow 상태 전환은 요청자, 사유, 정책 version,
   요청 hash와 결과를 감사하며 동일 idempotency key 재요청은 상태를 중복 변경하지
   않는다.
+- 소유자는 Workflow 요약, 모든 version의 상태와 원본 Task/Plan/Execution lineage,
+  공개 Plan 및 Skill/Tool 선택 이유, lifecycle 감사 이력을 cursor pagination으로
+  조회할 수 있다.
 
 ## 7. 완료 품질 게이트
 

@@ -6,15 +6,24 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, select, update
+from sqlalchemy import and_, func, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from ex_agent.domain.contracts import PlanDraft, WorkflowLifecycleResult
+from ex_agent.domain.contracts import (
+    PlanDraft,
+    WorkflowLifecycleActionView,
+    WorkflowLifecycleResult,
+    WorkflowOperationsView,
+    WorkflowStepView,
+    WorkflowVersionDetail,
+    WorkflowVersionSummary,
+)
 from ex_agent.persistence.database import transaction
 from ex_agent.persistence.models import (
     TaskEvent,
     Workflow,
     WorkflowLifecycleAction,
+    WorkflowStep,
     WorkflowVersion,
 )
 from ex_agent.persistence.repositories.promotions import (
@@ -40,6 +49,149 @@ class WorkflowLifecycleRepository:
             if workflow is None:
                 raise LookupError(f"Unknown Workflow: {workflow_id}")
             return workflow
+
+    async def overview(self, workflow_id: UUID) -> WorkflowOperationsView:
+        async with self._sessions() as session:
+            workflow = await session.get(Workflow, workflow_id)
+            if workflow is None:
+                raise LookupError(f"Unknown Workflow: {workflow_id}")
+            active = await session.scalar(
+                select(WorkflowVersion).where(
+                    WorkflowVersion.workflow_id == workflow_id,
+                    WorkflowVersion.active.is_(True),
+                )
+            )
+            return WorkflowOperationsView.model_validate(
+                {
+                    "workflow_id": workflow.id,
+                    "name": workflow.name,
+                    "description": workflow.description,
+                    "owner_user_id": workflow.owner_user_id,
+                    "owner_project_id": workflow.owner_project_id,
+                    "visibility": workflow.visibility,
+                    "status": workflow.status,
+                    "latest_version": workflow.latest_version,
+                    "active_workflow_version_id": (
+                        active.id if active is not None else None
+                    ),
+                    "active_version": (
+                        active.version if active is not None else None
+                    ),
+                    "access_policy": workflow.access_policy,
+                    "required_permission": workflow.required_permission,
+                    "created_at": workflow.created_at,
+                    "updated_at": workflow.updated_at,
+                }
+            )
+
+    async def versions(
+        self,
+        workflow_id: UUID,
+        *,
+        before_version: int | None,
+        limit: int,
+    ) -> tuple[list[WorkflowVersionSummary], int | None]:
+        async with self._sessions() as session:
+            query = select(WorkflowVersion).where(
+                WorkflowVersion.workflow_id == workflow_id
+            )
+            if before_version is not None:
+                query = query.where(WorkflowVersion.version < before_version)
+            rows = list(
+                (
+                    await session.scalars(
+                        query.order_by(WorkflowVersion.version.desc()).limit(
+                            limit + 1
+                        )
+                    )
+                ).all()
+            )
+        has_more = len(rows) > limit
+        visible = rows[:limit]
+        next_cursor = visible[-1].version if has_more and visible else None
+        return [_version_summary(row) for row in visible], next_cursor
+
+    async def version_detail(
+        self,
+        workflow_id: UUID,
+        workflow_version_id: UUID,
+    ) -> WorkflowVersionDetail:
+        async with self._sessions() as session:
+            version = await session.scalar(
+                select(WorkflowVersion).where(
+                    WorkflowVersion.id == workflow_version_id,
+                    WorkflowVersion.workflow_id == workflow_id,
+                )
+            )
+            if version is None:
+                raise LookupError(
+                    f"Unknown Workflow version: {workflow_version_id}"
+                )
+            steps = list(
+                (
+                    await session.scalars(
+                        select(WorkflowStep)
+                        .where(
+                            WorkflowStep.workflow_version_id
+                            == workflow_version_id
+                        )
+                        .order_by(WorkflowStep.sequence)
+                    )
+                ).all()
+            )
+            summary = _version_summary(version)
+            return WorkflowVersionDetail.model_validate(
+                {
+                    **summary.model_dump(),
+                    "input_contract": version.input_contract,
+                    "output_contract": version.output_contract,
+                    "plan": PlanDraft.model_validate(version.plan_payload),
+                    "steps": [_step_view(step) for step in steps],
+                }
+            )
+
+    async def actions(
+        self,
+        workflow_id: UUID,
+        *,
+        before: tuple[datetime, UUID] | None,
+        limit: int,
+    ) -> tuple[
+        list[WorkflowLifecycleActionView],
+        tuple[datetime, UUID] | None,
+    ]:
+        async with self._sessions() as session:
+            query = select(WorkflowLifecycleAction).where(
+                WorkflowLifecycleAction.workflow_id == workflow_id
+            )
+            if before is not None:
+                created_at, action_id = before
+                query = query.where(
+                    or_(
+                        WorkflowLifecycleAction.created_at < created_at,
+                        and_(
+                            WorkflowLifecycleAction.created_at == created_at,
+                            WorkflowLifecycleAction.id < action_id,
+                        ),
+                    )
+                )
+            rows = list(
+                (
+                    await session.scalars(
+                        query.order_by(
+                            WorkflowLifecycleAction.created_at.desc(),
+                            WorkflowLifecycleAction.id.desc(),
+                        ).limit(limit + 1)
+                    )
+                ).all()
+            )
+        has_more = len(rows) > limit
+        visible = rows[:limit]
+        next_cursor = None
+        if has_more and visible:
+            last = visible[-1]
+            next_cursor = (last.created_at, last.id)
+        return [_action_view(row) for row in visible], next_cursor
 
     async def existing(
         self,
@@ -483,6 +635,73 @@ def _payload_hash(payload: dict[str, Any]) -> str:
 def _idempotency_lock(idempotency_key: str) -> int:
     digest = hashlib.sha256(idempotency_key.encode()).digest()
     return int.from_bytes(digest[:8], byteorder="big", signed=True)
+
+
+def _version_summary(version: WorkflowVersion) -> WorkflowVersionSummary:
+    return WorkflowVersionSummary.model_validate(
+        {
+            "workflow_version_id": version.id,
+            "workflow_id": version.workflow_id,
+            "version": version.version,
+            "source_task_id": version.source_task_id,
+            "source_plan_id": version.source_plan_id,
+            "source_plan_revision_id": version.source_plan_revision_id,
+            "source_execution_id": version.source_execution_id,
+            "objective": version.objective,
+            "strategy_summary": version.strategy_summary,
+            "runtime_profile": version.runtime_profile,
+            "tool_registry_snapshot_hash": (
+                version.tool_registry_snapshot_hash
+            ),
+            "embedding_model": version.embedding_model,
+            "embedding_dimension": version.embedding_dimension,
+            "request_examples": version.request_examples,
+            "tags": version.tags,
+            "promotion_policy_version": version.promotion_policy_version,
+            "public_payload_hash": version.public_payload_hash,
+            "promoted_by": version.promoted_by,
+            "active": version.active,
+            "review_status": version.review_status,
+            "reviewed_by": version.reviewed_by,
+            "reviewed_at": version.reviewed_at,
+            "review_reason": version.review_reason,
+            "created_at": version.created_at,
+            "updated_at": version.updated_at,
+        }
+    )
+
+
+def _step_view(step: WorkflowStep) -> WorkflowStepView:
+    return WorkflowStepView(
+        sequence=step.sequence,
+        source_plan_revision_id=step.source_plan_revision_id,
+        skill_ref=step.skill_ref,
+        tool_ref=step.tool_ref,
+        purpose=step.purpose,
+        selection_rationale=step.selection_rationale,
+        parameter_template=step.parameter_template,
+        expected_outputs=step.expected_outputs,
+        validation_criteria=step.validation_criteria,
+        timeout_seconds=step.timeout_seconds,
+    )
+
+
+def _action_view(
+    action: WorkflowLifecycleAction,
+) -> WorkflowLifecycleActionView:
+    return WorkflowLifecycleActionView(
+        action_id=action.id,
+        workflow_id=action.workflow_id,
+        workflow_version_id=action.workflow_version_id,
+        actor_user_id=action.actor_user_id,
+        action=action.action,
+        idempotency_key=action.idempotency_key,
+        request_hash=action.request_hash,
+        reason=action.reason,
+        policy_version=action.policy_version,
+        result=WorkflowLifecycleResult.model_validate(action.result_payload),
+        created_at=action.created_at,
+    )
 
 
 __all__ = [

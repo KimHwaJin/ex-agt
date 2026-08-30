@@ -11,7 +11,14 @@ def test_openapi_exposes_workflow_promotion_endpoints() -> None:
 
     assert "/api/v1/tasks/{task_id}/workflow-promotion-draft" in paths
     assert "/api/v1/tasks/{task_id}/workflow-promotions" in paths
-    assert "/api/v1/workflows/{workflow_id}/versions" in paths
+    versions_path = paths["/api/v1/workflows/{workflow_id}/versions"]
+    assert {"get", "post"}.issubset(versions_path)
+    assert "/api/v1/workflows/{workflow_id}" in paths
+    assert (
+        "/api/v1/workflows/{workflow_id}/versions/"
+        "{workflow_version_id}" in paths
+    )
+    assert "/api/v1/workflows/{workflow_id}/lifecycle-actions" in paths
     assert (
         "/api/v1/workflows/{workflow_id}/versions/"
         "{workflow_version_id}/reviews" in paths
