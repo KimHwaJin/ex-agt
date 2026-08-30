@@ -42,6 +42,10 @@ class WorkerConsumers(WorkerContext):
             consumer_gc_idle_milliseconds=(
                 self._settings.consumer_gc_idle_milliseconds
             ),
+            max_retry_attempts=(self._settings.command_max_retry_attempts),
+            retry_state_ttl_seconds=(
+                self._settings.stream_retry_state_ttl_seconds
+            ),
         )
         observer = WorkerConsumerObserver(
             kind="command",
@@ -93,6 +97,12 @@ class WorkerConsumers(WorkerContext):
             ),
             consumer_gc_idle_milliseconds=(
                 self._settings.consumer_gc_idle_milliseconds
+            ),
+            max_retry_attempts=(
+                self._settings.executor_event_max_retry_attempts
+            ),
+            retry_state_ttl_seconds=(
+                self._settings.stream_retry_state_ttl_seconds
             ),
         )
         observer = WorkerConsumerObserver(

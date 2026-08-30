@@ -87,6 +87,16 @@ class Settings(BaseSettings):
     command_block_milliseconds: int = Field(default=5000, ge=100)
     command_claim_idle_milliseconds: int = Field(default=30000, ge=1000)
     stream_claim_batch_size: int = Field(default=10, ge=1, le=1000)
+    command_max_retry_attempts: int = Field(default=5, ge=1, le=10000)
+    executor_event_max_retry_attempts: int = Field(
+        default=100,
+        ge=1,
+        le=10000,
+    )
+    stream_retry_state_ttl_seconds: int = Field(
+        default=604800,
+        ge=60,
+    )
     consumer_gc_idle_milliseconds: int = Field(
         default=86400000,
         ge=60000,
@@ -171,6 +181,24 @@ class Settings(BaseSettings):
                 "worker_retry_initial_seconds cannot exceed "
                 "worker_retry_max_seconds"
             )
+        retry_windows = {
+            "command": (
+                self.command_claim_idle_milliseconds
+                * self.command_max_retry_attempts
+            ),
+            "executor event": (
+                self.executor_event_claim_idle_milliseconds
+                * self.executor_event_max_retry_attempts
+            ),
+        }
+        for name, window_milliseconds in retry_windows.items():
+            if self.stream_retry_state_ttl_seconds * 1000 <= (
+                window_milliseconds
+            ):
+                raise ValueError(
+                    "stream_retry_state_ttl_seconds must exceed the "
+                    f"{name} retry window"
+                )
         if self.outbox_poll_milliseconds > self.outbox_idle_max_milliseconds:
             raise ValueError(
                 "outbox_poll_milliseconds cannot exceed "

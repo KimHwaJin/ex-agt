@@ -13,6 +13,8 @@
 - `XAUTOCLAIM` cursor를 끝까지 전진시키는 stale message 복구
 - 성공 후에만 ACK하는 at-least-once delivery
 - 재시도 가능한 실패는 PEL에 유지
+- handler가 실제로 요청한 retry 횟수를 Redis에 기록하고 설정된 상한을 넘으면
+  poison message를 DLQ로 이동
 - 영구적인 envelope 오류는 DLQ 기록과 원본 ACK를 하나의 Redis transaction으로
   수행
 - pending이 없고 충분히 오래 idle한 consumer metadata 정리
@@ -22,6 +24,13 @@
 Business side effect는 중복 실행될 수 있으므로 Handler는 idempotent해야 한다.
 이 프로젝트의 command/event Handler는 PostgreSQL idempotency와 event sequence
 검증을 함께 사용한다.
+
+retry counter는 Stream PEL의 delivery count와 별도로 관리한다. PEL delivery
+count에는 같은 business lock을 기다린 claim도 포함될 수 있기 때문이다. 따라서
+`RETRY` 반환이나 retry 가능한 handler 예외만 counter를 증가시킨다. counter key는
+stream/group/message ID의 SHA-256 식별자를 사용하고 TTL이 있어 비정상적인 Stream
+삭제 후에도 영구히 남지 않는다. 성공적으로 재처리하거나 DLQ로 이동할 때는
+counter를 제거한다.
 
 분산 락을 사용하는 메시지는 lock 갱신과 PEL `XCLAIM`을 하나의
 non-transaction pipeline으로 전송한다. 두 lease의 성공 여부는 각각 검사하되
@@ -97,6 +106,9 @@ Handler 반환값의 의미는 다음과 같다.
 
 - `ACK`: side effect와 durable state 저장이 끝났으며 원본을 ACK한다.
 - `RETRY`: ACK하지 않고 PEL에 남겨 claim idle 이후 다시 처리한다.
+- retry 횟수가 `max_retry_attempts`에 도달하면 원래 `RETRY` 사유와 시도 횟수를
+  기록하고 `DEAD_LETTER`로 확정한다.
+- `PermanentMessageError`가 아닌 handler 예외는 retry 가능한 실패로 취급한다.
 - `DEAD_LETTER`: DLQ에 사유와 원본 fields를 저장한 뒤 원본을 ACK한다.
 - `PermanentMessageError`: parse/validation 불가능한 envelope에 사용하며
   `DEAD_LETTER`와 동일하게 처리한다.
@@ -120,6 +132,7 @@ DLQ entry는 다음 필드를 가진다.
 - `source_group`
 - `source_message_id`
 - `reason`
+- `retry_attempts`: 영구 오류는 `0`, retry 소진은 실제 retry 횟수
 - `fields`: 원본 field map의 JSON 문자열
 
 재처리 도구는 `fields`를 decode하여 원본 Stream에 새 entry로 발행해야 한다.
@@ -135,6 +148,9 @@ stale reclaim 시 Executor history와 함께 복구한다.
 설정값:
 
 - `STREAM_CLAIM_BATCH_SIZE`
+- `COMMAND_MAX_RETRY_ATTEMPTS`
+- `EXECUTOR_EVENT_MAX_RETRY_ATTEMPTS`
+- `STREAM_RETRY_STATE_TTL_SECONDS`
 - `CONSUMER_GC_IDLE_MILLISECONDS`
 - `AGENT_COMMAND_DEAD_LETTER_STREAM`
 - `EXECUTOR_EVENT_DEAD_LETTER_STREAM`

@@ -65,6 +65,20 @@ class RecordingHandler:
         return HandlerResult(AckDecision.ACK)
 
 
+class RetryHandler:
+    def lock_key(self, message: StreamMessage) -> None:
+        del message
+        return None
+
+    async def handle(self, message: StreamMessage) -> HandlerResult:
+        del message
+        return HandlerResult(
+            AckDecision.RETRY,
+            outcome="dependency_unavailable",
+            reason="dependency unavailable",
+        )
+
+
 async def _wait_pending_count(
     redis: Redis,
     stream: str,
@@ -125,7 +139,65 @@ async def test_real_redis_dlq_write_and_source_ack_are_atomic() -> None:
         fields = dead_letters[0][1]
         assert fields["source_message_id"] == message_id
         assert fields["reason"] == "invalid test envelope"
+        assert fields["retry_attempts"] == "0"
         assert json.loads(fields["fields"]) == {"bad": "payload"}
+    finally:
+        await redis.delete(stream, dead_letter_stream)
+        await redis.aclose()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_real_redis_retry_limit_moves_poison_message_to_dlq() -> None:
+    suffix = uuid4()
+    stream = f"test-consumer-retry-source-{suffix}"
+    group = f"test-consumer-retry-group-{suffix}"
+    dead_letter_stream = f"test-consumer-retry-dlq-{suffix}"
+    redis = Redis.from_url(
+        os.environ["TEST_REDIS_URL"],
+        decode_responses=True,
+    )
+    handler = RetryHandler()
+    consumer = RedisStreamConsumer(
+        redis,
+        RedisStreamConsumerConfig(
+            stream=stream,
+            group=group,
+            consumer_prefix="integration-consumer",
+            dead_letter_stream=dead_letter_stream,
+            max_retry_attempts=3,
+        ),
+        lambda _: handler,
+    )
+    try:
+        await consumer.ensure_group()
+        message_id = await redis.xadd(stream, {"job": "poison"})
+        delivered: Any = await redis.xreadgroup(
+            group,
+            "integration-consumer-0",
+            {stream: ">"},
+            count=1,
+        )
+        assert delivered[0][1][0][0] == message_id
+
+        for attempt in range(3):
+            await consumer.process_message(
+                "integration-consumer-0",
+                handler,
+                StreamMessage(
+                    message_id,
+                    {"job": "poison"},
+                    reclaimed=attempt > 0,
+                ),
+            )
+
+        pending: Any = await redis.xpending(stream, group)
+        dead_letters: Any = await redis.xrange(dead_letter_stream)
+        assert pending["pending"] == 0
+        assert len(dead_letters) == 1
+        assert dead_letters[0][1]["retry_attempts"] == "3"
+        retry_key = consumer._retry_state_key(message_id)
+        assert await redis.exists(retry_key) == 0
     finally:
         await redis.delete(stream, dead_letter_stream)
         await redis.aclose()

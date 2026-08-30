@@ -97,6 +97,9 @@ Worker가 복구한다. liveness는 프로세스가 실제 종료될 때까지 �
 | `WORKER_METRICS_REFRESH_SECONDS` | 10 | Worker snapshot 갱신 주기 |
 | `WORKER_READINESS_STALE_SECONDS` | 30 | Worker snapshot 최대 허용 나이 |
 | `WORKER_SHUTDOWN_GRACE_SECONDS` | 25 | 종료 시 in-flight drain 상한 |
+| `COMMAND_MAX_RETRY_ATTEMPTS` | 5 | command handler retry 상한 |
+| `EXECUTOR_EVENT_MAX_RETRY_ATTEMPTS` | 100 | Executor event retry 상한 |
+| `STREAM_RETRY_STATE_TTL_SECONDS` | 604800 | retry counter 보존기간 |
 
 stale 기준은 갱신 주기보다 반드시 커야 한다.
 

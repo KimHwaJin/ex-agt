@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from collections.abc import Awaitable, Callable
@@ -27,6 +28,12 @@ if redis.call('get', KEYS[1]) == ARGV[1] then
     return redis.call('del', KEYS[1])
 end
 return 0
+"""
+
+_INCREMENT_RETRY_SCRIPT = """
+local attempts = redis.call('incr', KEYS[1])
+redis.call('expire', KEYS[1], ARGV[1])
+return attempts
 """
 
 
@@ -70,6 +77,9 @@ class RedisStreamConsumerConfig:
     lock_ttl_seconds: int = 60
     lock_renew_interval_seconds: int = 10
     consumer_gc_idle_milliseconds: int | None = None
+    max_retry_attempts: int = 5
+    retry_state_ttl_seconds: int = 86400
+    retry_key_prefix: str = "redis-stream-consumer:retries"
 
     def __post_init__(self) -> None:
         if self.concurrency < 1:
@@ -91,6 +101,17 @@ class RedisStreamConsumerConfig:
             >= self.claim_idle_milliseconds
         ):
             raise ValueError("lease renewal must be faster than claim idle")
+        if self.max_retry_attempts < 1:
+            raise ValueError("max_retry_attempts must be positive")
+        minimum_retry_ttl = (
+            self.claim_idle_milliseconds * self.max_retry_attempts
+        ) // 1000
+        if self.retry_state_ttl_seconds <= minimum_retry_ttl:
+            raise ValueError(
+                "retry state TTL must exceed the maximum retry window"
+            )
+        if not self.retry_key_prefix:
+            raise ValueError("retry_key_prefix cannot be empty")
 
 
 class PermanentMessageError(ValueError):
@@ -525,14 +546,58 @@ class RedisStreamConsumer:
                 outcome="dead_lettered",
                 reason=str(error),
             )
+        except Exception as error:
+            reason = f"{type(error).__name__}: {error}"
+            logger.exception(
+                "Redis Stream message handler requested retry",
+                extra={
+                    "stream": self._config.stream,
+                    "group": self._config.group,
+                    "message_id": message.message_id,
+                },
+            )
+            result = HandlerResult(
+                AckDecision.RETRY,
+                outcome="failed",
+                reason=reason,
+            )
         if result.decision is AckDecision.ACK:
-            await self._ack(message.message_id)
+            await self._ack(message)
+        elif result.decision is AckDecision.RETRY:
+            return await self._retry_or_dead_letter(message, result)
         elif result.decision is AckDecision.DEAD_LETTER:
             await self._dead_letter(
                 message,
                 result.reason or "handler rejected message",
             )
         return result
+
+    async def _retry_or_dead_letter(
+        self,
+        message: StreamMessage,
+        result: HandlerResult,
+    ) -> HandlerResult:
+        retry_key = self._retry_state_key(message.message_id)
+        increment = self._redis.eval(
+            _INCREMENT_RETRY_SCRIPT,
+            1,
+            retry_key,
+            str(self._config.retry_state_ttl_seconds),
+        )
+        attempts = await cast(Awaitable[Any], increment)
+        if int(attempts) < self._config.max_retry_attempts:
+            return result
+        reason = result.reason or "handler retry limit exhausted"
+        await self._dead_letter(
+            message,
+            reason,
+            retry_attempts=int(attempts),
+        )
+        return HandlerResult(
+            AckDecision.DEAD_LETTER,
+            outcome="dead_lettered",
+            reason=reason,
+        )
 
     async def _acquire_lock(self, lock_key: str) -> _LockLease | None:
         lease = _LockLease(lock_key, str(uuid4()))
@@ -553,22 +618,35 @@ class RedisStreamConsumer:
         )
         await cast(Awaitable[Any], release)
 
-    async def _ack(self, message_id: str) -> None:
-        await self._redis.xack(
+    async def _ack(self, message: StreamMessage) -> None:
+        if not message.reclaimed:
+            await self._redis.xack(
+                self._config.stream,
+                self._config.group,
+                message.message_id,
+            )
+            return
+        pipeline = self._redis.pipeline(transaction=True)
+        pipeline.delete(self._retry_state_key(message.message_id))
+        pipeline.xack(
             self._config.stream,
             self._config.group,
-            message_id,
+            message.message_id,
         )
+        await pipeline.execute()
 
     async def _dead_letter(
         self,
         message: StreamMessage,
         reason: str,
+        *,
+        retry_attempts: int = 0,
     ) -> None:
         dead_letter_stream = self._config.dead_letter_stream
         if dead_letter_stream is None:
             raise RuntimeError("dead-letter stream is not configured")
         pipeline = self._redis.pipeline(transaction=True)
+        pipeline.delete(self._retry_state_key(message.message_id))
         pipeline.xadd(
             dead_letter_stream,
             {
@@ -576,6 +654,7 @@ class RedisStreamConsumer:
                 "source_group": self._config.group,
                 "source_message_id": message.message_id,
                 "reason": reason,
+                "retry_attempts": str(retry_attempts),
                 "fields": json.dumps(
                     message.fields,
                     ensure_ascii=False,
@@ -590,6 +669,13 @@ class RedisStreamConsumer:
         )
         await pipeline.execute()
         self._notify(self._observer.dead_lettered)
+
+    def _retry_state_key(self, message_id: str) -> str:
+        identity = "\0".join(
+            (self._config.stream, self._config.group, message_id)
+        ).encode()
+        digest = hashlib.sha256(identity).hexdigest()
+        return f"{self._config.retry_key_prefix}:{digest}"
 
     def _notify(self, callback: Callable[..., None], *args: Any) -> None:
         try:
