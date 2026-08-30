@@ -1,5 +1,6 @@
 import asyncio
 import os
+from typing import Any, cast
 from uuid import uuid4
 
 import pytest
@@ -41,6 +42,11 @@ async def test_worker_starts_bounded_graph_slots() -> None:
         worker_metrics_enabled=False,
     )
     worker = WorkflowWorker(settings)
+
+    async def publish_nothing() -> int:
+        return 0
+
+    cast(Any, worker._publisher).publish_pending = publish_nothing
     run_task = asyncio.create_task(worker.run())
     try:
         await asyncio.sleep(1)
@@ -57,6 +63,7 @@ async def test_worker_starts_bounded_graph_slots() -> None:
         stopping = worker._readiness.payload(
             settings.worker_readiness_stale_seconds
         )
+        assert worker._running is False
         assert stopping["ready"] is False
         assert stopping["checks"]["redis"]["error"] == "stopping"
         redis = Redis.from_url(redis_url, decode_responses=True)

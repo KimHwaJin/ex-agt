@@ -52,6 +52,8 @@ Agent domain 비의존성을 검사한다.
 - source 변경 후 `uv sync --reinstall-package ex-agent --no-editable`로 설치하고
   테스트한다.
 - PostgreSQL/Redis 관련 변경은 Compose 전체 테스트를 통과해야 한다.
+- Compose `test` profile은 실행 중인 app service와 분리된 임시 PostgreSQL/Redis와
+  전용 migration을 사용해 outbox/consumer 경쟁을 방지한다.
 
 ## 후속 분리 후보
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import os
 from typing import Any
@@ -31,6 +32,51 @@ class InvalidHandler:
     async def handle(self, message: StreamMessage) -> HandlerResult:
         del message
         return HandlerResult(AckDecision.ACK)
+
+
+class BlockingHandler:
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    def lock_key(self, message: StreamMessage) -> str:
+        return message.fields["lock_key"]
+
+    async def handle(self, message: StreamMessage) -> HandlerResult:
+        del message
+        self.started.set()
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        return HandlerResult(AckDecision.ACK)
+
+
+class RecordingHandler:
+    def __init__(self) -> None:
+        self.messages: list[StreamMessage] = []
+
+    def lock_key(self, message: StreamMessage) -> str:
+        return message.fields["lock_key"]
+
+    async def handle(self, message: StreamMessage) -> HandlerResult:
+        self.messages.append(message)
+        return HandlerResult(AckDecision.ACK)
+
+
+async def _wait_pending_count(
+    redis: Redis,
+    stream: str,
+    group: str,
+    expected: int,
+) -> None:
+    for _ in range(40):
+        pending: Any = await redis.xpending(stream, group)
+        if pending["pending"] == expected:
+            return
+        await asyncio.sleep(0.05)
+    raise AssertionError(f"Redis pending count did not reach {expected}")
 
 
 @pytest.mark.redis
@@ -140,4 +186,105 @@ async def test_real_redis_renews_lock_and_stream_lease_in_one_pipeline() -> (
         assert pending[0]["consumer"] == consumer_name
     finally:
         await redis.delete(stream, lock_key)
+        await redis.aclose()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_shutdown_message_is_reclaimed_by_another_runtime() -> None:
+    suffix = uuid4()
+    stream = f"test-consumer-reclaim-source-{suffix}"
+    group = f"test-consumer-reclaim-group-{suffix}"
+    dead_letter_stream = f"test-consumer-reclaim-dlq-{suffix}"
+    lock_key = f"test-consumer-reclaim-lock-{suffix}"
+    redis = Redis.from_url(
+        os.environ["TEST_REDIS_URL"],
+        decode_responses=True,
+    )
+    first_handler = BlockingHandler()
+    second_handler = RecordingHandler()
+
+    def config(prefix: str) -> RedisStreamConsumerConfig:
+        return RedisStreamConsumerConfig(
+            stream=stream,
+            group=group,
+            consumer_prefix=prefix,
+            block_milliseconds=100,
+            claim_idle_milliseconds=1100,
+            dead_letter_stream=dead_letter_stream,
+            lock_ttl_seconds=2,
+            lock_renew_interval_seconds=1,
+        )
+
+    first = RedisStreamConsumer(
+        redis,
+        config("worker-a"),
+        lambda _: first_handler,
+    )
+    second = RedisStreamConsumer(
+        redis,
+        config("worker-b"),
+        lambda _: second_handler,
+    )
+    first_run: asyncio.Task[None] | None = None
+    second_run: asyncio.Task[None] | None = None
+    try:
+        await first.initialize()
+        message_id = await redis.xadd(
+            stream,
+            {"job": "recover", "lock_key": lock_key},
+        )
+        first_run = asyncio.create_task(first.run())
+        await asyncio.wait_for(first_handler.started.wait(), timeout=2)
+
+        pending: Any = await redis.xpending_range(
+            stream,
+            group,
+            min="-",
+            max="+",
+            count=1,
+        )
+        assert pending[0]["message_id"] == message_id
+        assert pending[0]["consumer"] == "worker-a-0"
+        assert await redis.exists(lock_key) == 1
+
+        await first.shutdown(grace_period_seconds=0)
+        await first_run
+
+        assert first_handler.cancelled.is_set() is True
+        assert await redis.exists(lock_key) == 0
+        await _wait_pending_count(redis, stream, group, 1)
+
+        claimed: Any = await redis.xclaim(
+            stream,
+            group,
+            "orphaned-worker",
+            min_idle_time=0,
+            message_ids=[message_id],
+            idle=5000,
+            justid=True,
+        )
+        assert claimed == [message_id]
+
+        second_run = asyncio.create_task(second.run())
+        await _wait_pending_count(redis, stream, group, 0)
+        await second.shutdown(grace_period_seconds=1)
+        await second_run
+
+        assert len(second_handler.messages) == 1
+        assert second_handler.messages[0].message_id == message_id
+        assert second_handler.messages[0].reclaimed is True
+    finally:
+        if first.is_running:
+            await first.shutdown(grace_period_seconds=0)
+        if second.is_running:
+            await second.shutdown(grace_period_seconds=0)
+        for task in (first_run, second_run):
+            if task is not None and not task.done():
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (first_run, second_run) if task is not None),
+            return_exceptions=True,
+        )
+        await redis.delete(stream, dead_letter_stream, lock_key)
         await redis.aclose()

@@ -32,6 +32,35 @@ services:
     volumes:
       - agent-redis:/data
 
+  test-postgres:
+    image: pgvector/pgvector:0.8.6-pg17
+    profiles: ["test"]
+    environment:
+      POSTGRES_DB: agent_test
+      POSTGRES_USER: agent
+      POSTGRES_PASSWORD: agent
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent -d agent_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
+
+  test-redis:
+    image: redis:7.4-alpine
+    profiles: ["test"]
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+    tmpfs:
+      - /data
+
   migrate:
     build: .
     command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
@@ -179,6 +208,24 @@ services:
     volumes:
       - ${EXECUTOR_SHARED_DIR:-./shared_dir}:/workspace/shared
 
+  test-migrate:
+    build: .
+    profiles: ["test"]
+    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+    environment:
+      <<: *agent-environment
+      AGENT_DATABASE_URL: >-
+        postgresql+psycopg://agent:agent@test-postgres:5432/agent_test
+      AGENT_CHECKPOINT_DATABASE_URL: >-
+        postgresql://agent:agent@test-postgres:5432/agent_test
+      AGENT_REDIS_URL: redis://test-redis:6379/0
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    restart: "no"
+
   test:
     build:
       context: .
@@ -192,14 +239,19 @@ services:
       - postgres or redis
     environment:
       <<: *agent-environment
+      AGENT_DATABASE_URL: >-
+        postgresql+psycopg://agent:agent@test-postgres:5432/agent_test
+      AGENT_CHECKPOINT_DATABASE_URL: >-
+        postgresql://agent:agent@test-postgres:5432/agent_test
+      AGENT_REDIS_URL: redis://test-redis:6379/0
       TEST_DATABASE_URL: >-
-        postgresql+psycopg://agent:agent@postgres:5432/agent
-      TEST_REDIS_URL: redis://redis:6379/0
+        postgresql+psycopg://agent:agent@test-postgres:5432/agent_test
+      TEST_REDIS_URL: redis://test-redis:6379/0
     extra_hosts: *model-hosts
     depends_on:
-      migrate:
+      test-migrate:
         condition: service_completed_successfully
-      redis:
+      test-redis:
         condition: service_healthy
     profiles: ["test"]
 

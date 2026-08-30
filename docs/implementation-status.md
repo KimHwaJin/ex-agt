@@ -42,6 +42,8 @@
 - Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
   먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
   뒤 DB/Redis/HTTP/metrics 자원을 닫는다.
+- 실제 Redis 통합 테스트가 처리 중 runtime 종료 시 ACK 없이 PEL 유지와 lock 해제,
+  다른 runtime의 `XAUTOCLAIM`, 단일 처리와 최종 pending 0건을 검증한다.
 - application workflow state를 LangGraph adapter 밖으로 이동해
   `application → graph` 역의존을 제거했다. Worker command/event processor와
   Stream handler, FastAPI container/router, LLM factory와
