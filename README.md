@@ -26,6 +26,8 @@ API 부하 테스트와 Prometheus 지표 설명은
 Worker는 기본적으로 `8011` 포트에서 metrics를 제공한다.
 Liveness/readiness 계약과 Prometheus 경보 기준은
 [Readiness and Alerting](docs/operations-readiness.md)을 참고한다.
+별도 Agent에서도 사용할 수 있는 Redis Stream 소비기 계약과 예시는
+[Reusable Redis Stream Consumer](docs/redis-stream-consumer.md)를 참고한다.
 
 결정론적 전체 수명주기 benchmark 예시:
 

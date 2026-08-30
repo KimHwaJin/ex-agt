@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from contextlib import suppress
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
@@ -28,6 +27,7 @@ from ex_agent.metrics import (
     LOCK_CONTENTION,
     OUTBOX_PUBLISHED,
     OUTBOX_RELAY_SECONDS,
+    REDIS_DEAD_LETTERED,
     REDIS_STREAM_LAG,
     REDIS_STREAM_PENDING,
     WORKER_ACTIVE,
@@ -50,31 +50,146 @@ from ex_agent.readiness import (
     probe_dependencies,
 )
 from ex_agent.tools.registry import ToolRegistry
+from ex_agent.transport.consumer import (
+    AckDecision,
+    ConsumerObserver,
+    HandlerResult,
+    PermanentMessageError,
+    RedisStreamConsumer,
+    RedisStreamConsumerConfig,
+    StreamMessage,
+    _autoclaim_page,
+)
 from ex_agent.transport.streams import CommandPublisher
 
 logger = logging.getLogger(__name__)
-
-_RENEW_LOCK_SCRIPT = """
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    return redis.call('expire', KEYS[1], ARGV[2])
-end
-return 0
-"""
-
-_RELEASE_LOCK_SCRIPT = """
-if redis.call('get', KEYS[1]) == ARGV[1] then
-    return redis.call('del', KEYS[1])
-end
-return 0
-"""
 
 _FAILURE_COMPENSATION = "FAILURE_COMPENSATION"
 _EXECUTOR_TERMINAL_STATUSES = {"CANCELLED", "SUCCEEDED", "FAILED"}
 
 
-class TaskLockLostError(RuntimeError):
-    def __init__(self, lock_key: str) -> None:
-        super().__init__(f"Task lock was lost: {lock_key}")
+class _WorkerConsumerObserver(ConsumerObserver):
+    def __init__(
+        self,
+        *,
+        kind: str,
+        lock_kind: str,
+        retry_component: str,
+        stream: str,
+    ) -> None:
+        self._kind = kind
+        self._lock_kind = lock_kind
+        self._retry_component = retry_component
+        self._stream = stream
+
+    def operation_started(self) -> None:
+        WORKER_ACTIVE.labels(kind=self._kind).inc()
+
+    def lock_contended(self) -> None:
+        LOCK_CONTENTION.labels(kind=self._lock_kind).inc()
+
+    def operation_finished(self, outcome: str, duration: float) -> None:
+        WORKER_ACTIVE.labels(kind=self._kind).dec()
+        WORKER_OPERATIONS.labels(
+            kind=self._kind,
+            outcome=outcome,
+        ).inc()
+        WORKER_OPERATION_SECONDS.labels(kind=self._kind).observe(duration)
+
+    def transport_retry(self) -> None:
+        WORKER_RETRIES.labels(component=self._retry_component).inc()
+
+    def dead_lettered(self) -> None:
+        REDIS_DEAD_LETTERED.labels(stream=self._stream).inc()
+
+
+class _CommandHandler:
+    def __init__(self, worker: WorkflowWorker, graph: Any) -> None:
+        self._worker = worker
+        self._graph = graph
+
+    def lock_key(self, message: StreamMessage) -> str:
+        try:
+            task_id = UUID(message.fields["task_id"])
+        except (KeyError, ValueError) as error:
+            raise PermanentMessageError(
+                f"Invalid command task_id: {error}"
+            ) from error
+        return f"agent:task-lock:{task_id}"
+
+    async def handle(self, message: StreamMessage) -> HandlerResult:
+        try:
+            command_id = UUID(message.fields["command_id"])
+            task_id = UUID(message.fields["task_id"])
+        except (KeyError, ValueError) as error:
+            raise PermanentMessageError(
+                f"Invalid command envelope: {error}"
+            ) from error
+        try:
+            await self._worker._process_command(self._graph, command_id)
+        except Exception as error:
+            logger.exception(
+                "Workflow command failed",
+                extra={"task_id": str(task_id)},
+            )
+            current = await self._worker._repository.get_command(command_id)
+            failure_message = f"{type(error).__name__}: {error}"
+            if (
+                current is not None
+                and current.command_type == _FAILURE_COMPENSATION
+            ):
+                await self._worker._repository.set_command_state(
+                    command_id,
+                    "PENDING",
+                    failure_message,
+                )
+            elif current is not None and current.attempt_count >= 3:
+                await self._worker._repository.prepare_failure_compensation(
+                    command_id,
+                    task_id,
+                    failure_message,
+                )
+            else:
+                await self._worker._repository.set_command_state(
+                    command_id,
+                    "PENDING",
+                    failure_message,
+                )
+            return HandlerResult(AckDecision.ACK, outcome="failed")
+        return HandlerResult(AckDecision.ACK)
+
+
+class _ExecutorEventHandler:
+    def __init__(self, worker: WorkflowWorker, stream: str) -> None:
+        self._worker = worker
+        self._stream = stream
+
+    def _event(self, message: StreamMessage) -> ExecutorEvent:
+        try:
+            return ExecutorEvent.from_redis(message.fields)
+        except (KeyError, TypeError, ValueError) as error:
+            raise PermanentMessageError(
+                f"Invalid Executor event envelope: {error}"
+            ) from error
+
+    def lock_key(self, message: StreamMessage) -> str:
+        event = self._event(message)
+        return f"agent:execution-lock:{event.execution_id}"
+
+    async def handle(self, message: StreamMessage) -> HandlerResult:
+        event = self._event(message)
+        processed = await self._worker._process_executor_event(
+            self._stream,
+            event,
+            catch_up=message.reclaimed,
+        )
+        if processed is False:
+            return HandlerResult(
+                AckDecision.RETRY,
+                outcome="binding_pending",
+                reason="Executor binding is not visible yet",
+            )
+        return HandlerResult(AckDecision.ACK)
 
 
 class WorkflowWorker:
@@ -155,19 +270,20 @@ class WorkflowWorker:
                         checkpointer=saver,
                     )
                 )
-            await self._ensure_groups()
+            command_consumer = self._command_consumer()
+            executor_event_consumer = self._executor_event_consumer()
+            await asyncio.gather(
+                command_consumer.ensure_group(),
+                executor_event_consumer.ensure_group(),
+            )
+            await asyncio.gather(
+                command_consumer.cleanup_consumers(),
+                executor_event_consumer.cleanup_consumers(),
+            )
             await self._publisher.publish_pending()
             await asyncio.gather(
-                *(
-                    self._command_loop(graph, slot_index)
-                    for slot_index, graph in enumerate(self._graphs)
-                ),
-                *(
-                    self._executor_event_loop(slot_index)
-                    for slot_index in range(
-                        self._settings.worker_executor_event_concurrency
-                    )
-                ),
+                command_consumer.run(),
+                executor_event_consumer.run(),
                 self._outbox_loop(),
                 self._metrics_loop(),
             )
@@ -187,6 +303,103 @@ class WorkflowWorker:
         await self._executor.close()
         await self._redis.aclose()
         await self._engine.dispose()
+
+    def _command_consumer(
+        self,
+        *,
+        stream: str | None = None,
+        group: str | None = None,
+        graphs: list[Any] | None = None,
+    ) -> RedisStreamConsumer:
+        selected_graphs = graphs or self._graphs
+        config = RedisStreamConsumerConfig(
+            stream=stream or self._settings.agent_command_stream,
+            group=group or self._settings.agent_command_consumer_group,
+            consumer_prefix=f"{self._consumer}-command",
+            concurrency=len(selected_graphs),
+            block_milliseconds=(self._settings.command_block_milliseconds),
+            claim_idle_milliseconds=(
+                self._settings.command_claim_idle_milliseconds
+            ),
+            claim_batch_size=self._settings.stream_claim_batch_size,
+            dead_letter_stream=(
+                self._settings.agent_command_dead_letter_stream
+            ),
+            lock_ttl_seconds=self._settings.task_lock_ttl_seconds,
+            lock_renew_interval_seconds=(
+                self._settings.task_lock_renew_interval_seconds
+            ),
+            consumer_gc_idle_milliseconds=(
+                self._settings.consumer_gc_idle_milliseconds
+            ),
+        )
+        observer = _WorkerConsumerObserver(
+            kind="command",
+            lock_kind="task",
+            retry_component="command_consumer",
+            stream="commands",
+        )
+        return RedisStreamConsumer(
+            self._redis,
+            config,
+            lambda slot_index: _CommandHandler(
+                self,
+                selected_graphs[slot_index],
+            ),
+            observer=observer,
+            retry_initial_seconds=(
+                self._settings.worker_retry_initial_seconds
+            ),
+            retry_max_seconds=self._settings.worker_retry_max_seconds,
+        )
+
+    def _executor_event_consumer(
+        self,
+        *,
+        stream: str | None = None,
+        group: str | None = None,
+        concurrency: int | None = None,
+    ) -> RedisStreamConsumer:
+        selected_stream = stream or self._settings.executor_event_stream
+        config = RedisStreamConsumerConfig(
+            stream=selected_stream,
+            group=group or self._settings.executor_event_consumer_group,
+            consumer_prefix=f"{self._consumer}-executor",
+            concurrency=(
+                concurrency or self._settings.worker_executor_event_concurrency
+            ),
+            block_milliseconds=(self._settings.command_block_milliseconds),
+            claim_idle_milliseconds=(
+                self._settings.executor_event_claim_idle_milliseconds
+            ),
+            claim_batch_size=self._settings.stream_claim_batch_size,
+            dead_letter_stream=(
+                self._settings.executor_event_dead_letter_stream
+            ),
+            lock_ttl_seconds=(self._settings.executor_event_lock_ttl_seconds),
+            lock_renew_interval_seconds=(
+                self._settings.executor_event_lock_renew_interval_seconds
+            ),
+            consumer_gc_idle_milliseconds=(
+                self._settings.consumer_gc_idle_milliseconds
+            ),
+        )
+        observer = _WorkerConsumerObserver(
+            kind="executor_event",
+            lock_kind="execution",
+            retry_component="executor_event_consumer",
+            stream="executor_events",
+        )
+        return RedisStreamConsumer(
+            self._redis,
+            config,
+            lambda _: _ExecutorEventHandler(self, selected_stream),
+            observer=observer,
+            retry_initial_seconds=(
+                self._settings.worker_retry_initial_seconds
+            ),
+            retry_max_seconds=self._settings.worker_retry_max_seconds,
+        )
 
     async def _ensure_groups(self) -> None:
         await self._ensure_group(
@@ -305,73 +518,6 @@ class WorkflowWorker:
                 OUTBOX_RELAY_SECONDS.observe(perf_counter() - started_at)
             await asyncio.sleep(poll_milliseconds / 1000)
 
-    async def _command_loop(self, graph: Any, slot_index: int) -> None:
-        stream = self._settings.agent_command_stream
-        group = self._settings.agent_command_consumer_group
-        consumer = f"{self._consumer}-command-{slot_index}"
-        retry_delay = self._settings.worker_retry_initial_seconds
-        while True:
-            try:
-                claimed = await self._claim_stale_commands(
-                    stream,
-                    group,
-                    consumer,
-                )
-                if claimed:
-                    message_id, fields = claimed[0]
-                    await self._handle_command(
-                        graph,
-                        consumer,
-                        stream,
-                        group,
-                        message_id,
-                        fields,
-                    )
-                    retry_delay = self._settings.worker_retry_initial_seconds
-                    continue
-                messages = await self._redis.xreadgroup(
-                    group,
-                    consumer,
-                    {stream: ">"},
-                    count=1,
-                    block=self._settings.command_block_milliseconds,
-                )
-                for _, entries in messages:
-                    for message_id, fields in entries:
-                        await self._handle_command(
-                            graph,
-                            consumer,
-                            stream,
-                            group,
-                            message_id,
-                            fields,
-                        )
-                retry_delay = self._settings.worker_retry_initial_seconds
-            except Exception:
-                logger.exception(
-                    "Command consumer iteration failed",
-                    extra={"consumer": consumer},
-                )
-                WORKER_RETRIES.labels(component="command_consumer").inc()
-                await asyncio.sleep(retry_delay)
-                retry_delay = self._next_retry_delay(retry_delay)
-
-    async def _claim_stale_commands(
-        self,
-        stream: str,
-        group: str,
-        consumer: str,
-    ) -> list[tuple[str, dict[str, str]]]:
-        response = await self._redis.xautoclaim(
-            stream,
-            group,
-            consumer,
-            min_idle_time=(self._settings.command_claim_idle_milliseconds),
-            start_id="0-0",
-            count=1,
-        )
-        return _autoclaim_entries(response)
-
     async def _handle_command(
         self,
         graph: Any,
@@ -381,168 +527,36 @@ class WorkflowWorker:
         message_id: str,
         fields: dict[str, str],
     ) -> None:
-        command_id = UUID(fields["command_id"])
-        task_id = UUID(fields["task_id"])
-        lock_key = f"agent:task-lock:{task_id}"
-        lock_value = str(uuid4())
-        acquired = await self._redis.set(
-            lock_key,
-            lock_value,
-            nx=True,
-            ex=self._settings.task_lock_ttl_seconds,
+        runtime = self._command_consumer(
+            stream=stream,
+            group=group,
+            graphs=[graph],
         )
-        if not acquired:
-            LOCK_CONTENTION.labels(kind="task").inc()
-            return
-        started_at = perf_counter()
-        outcome = "succeeded"
-        WORKER_ACTIVE.labels(kind="command").inc()
-        heartbeat: asyncio.Task[None] | None = None
-        command_task: asyncio.Task[None] | None = None
-        try:
-            heartbeat = asyncio.create_task(
-                self._renew_lock_and_stream_lease(
-                    stream,
-                    group,
-                    message_id,
-                    lock_key,
-                    lock_value,
-                    consumer,
-                    lock_ttl_seconds=(self._settings.task_lock_ttl_seconds),
-                    renew_interval_seconds=(
-                        self._settings.task_lock_renew_interval_seconds
-                    ),
-                )
-            )
-            command_task = asyncio.create_task(
-                self._process_command(
-                    graph,
-                    stream,
-                    group,
-                    message_id,
-                    command_id,
-                )
-            )
-            done, _ = await asyncio.wait(
-                {heartbeat, command_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if heartbeat in done:
-                error = heartbeat.exception()
-                command_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await command_task
-                if error is not None:
-                    raise error
-                raise TaskLockLostError(lock_key)
-            await command_task
-        except Exception as error:
-            outcome = "failed"
-            logger.exception(
-                "Workflow command failed", extra={"task_id": str(task_id)}
-            )
-            current = await self._repository.get_command(command_id)
-            message = f"{type(error).__name__}: {error}"
-            if (
-                current is not None
-                and current.command_type == _FAILURE_COMPENSATION
-            ):
-                await self._repository.set_command_state(
-                    command_id,
-                    "PENDING",
-                    message,
-                )
-            elif current is not None and current.attempt_count >= 3:
-                await self._repository.prepare_failure_compensation(
-                    command_id,
-                    task_id,
-                    message,
-                )
-            else:
-                await self._repository.set_command_state(
-                    command_id,
-                    "PENDING",
-                    message,
-                )
-            await self._redis.xack(stream, group, message_id)
-        finally:
-            for task in (heartbeat, command_task):
-                if task is not None and not task.done():
-                    task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await task
-            WORKER_ACTIVE.labels(kind="command").dec()
-            WORKER_OPERATIONS.labels(
-                kind="command",
-                outcome=outcome,
-            ).inc()
-            WORKER_OPERATION_SECONDS.labels(kind="command").observe(
-                perf_counter() - started_at
-            )
-            await self._redis.eval(
-                _RELEASE_LOCK_SCRIPT,
-                1,
-                lock_key,
-                lock_value,
-            )
+        handler = _CommandHandler(self, graph)
+        await runtime.process_message(
+            consumer,
+            handler,
+            StreamMessage(message_id, fields),
+        )
 
     async def _process_command(
         self,
         graph: Any,
-        stream: str,
-        group: str,
-        message_id: str,
         command_id: UUID,
     ) -> None:
         command = await self._repository.get_command(command_id)
         if command is None or command.state in {"DONE", "FAILED"}:
-            await self._redis.xack(stream, group, message_id)
             return
         task = await self._repository.get_task(command.task_id)
         if task is not None and TaskStatus(task.status).is_terminal:
             await self._repository.set_command_state(command_id, "DONE")
-            await self._redis.xack(stream, group, message_id)
             return
         await self._repository.set_command_state(command_id, "PROCESSING")
         if command.command_type == _FAILURE_COMPENSATION:
             await self._run_failure_compensation(command)
-            await self._redis.xack(stream, group, message_id)
             return
         await self._run_graph_command(graph, command)
         await self._repository.set_command_state(command_id, "DONE")
-        await self._redis.xack(stream, group, message_id)
-
-    async def _renew_lock_and_stream_lease(
-        self,
-        stream: str,
-        group: str,
-        message_id: str,
-        lock_key: str,
-        lock_value: str,
-        consumer: str,
-        *,
-        lock_ttl_seconds: int,
-        renew_interval_seconds: int,
-    ) -> None:
-        while True:
-            await asyncio.sleep(renew_interval_seconds)
-            renewed = await self._redis.eval(
-                _RENEW_LOCK_SCRIPT,
-                1,
-                lock_key,
-                lock_value,
-                lock_ttl_seconds,
-            )
-            if renewed != 1:
-                raise TaskLockLostError(lock_key)
-            await self._redis.xclaim(
-                stream,
-                group,
-                consumer,
-                min_idle_time=0,
-                message_ids=[message_id],
-                justid=True,
-            )
 
     async def _run_graph_command(self, graph: Any, command: Any) -> None:
         task = await self._repository.get_task(command.task_id)
@@ -639,76 +653,6 @@ class WorkflowWorker:
                     self._settings.executor_failure_cleanup_poll_seconds
                 )
 
-    async def _executor_event_loop(self, slot_index: int) -> None:
-        stream = self._settings.executor_event_stream
-        group = self._settings.executor_event_consumer_group
-        consumer = f"{self._consumer}-executor-{slot_index}"
-        retry_delay = self._settings.worker_retry_initial_seconds
-        while True:
-            try:
-                claimed = await self._claim_stale_executor_events(
-                    stream,
-                    group,
-                    consumer,
-                )
-                if claimed:
-                    message_id, fields = claimed[0]
-                    await self._handle_executor_event(
-                        consumer,
-                        stream,
-                        group,
-                        message_id,
-                        fields,
-                        catch_up=True,
-                    )
-                    retry_delay = self._settings.worker_retry_initial_seconds
-                    continue
-                messages = await self._redis.xreadgroup(
-                    group,
-                    consumer,
-                    {stream: ">"},
-                    count=1,
-                    block=self._settings.command_block_milliseconds,
-                )
-                for _, entries in messages:
-                    for message_id, fields in entries:
-                        await self._handle_executor_event(
-                            consumer,
-                            stream,
-                            group,
-                            message_id,
-                            fields,
-                        )
-                retry_delay = self._settings.worker_retry_initial_seconds
-            except Exception:
-                logger.exception(
-                    "Executor event consumer iteration failed",
-                    extra={"consumer": consumer},
-                )
-                WORKER_RETRIES.labels(
-                    component="executor_event_consumer"
-                ).inc()
-                await asyncio.sleep(retry_delay)
-                retry_delay = self._next_retry_delay(retry_delay)
-
-    async def _claim_stale_executor_events(
-        self,
-        stream: str,
-        group: str,
-        consumer: str,
-    ) -> list[tuple[str, dict[str, str]]]:
-        response = await self._redis.xautoclaim(
-            stream,
-            group,
-            consumer,
-            min_idle_time=(
-                self._settings.executor_event_claim_idle_milliseconds
-            ),
-            start_id="0-0",
-            count=1,
-        )
-        return _autoclaim_entries(response)
-
     async def _handle_executor_event(
         self,
         consumer: str,
@@ -719,107 +663,30 @@ class WorkflowWorker:
         *,
         catch_up: bool = False,
     ) -> None:
-        event = ExecutorEvent.from_redis(fields)
-        lock_key = f"agent:execution-lock:{event.execution_id}"
-        lock_value = str(uuid4())
-        acquired = await self._redis.set(
-            lock_key,
-            lock_value,
-            nx=True,
-            ex=self._settings.executor_event_lock_ttl_seconds,
+        runtime = self._executor_event_consumer(
+            stream=stream,
+            group=group,
+            concurrency=1,
         )
-        if not acquired:
-            LOCK_CONTENTION.labels(kind="execution").inc()
-            return
-        started_at = perf_counter()
-        outcome = "succeeded"
-        WORKER_ACTIVE.labels(kind="executor_event").inc()
-        heartbeat: asyncio.Task[None] | None = None
-        event_task: asyncio.Task[None] | None = None
-        try:
-            heartbeat = asyncio.create_task(
-                self._renew_lock_and_stream_lease(
-                    stream,
-                    group,
-                    message_id,
-                    lock_key,
-                    lock_value,
-                    consumer,
-                    lock_ttl_seconds=(
-                        self._settings.executor_event_lock_ttl_seconds
-                    ),
-                    renew_interval_seconds=(
-                        self._settings.executor_event_lock_renew_interval_seconds
-                    ),
-                )
-            )
-            event_task = asyncio.create_task(
-                self._process_executor_event(
-                    stream,
-                    group,
-                    message_id,
-                    event,
-                    catch_up=catch_up,
-                )
-            )
-            done, _ = await asyncio.wait(
-                {heartbeat, event_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            if heartbeat in done:
-                error = heartbeat.exception()
-                event_task.cancel()
-                with suppress(asyncio.CancelledError):
-                    await event_task
-                if error is not None:
-                    raise error
-                raise TaskLockLostError(lock_key)
-            await event_task
-        except Exception:
-            outcome = "failed"
-            logger.exception(
-                "Executor event processing failed",
-                extra={
-                    "execution_id": str(event.execution_id),
-                    "event_id": str(event.event_id),
-                },
-            )
-        finally:
-            for task in (heartbeat, event_task):
-                if task is not None and not task.done():
-                    task.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await task
-            WORKER_ACTIVE.labels(kind="executor_event").dec()
-            WORKER_OPERATIONS.labels(
-                kind="executor_event",
-                outcome=outcome,
-            ).inc()
-            WORKER_OPERATION_SECONDS.labels(kind="executor_event").observe(
-                perf_counter() - started_at
-            )
-            await self._redis.eval(
-                _RELEASE_LOCK_SCRIPT,
-                1,
-                lock_key,
-                lock_value,
-            )
+        handler = _ExecutorEventHandler(self, stream)
+        await runtime.process_message(
+            consumer,
+            handler,
+            StreamMessage(message_id, fields, reclaimed=catch_up),
+        )
 
     async def _process_executor_event(
         self,
         stream: str,
-        group: str,
-        message_id: str,
         event: ExecutorEvent,
         *,
         catch_up: bool = False,
-    ) -> None:
+    ) -> bool:
         binding = await self._repository.binding_for_execution(
             event.execution_id
         )
         if binding is None:
-            await self._redis.xack(stream, group, message_id)
-            return
+            return False
         history: list[ExecutorEvent] = []
         if catch_up:
             history = await self._executor.events_after(
@@ -848,7 +715,7 @@ class WorkflowWorker:
                 binding.task_id,
                 ordered_event,
             )
-        await self._redis.xack(stream, group, message_id)
+        return True
 
     async def _persist_executor_event(
         self,
@@ -931,12 +798,7 @@ def _interrupt_payload(value: Any) -> dict[str, Any]:
 def _autoclaim_entries(
     response: Any,
 ) -> list[tuple[str, dict[str, str]]]:
-    if not isinstance(response, (list, tuple)) or len(response) < 2:
-        raise TypeError("Redis XAUTOCLAIM returned an invalid response")
-    entries = response[1]
-    if not isinstance(entries, list):
-        raise TypeError("Redis XAUTOCLAIM entries must be a list")
-    return entries
+    return _autoclaim_page(response)[1]
 
 
 def _task_graph_config(task_id: UUID) -> dict[str, Any]:
