@@ -63,12 +63,8 @@ class WorkerRuntime(WorkerContext):
             command_consumer = self._command_consumer()
             executor_event_consumer = self._executor_event_consumer()
             await asyncio.gather(
-                command_consumer.ensure_group(),
-                executor_event_consumer.ensure_group(),
-            )
-            await asyncio.gather(
-                command_consumer.cleanup_consumers(),
-                executor_event_consumer.cleanup_consumers(),
+                command_consumer.initialize(),
+                executor_event_consumer.initialize(),
             )
             await self._publisher.publish_pending()
             await asyncio.gather(

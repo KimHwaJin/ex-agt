@@ -217,6 +217,45 @@ class DelayedAckRedis(FakeRedis):
         return await super().xack(stream, group, message_id)
 
 
+class RuntimeRedis(FakeRedis):
+    def __init__(
+        self,
+        messages: list[tuple[str, dict[str, str]]] | None = None,
+    ) -> None:
+        super().__init__()
+        self.messages = messages or []
+        self.group_create_calls = 0
+        self.read_started = asyncio.Event()
+
+    async def xgroup_create(
+        self,
+        stream: str,
+        group: str,
+        *,
+        id: str,
+        mkstream: bool,
+    ) -> bool:
+        del stream, group, id, mkstream
+        self.group_create_calls += 1
+        return True
+
+    async def xreadgroup(
+        self,
+        group: str,
+        consumer: str,
+        streams: dict[str, str],
+        *,
+        count: int,
+        block: int,
+    ) -> list[tuple[str, list[tuple[str, dict[str, str]]]]]:
+        del group, consumer, count, block
+        self.read_started.set()
+        if self.messages:
+            return [(next(iter(streams)), [self.messages.pop(0)])]
+        await asyncio.Event().wait()
+        return []
+
+
 class Handler:
     def __init__(
         self,
@@ -244,6 +283,28 @@ class Handler:
         if self._handle_error is not None:
             raise PermanentMessageError(self._handle_error)
         return self._result
+
+
+class BlockingHandler:
+    def __init__(self, *, lock_key: str | None) -> None:
+        self._lock_key = lock_key
+        self.started = asyncio.Event()
+        self.allowed = asyncio.Event()
+        self.cancelled = asyncio.Event()
+
+    def lock_key(self, message: StreamMessage) -> str | None:
+        del message
+        return self._lock_key
+
+    async def handle(self, message: StreamMessage) -> HandlerResult:
+        del message
+        self.started.set()
+        try:
+            await self.allowed.wait()
+        except asyncio.CancelledError:
+            self.cancelled.set()
+            raise
+        return HandlerResult(AckDecision.ACK)
 
 
 def _consumer(
@@ -465,6 +526,127 @@ async def test_stream_lease_covers_ack_finalization() -> None:
         await asyncio.gather(processing, return_exceptions=True)
 
     assert redis.acknowledged == ["12-0"]
+
+
+@pytest.mark.asyncio
+async def test_initialize_runs_group_setup_only_once() -> None:
+    redis = RuntimeRedis()
+    handler = Handler(HandlerResult(AckDecision.ACK))
+    consumer = _consumer(redis, handler)
+
+    await consumer.initialize()
+    await consumer.initialize()
+
+    assert redis.group_create_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_shutdown_cancels_blocked_reader_after_grace_period() -> None:
+    redis = RuntimeRedis()
+    handler = Handler(
+        HandlerResult(AckDecision.ACK),
+        lock_key=None,
+    )
+    consumer = _consumer(redis, handler)
+    running = asyncio.create_task(consumer.run())
+
+    await asyncio.wait_for(redis.read_started.wait(), timeout=0.1)
+    assert consumer.is_running is True
+    await consumer.shutdown(grace_period_seconds=0)
+    await asyncio.wait_for(running, timeout=0.1)
+
+    assert consumer.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_stop_requested_before_run_is_not_lost() -> None:
+    redis = RuntimeRedis()
+    handler = Handler(HandlerResult(AckDecision.ACK))
+    consumer = _consumer(redis, handler)
+
+    consumer.request_stop()
+    await consumer.run()
+
+    assert redis.group_create_calls == 0
+    assert redis.read_started.is_set() is False
+    assert consumer.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_external_run_cancellation_remains_observable() -> None:
+    redis = RuntimeRedis()
+    handler = Handler(HandlerResult(AckDecision.ACK))
+    consumer = _consumer(redis, handler)
+    running = asyncio.create_task(consumer.run())
+
+    await asyncio.wait_for(redis.read_started.wait(), timeout=0.1)
+    running.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await running
+    assert consumer.is_running is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_drains_active_handler_within_grace_period() -> None:
+    redis = RuntimeRedis([("20-0", {"job": "one"})])
+    handler = BlockingHandler(lock_key=None)
+    consumer = RedisStreamConsumer(
+        cast(Any, redis),
+        RedisStreamConsumerConfig(
+            stream="source",
+            group="group",
+            consumer_prefix="instance-command",
+            dead_letter_stream="source.dlq",
+        ),
+        lambda _: handler,
+    )
+    running = asyncio.create_task(consumer.run())
+
+    await asyncio.wait_for(handler.started.wait(), timeout=0.1)
+    stopping = asyncio.create_task(consumer.shutdown(grace_period_seconds=1))
+    await asyncio.sleep(0)
+    assert stopping.done() is False
+    handler.allowed.set()
+    await asyncio.wait_for(stopping, timeout=0.1)
+    await asyncio.wait_for(running, timeout=0.1)
+
+    assert redis.acknowledged == ["20-0"]
+    assert handler.cancelled.is_set() is False
+
+
+@pytest.mark.asyncio
+async def test_shutdown_timeout_leaves_message_pending_for_recovery() -> None:
+    redis = RuntimeRedis([("21-0", {"job": "slow"})])
+    handler = BlockingHandler(lock_key="lock:slow")
+    consumer = RedisStreamConsumer(
+        cast(Any, redis),
+        RedisStreamConsumerConfig(
+            stream="source",
+            group="group",
+            consumer_prefix="instance-command",
+            dead_letter_stream="source.dlq",
+        ),
+        lambda _: handler,
+    )
+    running = asyncio.create_task(consumer.run())
+
+    await asyncio.wait_for(handler.started.wait(), timeout=0.1)
+    await consumer.shutdown(grace_period_seconds=0)
+    await asyncio.wait_for(running, timeout=0.1)
+
+    assert handler.cancelled.is_set() is True
+    assert redis.acknowledged == []
+    assert redis.locks == {}
+
+
+@pytest.mark.asyncio
+async def test_shutdown_rejects_negative_grace_period() -> None:
+    redis = RuntimeRedis()
+    handler = Handler(HandlerResult(AckDecision.ACK))
+
+    with pytest.raises(ValueError, match="cannot be negative"):
+        await _consumer(redis, handler).shutdown(-1)
 
 
 def test_autoclaim_page_rejects_invalid_shape() -> None:

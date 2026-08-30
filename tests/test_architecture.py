@@ -1,4 +1,7 @@
 import ast
+import importlib.util
+import shutil
+import sys
 from pathlib import Path
 
 from ex_agent.application.ports import (
@@ -58,6 +61,27 @@ def test_reusable_consumer_has_no_agent_domain_dependency() -> None:
     consumer = _PACKAGE_ROOT / "transport" / "consumer.py"
 
     assert _internal_imports(consumer) == set()
+
+
+def test_reusable_consumer_loads_as_a_standalone_file(
+    tmp_path: Path,
+) -> None:
+    source = _PACKAGE_ROOT / "transport" / "consumer.py"
+    standalone = tmp_path / "standalone_consumer.py"
+    shutil.copyfile(source, standalone)
+    module_name = "standalone_consumer"
+    spec = importlib.util.spec_from_file_location(module_name, standalone)
+
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[module_name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        sys.modules.pop(module_name, None)
+
+    assert module.RedisStreamConsumer.__module__ == module_name
 
 
 def test_default_services_implements_every_capability_contract() -> None:
