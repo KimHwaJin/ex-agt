@@ -126,6 +126,11 @@
 
 ## 다음 구현 범위
 
+- Redis Stream maintenance API: 등록된 Stream만 대상으로 dry-run plan과
+  비동기 trim job/status 조회를 제공한다. 요청자·사유·정책·결과를 감사하고,
+  멱등성·동시 실행 lock·향후 관리자 권한을 적용한다. 실제 trim은 기존
+  `SafeStreamTrimmer`를 재사용하며 CronJob 등 스케줄러 연계는 배포 단계에서
+  별도로 결정한다.
 - 실제 embedding 모델 확보 후 Workflow 의미 검색 품질 검증 및 재인덱싱
 - Workflow 승격 command/API와 승격 권한 정책
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
