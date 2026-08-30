@@ -12,10 +12,24 @@ from ex_agent.transport.consumer import (
     StreamMessage,
     StreamMessageHandler,
 )
+from ex_agent.transport.dlq import (
+    DeadLetterAction,
+    DeadLetterActionResult,
+    DeadLetterEntry,
+    DeadLetterFormatError,
+    DeadLetterManager,
+    DeadLetterPage,
+)
 
 __all__ = [
     "AckDecision",
     "ConsumerObserver",
+    "DeadLetterAction",
+    "DeadLetterActionResult",
+    "DeadLetterEntry",
+    "DeadLetterFormatError",
+    "DeadLetterManager",
+    "DeadLetterPage",
     "HandlerResult",
     "NullConsumerObserver",
     "PermanentMessageError",

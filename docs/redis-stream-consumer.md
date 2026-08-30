@@ -128,15 +128,55 @@ metadata는 pending 0건과 idle 기준을 모두 만족할 때만 삭제한다.
 
 DLQ entry는 다음 필드를 가진다.
 
+- `schema_version`
+- `failure_id`: source stream/group/message ID 기반 안정 식별자
+- `dead_lettered_at`
 - `source_stream`
 - `source_group`
 - `source_message_id`
+- `consumer`
+- `error_type`
 - `reason`
 - `retry_attempts`: 영구 오류는 `0`, retry 소진은 실제 retry 횟수
+- `reclaimed`
 - `fields`: 원본 field map의 JSON 문자열
 
-재처리 도구는 `fields`를 decode하여 원본 Stream에 새 entry로 발행해야 한다.
-원본 ID를 재사용하지 않으므로 business idempotency key를 그대로 유지해야 한다.
+구형 entry에는 `schema_version`, `failure_id` 등 일부 필드가 없을 수 있다. DLQ
+reader는 기존 필수 필드와 `fields`가 유효하면 이를 version `0`으로 읽는다.
+
+## DLQ 운영 CLI
+
+`ex-agent-dlq`는 DLQ를 오래된 순서로 조회하고 replay 또는 discard한다.
+
+```bash
+ex-agent-dlq --stream agent.commands.dlq list --limit 50
+
+ex-agent-dlq --stream agent.commands.dlq replay 1730000000000-0 \
+  --actor operator@example.com \
+  --reason "dependency recovered" \
+  --yes
+
+ex-agent-dlq --stream executor.events.agent-dlq discard 1730000000001-0 \
+  --actor operator@example.com \
+  --reason "invalid legacy envelope" \
+  --yes
+```
+
+replay는 원본 `fields`를 source stream에 새 ID로 발행한다. source 발행, DLQ
+entry 삭제, `<dlq-stream>.audit` 기록과 action marker 저장은 하나의 Lua
+transaction이다. marker 때문에 응답 유실 후 같은 DLQ entry ID를 다시 replay해도
+source에는 한 번만 발행된다. 원본 Stream ID는 재사용하지 않으며 message 안의
+business idempotency key는 그대로 유지한다.
+
+discard도 audit 기록, DLQ 삭제와 marker 저장을 원자적으로 수행한다. 두 명령은
+`actor`, `reason`, `--yes`가 필수다. marker 기본 TTL은 90일이며
+`DLQ_ACTION_MARKER_TTL_SECONDS` 또는 CLI option으로 바꿀 수 있다. batch 명령은
+순차 fail-fast지만 완료된 entry는 멱등 marker가 남으므로 같은 전체 명령을
+안전하게 다시 실행할 수 있다.
+
+현재 배포는 standalone Redis를 전제로 한다. Redis Cluster로 전환할 때는 source,
+DLQ, audit와 marker key가 같은 hash slot을 사용하도록 stream 이름에 동일한 hash
+tag를 적용해야 한다.
 
 ## 현재 Worker 연결
 
@@ -151,6 +191,7 @@ stale reclaim 시 Executor history와 함께 복구한다.
 - `COMMAND_MAX_RETRY_ATTEMPTS`
 - `EXECUTOR_EVENT_MAX_RETRY_ATTEMPTS`
 - `STREAM_RETRY_STATE_TTL_SECONDS`
+- `DLQ_ACTION_MARKER_TTL_SECONDS`
 - `CONSUMER_GC_IDLE_MILLISECONDS`
 - `AGENT_COMMAND_DEAD_LETTER_STREAM`
 - `EXECUTOR_EVENT_DEAD_LETTER_STREAM`

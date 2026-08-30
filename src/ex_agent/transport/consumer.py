@@ -6,6 +6,7 @@ import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from enum import StrEnum
 from time import perf_counter
 from typing import Any, Protocol, cast
@@ -48,6 +49,7 @@ class HandlerResult:
     decision: AckDecision
     outcome: str = "succeeded"
     reason: str | None = None
+    error_type: str | None = None
 
 
 @dataclass(frozen=True)
@@ -319,7 +321,12 @@ class RedisStreamConsumer:
                 lock_key = handler.lock_key(message)
             except PermanentMessageError as error:
                 outcome = "dead_lettered"
-                await self._dead_letter(message, str(error))
+                await self._dead_letter(
+                    consumer,
+                    message,
+                    str(error),
+                    error_type=type(error).__name__,
+                )
                 return
             if lock_key is not None:
                 lock_lease = await self._acquire_lock(lock_key)
@@ -453,7 +460,7 @@ class RedisStreamConsumer:
             )
         )
         handler_task = asyncio.create_task(
-            self._handle_and_finalize(handler, message)
+            self._handle_and_finalize(consumer, handler, message)
         )
         try:
             done, _ = await asyncio.wait(
@@ -534,17 +541,24 @@ class RedisStreamConsumer:
 
     async def _handle_and_finalize(
         self,
+        consumer: str,
         handler: StreamMessageHandler,
         message: StreamMessage,
     ) -> HandlerResult:
         try:
             result = await handler.handle(message)
         except PermanentMessageError as error:
-            await self._dead_letter(message, str(error))
+            await self._dead_letter(
+                consumer,
+                message,
+                str(error),
+                error_type=type(error).__name__,
+            )
             return HandlerResult(
                 AckDecision.DEAD_LETTER,
                 outcome="dead_lettered",
                 reason=str(error),
+                error_type=type(error).__name__,
             )
         except Exception as error:
             reason = f"{type(error).__name__}: {error}"
@@ -560,20 +574,28 @@ class RedisStreamConsumer:
                 AckDecision.RETRY,
                 outcome="failed",
                 reason=reason,
+                error_type=type(error).__name__,
             )
         if result.decision is AckDecision.ACK:
             await self._ack(message)
         elif result.decision is AckDecision.RETRY:
-            return await self._retry_or_dead_letter(message, result)
+            return await self._retry_or_dead_letter(
+                consumer,
+                message,
+                result,
+            )
         elif result.decision is AckDecision.DEAD_LETTER:
             await self._dead_letter(
+                consumer,
                 message,
                 result.reason or "handler rejected message",
+                error_type=result.error_type or "handler_decision",
             )
         return result
 
     async def _retry_or_dead_letter(
         self,
+        consumer: str,
         message: StreamMessage,
         result: HandlerResult,
     ) -> HandlerResult:
@@ -589,9 +611,11 @@ class RedisStreamConsumer:
             return result
         reason = result.reason or "handler retry limit exhausted"
         await self._dead_letter(
+            consumer,
             message,
             reason,
             retry_attempts=int(attempts),
+            error_type=result.error_type or "retry_exhausted",
         )
         return HandlerResult(
             AckDecision.DEAD_LETTER,
@@ -637,10 +661,12 @@ class RedisStreamConsumer:
 
     async def _dead_letter(
         self,
+        consumer: str,
         message: StreamMessage,
         reason: str,
         *,
         retry_attempts: int = 0,
+        error_type: str = "handler_decision",
     ) -> None:
         dead_letter_stream = self._config.dead_letter_stream
         if dead_letter_stream is None:
@@ -650,11 +676,17 @@ class RedisStreamConsumer:
         pipeline.xadd(
             dead_letter_stream,
             {
+                "schema_version": "1",
+                "failure_id": self._failure_id(message.message_id),
+                "dead_lettered_at": datetime.now(UTC).isoformat(),
                 "source_stream": self._config.stream,
                 "source_group": self._config.group,
                 "source_message_id": message.message_id,
+                "consumer": consumer,
+                "error_type": error_type,
                 "reason": reason,
                 "retry_attempts": str(retry_attempts),
+                "reclaimed": str(message.reclaimed).lower(),
                 "fields": json.dumps(
                     message.fields,
                     ensure_ascii=False,
@@ -676,6 +708,12 @@ class RedisStreamConsumer:
         ).encode()
         digest = hashlib.sha256(identity).hexdigest()
         return f"{self._config.retry_key_prefix}:{digest}"
+
+    def _failure_id(self, message_id: str) -> str:
+        identity = "\0".join(
+            (self._config.stream, self._config.group, message_id)
+        ).encode()
+        return hashlib.sha256(identity).hexdigest()
 
     def _notify(self, callback: Callable[..., None], *args: Any) -> None:
         try:

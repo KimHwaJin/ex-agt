@@ -137,6 +137,12 @@ async def test_real_redis_dlq_write_and_source_ack_are_atomic() -> None:
         assert pending["pending"] == 0
         assert len(dead_letters) == 1
         fields = dead_letters[0][1]
+        assert fields["schema_version"] == "1"
+        assert len(fields["failure_id"]) == 64
+        assert fields["consumer"] == "integration-consumer-0"
+        assert fields["error_type"] == "PermanentMessageError"
+        assert fields["reclaimed"] == "false"
+        assert fields["dead_lettered_at"]
         assert fields["source_message_id"] == message_id
         assert fields["reason"] == "invalid test envelope"
         assert fields["retry_attempts"] == "0"

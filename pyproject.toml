@@ -27,6 +27,7 @@ dependencies = [
 [project.scripts]
 ex-agent-api = "ex_agent.main:run_api"
 ex-agent-worker = "ex_agent.worker_main:run_worker"
+ex-agent-dlq = "ex_agent.dlq_main:run_dlq_cli"
 
 [build-system]
 requires = ["uv_build>=0.11.29,<0.12"]

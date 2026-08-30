@@ -42,6 +42,9 @@
 - retry 가능한 handler 실패는 lock contention과 분리된 Redis counter로 추적한다.
   stream별 상한을 소진한 poison message는 마지막 retry 사유와 횟수를 포함해
   DLQ로 이동하고 원본을 ACK한다.
+- versioned DLQ envelope와 비동기 관리 모듈을 제공한다. 운영 CLI의 replay와
+  discard는 source/audit/DLQ/action marker를 원자적으로 변경하며 응답 유실 후
+  반복 요청도 중복 발행하지 않는다.
 - Worker entrypoint는 SIGTERM/SIGINT를 durable shutdown으로 변환한다. readiness를
   먼저 내리고 두 consumer와 maintenance loop를 전역 grace deadline 안에서 drain한
   뒤 DB/Redis/HTTP/metrics 자원을 닫는다.
