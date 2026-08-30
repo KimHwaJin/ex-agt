@@ -232,17 +232,12 @@ class PlanOutputMiddleware(PlannerMiddleware):
             raise ValueError(
                 "MULTI planning must produce exactly one next Step"
             )
-        for step in plan.steps:
-            if step.planning_kind is not PlanningKind.TOOL_PLAN:
-                continue
-            if step.skill is None or step.tool is None:
-                raise ValueError("Tool Step is missing Skill/Tool lineage")
-            manifest = self._registry.get_tool(step.tool.name)
-            if manifest.skill != step.skill or manifest.tool != step.tool:
-                raise ValueError(
-                    "Planner returned stale or mismatched Tool lineage"
-                )
-        return {"structured_response": plan}
+        normalized_steps = [
+            self._registry.canonicalize_step_lineage(step)
+            for step in plan.steps
+        ]
+        normalized = plan.model_copy(update={"steps": normalized_steps})
+        return {"structured_response": normalized}
 
 
 def _planner_context(runtime: Any) -> PlannerContext:
@@ -282,7 +277,11 @@ def _planning_system_message(
     content = (
         "You create an auditable execution plan. Return only the configured "
         "structured PlanDraft. Never claim that a Tool was executed. "
-        "Every rationale must be suitable for display to the user.\n\n"
+        "Every rationale must be suitable for display to the user. "
+        "When execution mode is MULTI, return exactly one Step: only the "
+        "immediate next Jupyter cell. Never include later Steps, even when "
+        "the user describes the full workflow; keep future intent in the "
+        "strategy summary.\n\n"
         f"Planning kind: {context.planning_kind}\n"
         f"Execution mode: {context.execution_mode}\n"
         f"Runtime profile: {context.runtime_profile}\n"

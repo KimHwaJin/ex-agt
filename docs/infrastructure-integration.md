@@ -58,7 +58,11 @@ Redis는 durable business state의 원본이 아니라 wake-up과 delivery trans
 |---|---|---|---|
 | `executor.events` | Executor | `agent-executor-events-v1` group | Executor lifecycle event 수신 |
 | `agent.commands` | BFF outbox relay | workflow worker group | 승인 후 실행/resume command 전달 |
-| `agent.product-events` | Agent/BFF | SSE projection relay | 저장된 사용자 이벤트의 wake-up |
+| `agent.product-events` | Worker outbox relay | 운영 projection consumer | 저장된 사용자 이벤트의 delivery log |
+
+SSE wake-up은 `agent.task-events:{task_id}` Redis Pub/Sub channel을 사용한다.
+Task event 본문과 재연결 cursor의 원본은 PostgreSQL이며 Pub/Sub payload는 알림용
+event ID뿐이다.
 | `agent.commands.dlq` | workflow worker | 운영자/replayer | 반복 처리 실패 command 격리 |
 
 규칙:
@@ -69,7 +73,8 @@ Redis는 durable business state의 원본이 아니라 wake-up과 delivery trans
 - gap이 있으면 Executor REST event history를 조회해 복구한다.
 - 장시간 idle pending entry는 claim하고, 이미 처리된 command/event는 멱등하게 ACK한다.
 - Agent는 `executor.work`를 읽거나 쓰지 않는다.
-- Redis 장애 중에도 PostgreSQL outbox에 command가 남아 재발행될 수 있어야 한다.
+- Redis 장애 중에도 PostgreSQL outbox에 command와 product event가 남아
+  재발행될 수 있어야 한다.
 
 ## 4. Executor REST Adapter
 

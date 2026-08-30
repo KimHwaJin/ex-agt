@@ -160,6 +160,41 @@ async def test_report_uses_path_source() -> None:
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_cancel_preserves_agent_actor_identity() -> None:
+    execution_id = uuid4()
+    route = respx.post(
+        f"http://executor/api/v1/executions/{execution_id}/cancel"
+    ).mock(
+        return_value=httpx.Response(
+            202,
+            json={
+                "execution_id": str(execution_id),
+                "operation": None,
+                "state": {"status": "CANCEL_REQUESTED", "version": 2},
+            },
+        )
+    )
+    client = ExecutorClient(
+        "http://executor/api/v1",
+        timeout_seconds=1,
+    )
+    try:
+        await client.cancel(
+            execution_id,
+            idempotency_key="task:one:agent-failure-cancel",
+            actor_type="AGENT",
+            actor_id="ex-agent",
+            reason="Agent workflow failed",
+        )
+    finally:
+        await client.close()
+
+    body = route.calls.last.request.content.decode()
+    assert '"actor":{"type":"AGENT","id":"ex-agent"}' in body
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_event_history_follows_executor_pagination() -> None:
     execution_id = uuid4()
     route = respx.get(

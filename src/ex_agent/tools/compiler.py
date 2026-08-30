@@ -63,7 +63,9 @@ class SourceCompiler:
             f"    {name}={pprint.pformat(value, sort_dicts=True)},"
             for name, value in sorted(step.parameters.items())
         )
-        invocation = f"\n\nresult = {manifest.tool.name}(\n{arguments}\n)\n"
+        invocation = (
+            f"\n\nresult = {manifest.tool.name}(\n{arguments}\n)\nresult\n"
+        )
         source = manifest.source.rstrip() + invocation
         return CompiledStep(
             sequence=step.sequence,

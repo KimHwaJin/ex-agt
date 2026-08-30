@@ -314,6 +314,10 @@ Executor가 `/executor/storage/notebooks/prepare`를 호출하면 Jupyter image�
 해당 route가 포함되어야 한다. 소스 변경 후 오래된 image를 재사용하면
 Runtime probe는 통과하지만 실행 준비가 404로 실패할 수 있다.
 
+2026-08-28 MULTI 라이브 검증에서는 현재 Executor source로 Jupyter image를
+재빌드한 뒤 이 endpoint와 2개 연속 Operation, Notebook report append가 모두
+정상 동작했다. Executor API 변경 뒤에는 Jupyter image도 함께 재빌드해야 한다.
+
 ## 11. 원본 문서
 
 Executor 저장소의 다음 파일을 우선 참고한다.

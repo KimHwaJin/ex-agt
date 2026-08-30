@@ -357,9 +357,10 @@ REVISE/REJECT/clarification은 실행 잠금을 잡지 않는다. MULTI 실행 �
 | 승인/Workflow 선택 이후 | worker container only | lock 이후 durable lifecycle 보장 |
 | Executor event/cancel/recovery resume | worker container only | at-least-once 처리와 직렬화 |
 
-API는 모든 command를 먼저 PostgreSQL에 저장하고 Redis Stream에 발행한 뒤 `202`를 반환한다.
-Worker만 Graph를 invoke/resume한다. Redis 발행에 실패한 PENDING command는 relay loop가
-재발행한다. 승인 resume transaction은 Session lock과 command를 함께 저장한다.
+API는 모든 command를 PostgreSQL durable outbox에 저장하고 즉시 `202`를 반환한다.
+Worker relay가 claim한 command를 Redis Stream에 배치 발행하며 Worker만 Graph를
+invoke/resume한다. Redis 발행에 실패한 PENDING command는 relay loop가 재발행한다.
+승인 resume transaction은 Session lock과 command를 함께 저장한다.
 
 ## 8. LangChain `create_agent` planner 설계
 
@@ -624,6 +625,11 @@ Executor Execution 성공만으로 Agent Task를 성공 처리하지 않는다. 
 Assistant message, user event, Task `SUCCEEDED`, Session unlock이 commit되어야 한다. 영구적인
 report 실패는 report 없이 “실행은 성공했지만 결과 리포트 생성/저장에 실패” 메시지를 저장하고
 Task를 `FAILED`로 종료한 뒤 잠금을 푼다.
+
+Executor가 terminal이 되기 전에 Agent command 자체가 최종 실패하면 Worker의 durable
+`FAILURE_COMPENSATION` command로 전환한다. 이 경로는 Graph를 다시 실행하지 않고 Executor
+취소 및 terminal 확인만 수행한다. terminal 확인 전에는 Task와 Session lock을 유지하고,
+확인 후에만 실패 메시지와 잠금 해제를 원자적으로 commit한다.
 
 Tool-only 성공 Task에는 별도의 promotion draft를 저장해 최종 응답에 제안한다. 실제 승격은
 사용자의 후속 명령과 `PromotionPolicy`를 거치는 별도 application flow다. Promotion draft 생성은

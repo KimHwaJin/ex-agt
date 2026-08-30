@@ -209,6 +209,7 @@ class ExecutorReconciliation(ContractModel):
     error_code: str | None = None
     error_message: str | None = None
     result_refs: list[str] = Field(default_factory=list)
+    result_summaries: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MultiDecision(ContractModel):

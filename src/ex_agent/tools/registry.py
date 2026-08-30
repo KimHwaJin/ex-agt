@@ -6,7 +6,12 @@ from pathlib import Path
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ex_agent.domain.contracts import SkillReference, ToolReference
+from ex_agent.domain.contracts import (
+    PlanStepDraft,
+    SkillReference,
+    ToolReference,
+)
+from ex_agent.domain.enums import PlanningKind
 
 
 class ParameterSpec(BaseModel):
@@ -116,6 +121,25 @@ class ToolRegistry:
             return self._tools[name]
         except KeyError as error:
             raise KeyError(f"Unknown Tool: {name}") from error
+
+    def canonicalize_step_lineage(
+        self,
+        step: PlanStepDraft,
+    ) -> PlanStepDraft:
+        """Replace model-supplied versions and hashes with registry values."""
+        if step.planning_kind is not PlanningKind.TOOL_PLAN:
+            return step
+        if step.skill is None or step.tool is None:
+            raise ValueError("Tool Step is missing Skill/Tool lineage")
+        manifest = self.get_tool(step.tool.name)
+        if manifest.skill.name != step.skill.name:
+            raise ValueError("Planner returned mismatched Skill/Tool lineage")
+        return step.model_copy(
+            update={
+                "skill": manifest.skill,
+                "tool": manifest.tool,
+            }
+        )
 
     def registry_snapshot_hash(self) -> str:
         snapshot = [

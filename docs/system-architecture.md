@@ -194,8 +194,8 @@ Last-Event-ID: 42
 - 각 Browser connection이 Executor Redis consumer group을 직접 소비하지 않는다.
 
 BFF가 사용자-facing event history와 접근 권한을 직접 소유하고 자체 SSE를 제공한다. Agent
-workflow에서 발생한 product event는 BFF DB에 저장되며, process-local stream을 SSE 원본으로
-사용하지 않는다.
+workflow에서 발생한 product event는 BFF DB에 저장된다. Task별 Redis Pub/Sub은 SSE
+wake-up에만 사용하며 SSE replay 원본으로 사용하지 않는다.
 
 ## 5. Task 상태 초안
 
@@ -262,6 +262,14 @@ Session에 하나의 실행만 허용한다.
 Pod 장애가 lock을 해제하지 않으며, 복구 worker가 Executor/Task 상태를 reconcile한 뒤에만
 해제한다. 성공은 최종 리포트, 실패는 실패 원인 메시지, 취소는 Executor 취소 완료 확인과
 취소 메시지를 저장한 후 lock을 해제한다.
+
+Agent graph/command 자체가 재시도 한도를 초과해 실패했는데 Executor가 아직 terminal이
+아니면 Task를 곧바로 `FAILED`로 만들지 않는다. 원래 durable command를
+`FAILURE_COMPENSATION`으로 바꾸고 Task를 `CANCEL_REQUESTED`로 유지한다. 복구 Worker는
+동일 idempotency key로 Executor 취소를 요청하고 `CANCELLED`, `FAILED` 또는 `SUCCEEDED`
+terminal 상태를 REST로 확인한다. 확인된 Executor 상태, 실패 메시지, command `FAILED`,
+Task `FAILED`, Session unlock은 하나의 Agent DB transaction으로 확정한다. Executor 통신이
+복구되지 않으면 보상 command를 계속 재처리하며 잠금을 유지한다.
 
 새 메시지 요청의 응답은 `409 Conflict` 또는 제품 계약상 `423 Locked`를 사용할 수 있다.
 응답에는 최소한 `session_id`, `active_task_id`, 현재 상태, 상태/SSE 조회 URL, 취소 가능 여부를

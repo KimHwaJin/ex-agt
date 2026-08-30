@@ -114,6 +114,92 @@ async def test_approval_command_locks_session_atomically() -> None:
 
 @pytest.mark.postgres
 @pytest.mark.asyncio
+async def test_failure_compensation_keeps_lock_until_executor_terminal() -> (
+    None
+):
+    database_url = os.environ["TEST_DATABASE_URL"]
+    engine = create_engine(database_url)
+    repository = AgentRepository(create_session_factory(engine))
+    task_id = uuid4()
+    session_id = f"session-{task_id}"
+    execution_id = uuid4()
+    try:
+        await repository.create_task(
+            task_id=task_id,
+            input_message_id=uuid4(),
+            user_id="integration-user",
+            project_id="integration-project",
+            session_id=session_id,
+            content="분석해줘",
+            idempotency_key=f"create-{task_id}",
+        )
+        command_id = await repository.create_resume_command(
+            task_id=task_id,
+            idempotency_key=f"approve-{task_id}",
+            payload={"type": "PLAN_REVIEW", "decision": "APPROVE"},
+            lock_session=True,
+        )
+        await repository.bind_execution(
+            task_id=task_id,
+            execution_id=execution_id,
+            operation_id=uuid4(),
+            execution_version=1,
+            next_step_sequence=1,
+        )
+
+        await repository.prepare_failure_compensation(
+            command_id,
+            task_id,
+            "RuntimeError: adaptive planning failed",
+        )
+        task = await repository.get_task(task_id)
+        command = await repository.get_command(command_id)
+
+        assert task is not None
+        assert task.status == TaskStatus.CANCEL_REQUESTED.value
+        assert command is not None
+        assert command.command_type == "FAILURE_COMPENSATION"
+        assert command.state == "PENDING"
+        with pytest.raises(SessionLockedError):
+            await repository.create_task(
+                task_id=uuid4(),
+                input_message_id=uuid4(),
+                user_id="integration-user",
+                project_id="integration-project",
+                session_id=session_id,
+                content="잠금 중 요청",
+                idempotency_key=f"blocked-{task_id}",
+            )
+
+        await repository.complete_failure_compensation(
+            command_id,
+            task_id,
+            "실행 취소 확인 후 실패",
+            failure_message="RuntimeError: adaptive planning failed",
+            executor_status="CANCELLED",
+        )
+        completed = await repository.get_task(task_id)
+        completed_command = await repository.get_command(command_id)
+        assert completed is not None
+        assert completed.status == TaskStatus.FAILED.value
+        assert completed_command is not None
+        assert completed_command.state == "FAILED"
+        next_task = await repository.create_task(
+            task_id=uuid4(),
+            input_message_id=uuid4(),
+            user_id="integration-user",
+            project_id="integration-project",
+            session_id=session_id,
+            content="취소 확인 후 요청",
+            idempotency_key=f"next-{task_id}",
+        )
+        assert next_task.session_id == session_id
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.postgres
+@pytest.mark.asyncio
 async def test_dummy_embeddings_search_pgvector_consistently() -> None:
     database_url = os.environ["TEST_DATABASE_URL"]
     engine = create_engine(database_url)
@@ -214,7 +300,15 @@ async def test_executor_event_checkpoint_rejects_sequence_gap() -> None:
         )
         accepted = await repository.record_executor_progress(
             stream_name="executor.events",
-            message_id=f"event:{uuid4()}",
+            message_id=f"event:{execution_id}:1",
+            task_id=task_id,
+            event_type="execution.started",
+            event_sequence=1,
+            payload={"execution_id": str(execution_id)},
+        )
+        duplicate = await repository.record_executor_progress(
+            stream_name="executor.events",
+            message_id=f"event:{execution_id}:1",
             task_id=task_id,
             event_type="execution.started",
             event_sequence=1,
@@ -236,4 +330,5 @@ async def test_executor_event_checkpoint_rejects_sequence_gap() -> None:
         await engine.dispose()
 
     assert accepted
+    assert not duplicate
     assert binding.last_event_sequence == 1

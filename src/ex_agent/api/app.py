@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -8,7 +7,8 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
 
@@ -31,6 +31,7 @@ from ex_agent.domain.contracts import (
     WorkflowSelectionDecision,
 )
 from ex_agent.domain.enums import PlanDecisionType, ResumeSignalType
+from ex_agent.metrics import SSE_CONNECTIONS, update_database_pool_metrics
 from ex_agent.persistence.database import (
     create_engine,
     create_session_factory,
@@ -39,7 +40,7 @@ from ex_agent.persistence.repository import (
     AgentRepository,
     SessionLockedError,
 )
-from ex_agent.transport.streams import CommandPublisher
+from ex_agent.transport.streams import task_event_channel
 
 _resume_adapter = TypeAdapter(ResumeSignal)
 
@@ -52,11 +53,6 @@ class ApiContainer:
         self.redis = Redis.from_url(
             settings.agent_redis_url,
             decode_responses=True,
-        )
-        self.publisher = CommandPublisher(
-            settings,
-            self.repository,
-            self.redis,
         )
         self.identity: IdentityProvider = TrustedHeaderIdentityProvider()
 
@@ -96,6 +92,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def health() -> dict[str, str]:
         return {"status": "ok"}
 
+    @app.get("/metrics", include_in_schema=False)
+    async def metrics(
+        app_container: ApiContainer = Depends(container),
+    ) -> Response:
+        update_database_pool_metrics("api", app_container.engine)
+        return Response(
+            content=generate_latest(),
+            headers={"Content-Type": CONTENT_TYPE_LATEST},
+        )
+
     @app.post(
         "/api/v1/projects/{project_id}/sessions/{session_id}/tasks",
         response_model=TaskAcceptedResponse,
@@ -123,7 +129,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
                 status_code=423,
                 detail={"active_task_id": str(error.active_task_id)},
             ) from error
-        await app_container.publisher.publish_pending()
         return TaskAcceptedResponse(task_id=task.id, status=task.status)
 
     @app.get(
@@ -168,7 +173,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             payload=payload,
             lock_session=lock_session,
         )
-        await app_container.publisher.publish_pending()
         return TaskAcceptedResponse(task_id=task.id, status=task.status)
 
     @app.post(
@@ -198,7 +202,6 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             idempotency_key=body.idempotency_key,
             payload=signal,
         )
-        await app_container.publisher.publish_pending()
         return TaskAcceptedResponse(task_id=task.id, status=task.status)
 
     @app.get("/api/v1/tasks/{task_id}/events")
@@ -217,23 +220,37 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
         async def stream() -> AsyncIterator[str]:
             nonlocal cursor
-            while not await request.is_disconnected():
-                events = await app_container.repository.events_after(
-                    task_id,
-                    cursor,
-                )
-                if not events:
-                    yield ": keepalive\n\n"
-                    await asyncio.sleep(1)
-                    continue
-                for event in events:
-                    cursor = event.id
-                    data = json.dumps(event.payload, ensure_ascii=False)
-                    yield (
-                        f"id: {event.id}\n"
-                        f"event: {event.event_type}\n"
-                        f"data: {data}\n\n"
-                    )
+            channel = task_event_channel(resolved, task_id)
+            SSE_CONNECTIONS.inc()
+            try:
+                async with app_container.redis.pubsub() as pubsub:
+                    await pubsub.subscribe(channel)
+                    while not await request.is_disconnected():
+                        events = await app_container.repository.events_after(
+                            task_id,
+                            cursor,
+                        )
+                        if events:
+                            for event in events:
+                                cursor = event.id
+                                data = json.dumps(
+                                    event.payload,
+                                    ensure_ascii=False,
+                                )
+                                yield (
+                                    f"id: {event.id}\n"
+                                    f"event: {event.event_type}\n"
+                                    f"data: {data}\n\n"
+                                )
+                            continue
+                        notification = await pubsub.get_message(
+                            ignore_subscribe_messages=True,
+                            timeout=resolved.sse_heartbeat_seconds,
+                        )
+                        if notification is None:
+                            yield ": keepalive\n\n"
+            finally:
+                SSE_CONNECTIONS.dec()
 
         return StreamingResponse(
             stream(),

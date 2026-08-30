@@ -4,8 +4,9 @@
 
 ## 구현됨
 
-- FastAPI는 Task/resume/cancel을 PostgreSQL에 먼저 기록하고 Redis Stream으로
-  전달한다.
+- FastAPI는 Task/resume/cancel을 PostgreSQL durable outbox에 기록하고 즉시
+  `202`를 반환한다. Worker relay가 `SKIP LOCKED` claim과 Redis pipeline으로
+  command/event를 배치 발행한다.
 - Background worker만 LangGraph를 invoke/resume한다.
 - `create_agent(tools=[])` Planner와 Skill context, risk prerequisite, model
   audit, timeout, output-validation middleware가 연결되어 있다.
@@ -24,9 +25,29 @@
 - Executor event는 `event_id`로 중복 제거하고 Execution별 순번을 DB에서
   원자적으로 전진시킨다. gap은 Executor event-history REST pagination으로
   복구한 뒤에만 Graph resume command를 만든다.
-- SSE는 PostgreSQL event ID와 `Last-Event-ID`로 재연결할 수 있다.
+- SSE는 PostgreSQL event ID와 `Last-Event-ID`로 재연결할 수 있다. 평상시에는
+  Task별 Redis Pub/Sub 알림으로 깨어나며 PostgreSQL을 1초마다 polling하지
+  않는다.
+- 서로 다른 Task는 설정 가능한 bounded concurrency로 처리한다. 동일 Task는
+  Redis lock으로 직렬화하고 lock과 Stream lease를 주기적으로 갱신한다.
+  Worker 슬롯별 LangGraph checkpointer는 독립적이며 PostgreSQL pool을 공유한다.
+- Executor event는 서로 다른 Execution을 bounded concurrency로 처리하고 같은
+  `execution_id`는 분산 락과 Stream lease로 직렬화한다. transport 장애에는
+  지수 backoff를 적용하며 실패 event는 ACK하지 않고 재claim한다.
+- API/Worker Prometheus endpoint와 API 동시 요청 부하 스크립트가 있으며,
+  active slot, 처리시간, retry, DB outbox backlog, Redis pending/lag와 checkpoint
+  pool 상태를 관측한다.
+- 프로덕션 graph를 그대로 사용하는 결정론적 Fake LLM/Fake Executor 전체
+  수명주기 benchmark가 SINGLE/MULTI의 계획, HITL, Executor 재개, 리포트 구간을
+  분리 측정한다.
+- Compose Redis/PostgreSQL 통합 테스트가 서로 다른 Execution의 병렬 처리와
+  역순 event history 복구, 뒤늦은 중복 ACK, 최종 sequence를 검증한다.
 - 승인 command와 Session lock은 같은 transaction으로 저장된다. 잠금은 성공
   report 완료, 실패 확인 또는 취소 완료 후 해제된다.
+- 실행이 남아 있는 상태에서 Agent command가 최종 실패하면 같은 durable
+  command를 `FAILURE_COMPENSATION`으로 전환한다. Worker는 AGENT actor로
+  Executor 취소를 요청하고 terminal 상태를 확인한 transaction에서만 Task를
+  `FAILED`로 확정하고 Session lock을 해제한다.
 - uv, Ruff 79자, ty, Docker multi-stage build, Alembic, pgvector PostgreSQL,
   Redis Compose 통합 테스트가 구성되어 있다.
 - 내부 vLLM `qwen38-27b-fp8`의 LangChain 일반 호출과 구조화 출력을 실제
@@ -36,13 +57,20 @@
 - 실제 Agent REST/HITL/worker/Executor/Jupyter/Redis event/report 전체를 잇는
   SINGLE 코드 실행 E2E에서 PATH source, checksum, stdout, Notebook Markdown,
   Task 감사 매핑을 검증했다.
+- 실제 qwen 모델과 Executor/Jupyter를 사용한 동적 MULTI 분석 E2E에서 첫
+  `fetch_dataset` 셀의 검증된 result manifest를 다음 계획에 전달하고, 실제
+  출력 path로 `inspect_dataset` Operation을 append한 뒤 finalize와 한국어
+  Markdown 성공 리포트까지 검증했다.
+- Executor result manifest와 representation은 shared root 이탈, identity,
+  complete flag, size와 SHA-256을 검증한 뒤 bounded preview만 모델 계획과
+  리포트 증거에 전달한다. 파일 읽기는 event loop 밖에서 수행한다.
 
 ## 다음 구현 범위
 
-- 실제 Executor/Jupyter를 사용한 MULTI와 데이터 분석 Workflow 전체 E2E
 - 실제 embedding 모델 확보 후 Workflow 의미 검색 품질 검증 및 재인덱싱
 - Workflow 승격 command/API와 승격 권한 정책
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
-- report evidence의 원본 result manifest 선택 읽기와 reference validator 강화
 - 다중 worker 장애 주입, 장기 실행, Redis/PostgreSQL outage recovery 테스트
+- pgvector ANN index와 Workflow risk 사전 계산은
+  `docs/performance-backlog.md`의 benchmark 선행 작업으로 관리

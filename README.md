@@ -21,6 +21,17 @@ docker compose --profile test build
 docker compose --profile test run --rm test
 ```
 
+API 부하 테스트와 Prometheus 지표 설명은
+[Performance Testing](docs/performance-testing.md)을 참고한다. API는 `/metrics`,
+Worker는 기본적으로 `8011` 포트에서 metrics를 제공한다.
+
+결정론적 전체 수명주기 benchmark 예시:
+
+```bash
+uv run --no-sync python scripts/lifecycle_benchmark.py \
+  --scenario multi_analysis --requests 20 --concurrency 4
+```
+
 API와 worker 실행:
 
 ```bash
@@ -49,8 +60,12 @@ Executor의 `executor.events`를 같은 Redis에서 소비하는 배치라면
 
 BFF는 모든 요청에 신뢰된 `X-User-ID`를 전달한다. Task 생성 시 BFF가
 채번한 `task_id`와 `input_message_id`를 body에 넣는다. API는 작업을
-PostgreSQL에 먼저 저장하고 Redis Stream에 발행한 뒤 `202`를 반환한다.
-Graph는 worker에서만 invoke/resume한다.
+PostgreSQL durable outbox에 먼저 저장하고 즉시 `202`를 반환한다. Worker의
+outbox relay가 Redis Stream에 배치 발행하며 Graph는 worker에서만
+invoke/resume한다.
+
+SSE의 재연결·누락 복구 원본은 PostgreSQL event history다. 실시간 wake-up은
+Task별 Redis Pub/Sub을 사용하므로 연결마다 주기적으로 DB를 polling하지 않는다.
 
 기본 LLM은 내부 vLLM OpenAI 호환 endpoint
 `http://model.frodo.com/v1`의 `qwen38-27b-fp8`이다. Compose는

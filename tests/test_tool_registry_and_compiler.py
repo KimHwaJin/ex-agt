@@ -35,6 +35,7 @@ def test_tool_step_compiles_canonical_source_with_lineage() -> None:
 
     assert "def fetch_dataset(" in compiled.source
     assert "result = fetch_dataset(" in compiled.source
+    assert compiled.source.endswith(")\nresult\n")
     assert compiled.skill_name == "data-access"
     assert compiled.tool_name == "fetch_dataset"
     assert len(compiled.source_sha256) == 64
@@ -104,3 +105,26 @@ def test_registry_snapshot_changes_are_content_addressed() -> None:
     registry = _registry()
     assert len(registry.list_skills()) == 5
     assert len(registry.registry_snapshot_hash()) == 64
+
+
+def test_registry_canonicalizes_model_supplied_lineage_metadata() -> None:
+    registry = _registry()
+    manifest = registry.get_tool("fetch_dataset")
+    step = PlanStepDraft(
+        sequence=0,
+        title="샘플 데이터 준비",
+        purpose="분석용 데이터를 생성한다.",
+        planning_kind=PlanningKind.TOOL_PLAN,
+        skill=manifest.skill.model_copy(update={"version": "invented"}),
+        tool=manifest.tool.model_copy(update={"version": "invented"}),
+        parameters={
+            "query": "SELECT 1",
+            "dataset_name": "sample",
+        },
+        selection_rationale="분석 입력이 필요하다.",
+    )
+
+    normalized = registry.canonicalize_step_lineage(step)
+
+    assert normalized.skill == manifest.skill
+    assert normalized.tool == manifest.tool

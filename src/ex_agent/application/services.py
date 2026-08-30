@@ -34,6 +34,7 @@ from ex_agent.domain.enums import (
 from ex_agent.executor.client import ExecutorClient
 from ex_agent.executor.contracts import ExecutionResult, executor_step_payload
 from ex_agent.executor.files import materialize_input_file
+from ex_agent.executor.results import validated_result_summaries
 from ex_agent.graph.state import AgentGraphState
 from ex_agent.models import build_chat_model, build_embeddings
 from ex_agent.persistence.repository import AgentRepository
@@ -381,11 +382,21 @@ class DefaultWorkflowServices:
             latest_operation.result.error_message if latest_operation else None
         )
         refs = [
-            str(step.result.result_ref)
+            str(step.result.result_ref.get("relative_path"))
             for operation in result.operations
             for step in operation.steps
             if step.result.result_ref
         ]
+        result_summaries = await validated_result_summaries(
+            result,
+            self._settings.executor_shared_storage_root,
+            max_context_chars=(
+                self._settings.executor_result_context_max_chars
+            ),
+            max_manifest_bytes=(
+                self._settings.executor_result_manifest_max_bytes
+            ),
+        )
         await self._repository.update_binding(
             _task_id(state),
             execution_version=result.execution.state.version,
@@ -400,6 +411,7 @@ class DefaultWorkflowServices:
             ),
             error_message=error_message,
             result_refs=refs,
+            result_summaries=result_summaries,
         )
 
     async def adapt_multi_plan(
@@ -444,7 +456,16 @@ class DefaultWorkflowServices:
                 ),
             ]
         )
-        return _validate_model(MultiDecision, raw)
+        decision = _validate_model(MultiDecision, raw)
+        if decision.next_step is None:
+            return decision
+        return decision.model_copy(
+            update={
+                "next_step": self._registry.canonicalize_step_lineage(
+                    decision.next_step
+                )
+            }
+        )
 
     async def append_operation(
         self,
@@ -453,7 +474,8 @@ class DefaultWorkflowServices:
     ) -> SubmissionReceipt:
         if decision.next_step is None:
             raise ValueError("Adaptive append requires next_step")
-        plan = state["plan"].model_copy(update={"steps": [decision.next_step]})
+        next_step = decision.next_step.model_copy(update={"sequence": 0})
+        plan = state["plan"].model_copy(update={"steps": [next_step]})
         persisted = await self.compile_and_persist_plan(state, plan)
         steps = await self._repository.approved_steps(
             persisted.plan_revision_id
@@ -505,7 +527,8 @@ class DefaultWorkflowServices:
         response = await self._executor.cancel(
             binding.execution_id,
             idempotency_key=f"task:{state['active_task_id']}:cancel",
-            user_id=state["user_id"],
+            actor_type="USER",
+            actor_id=state["user_id"],
             reason=reason,
         )
         await self._repository.update_binding(
@@ -519,11 +542,22 @@ class DefaultWorkflowServices:
     ) -> dict[str, Any]:
         execution_id = UUID(state["execution_id"])
         result = await self._executor.result(execution_id)
+        result_summaries = await validated_result_summaries(
+            result,
+            self._settings.executor_shared_storage_root,
+            max_context_chars=(
+                self._settings.executor_result_context_max_chars
+            ),
+            max_manifest_bytes=(
+                self._settings.executor_result_manifest_max_bytes
+            ),
+        )
         return {
             "request": state["user_message"],
             "plan": state["plan"].model_dump(mode="json"),
             "execution_id": str(execution_id),
             "executor_result": result.model_dump(mode="json"),
+            "validated_result_summaries": result_summaries,
         }
 
     async def generate_and_materialize_report(

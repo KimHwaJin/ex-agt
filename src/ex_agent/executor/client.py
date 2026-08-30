@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Literal
 from uuid import UUID
 
 import httpx
@@ -123,7 +123,8 @@ class ExecutorClient:
         execution_id: UUID,
         *,
         idempotency_key: str,
-        user_id: str,
+        actor_type: Literal["AGENT", "USER", "BATCH"],
+        actor_id: str,
         reason: str | None,
     ) -> CommandResponse:
         response = await self._request(
@@ -132,7 +133,7 @@ class ExecutorClient:
             json={
                 "idempotency_key": idempotency_key,
                 "reason": reason,
-                "actor": {"type": "USER", "id": user_id},
+                "actor": {"type": actor_type, "id": actor_id},
             },
         )
         return CommandResponse.model_validate(response.json())

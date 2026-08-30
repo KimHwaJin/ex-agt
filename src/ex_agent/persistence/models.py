@@ -91,6 +91,14 @@ class Message(Base, TimestampMixin):
 
 class TaskEvent(Base):
     __tablename__ = "agent_task_events"
+    __table_args__ = (
+        Index("ix_agent_task_events_task_id_id", "task_id", "id"),
+        Index(
+            "ix_agent_task_events_delivery_state_id",
+            "delivery_state",
+            "id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(
         BigInteger,
@@ -99,10 +107,22 @@ class TaskEvent(Base):
     )
     task_id: Mapped[UUID] = mapped_column(
         ForeignKey("agent_tasks.id", ondelete="CASCADE"),
-        index=True,
     )
     event_type: Mapped[str] = mapped_column(String(128), index=True)
     payload: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict)
+    delivery_state: Mapped[str] = mapped_column(
+        String(32),
+        default="PENDING",
+    )
+    delivery_attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    delivery_last_error: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    delivery_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -147,6 +167,10 @@ class WorkflowCommand(Base, TimestampMixin):
     state: Mapped[str] = mapped_column(String(32), default="PENDING")
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    publish_claimed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
 
 
 class StreamInbox(Base):
