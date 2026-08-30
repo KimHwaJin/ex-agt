@@ -9,6 +9,7 @@
 - consumer group 생성과 무한 `XREADGROUP` loop
 - configurable bounded concurrency와 slot별 Handler instance
 - 처리 중 분산 락과 Stream PEL lease의 주기적 갱신
+- handler의 durable side effect뿐 아니라 ACK/DLQ 확정까지 lease 유지
 - `XAUTOCLAIM` cursor를 끝까지 전진시키는 stale message 복구
 - 성공 후에만 ACK하는 at-least-once delivery
 - 재시도 가능한 실패는 PEL에 유지
@@ -21,6 +22,11 @@
 Business side effect는 중복 실행될 수 있으므로 Handler는 idempotent해야 한다.
 이 프로젝트의 command/event Handler는 PostgreSQL idempotency와 event sequence
 검증을 함께 사용한다.
+
+분산 락을 사용하는 메시지는 lock 갱신과 PEL `XCLAIM`을 하나의
+non-transaction pipeline으로 전송한다. 두 lease의 성공 여부는 각각 검사하되
+heartbeat당 Redis network round-trip은 한 번만 사용한다. idle consumer metadata
+여러 건의 삭제도 같은 방식으로 일괄 전송한다.
 
 ## 최소 사용 예시
 

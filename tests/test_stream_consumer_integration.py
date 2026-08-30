@@ -83,3 +83,61 @@ async def test_real_redis_dlq_write_and_source_ack_are_atomic() -> None:
     finally:
         await redis.delete(stream, dead_letter_stream)
         await redis.aclose()
+
+
+@pytest.mark.redis
+@pytest.mark.asyncio
+async def test_real_redis_renews_lock_and_stream_lease_in_one_pipeline() -> (
+    None
+):
+    suffix = uuid4()
+    stream = f"test-consumer-renew-source-{suffix}"
+    group = f"test-consumer-renew-group-{suffix}"
+    lock_key = f"test-consumer-lock-{suffix}"
+    consumer_name = "integration-consumer-0"
+    redis = Redis.from_url(
+        os.environ["TEST_REDIS_URL"],
+        decode_responses=True,
+    )
+    handler = InvalidHandler()
+    consumer = RedisStreamConsumer(
+        redis,
+        RedisStreamConsumerConfig(
+            stream=stream,
+            group=group,
+            consumer_prefix="integration-consumer",
+        ),
+        lambda _: handler,
+    )
+    try:
+        await consumer.ensure_group()
+        message_id = await redis.xadd(stream, {"job": "one"})
+        delivered: Any = await redis.xreadgroup(
+            group,
+            consumer_name,
+            {stream: ">"},
+            count=1,
+        )
+        assert delivered[0][1][0][0] == message_id
+        lock_lease = await consumer._acquire_lock(lock_key)
+
+        assert lock_lease is not None
+        await consumer._renew_lease_once(
+            consumer_name,
+            message_id,
+            lock_lease=lock_lease,
+        )
+
+        pending: Any = await redis.xpending_range(
+            stream,
+            group,
+            min="-",
+            max="+",
+            count=1,
+        )
+        assert await redis.ttl(lock_key) > 0
+        assert pending[0]["message_id"] == message_id
+        assert pending[0]["consumer"] == consumer_name
+    finally:
+        await redis.delete(stream, lock_key)
+        await redis.aclose()
