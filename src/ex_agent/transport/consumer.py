@@ -51,6 +51,12 @@ class StreamMessage:
 
 
 @dataclass(frozen=True)
+class _LockLease:
+    key: str
+    value: str
+
+
+@dataclass(frozen=True)
 class RedisStreamConsumerConfig:
     stream: str
     group: str
@@ -187,6 +193,7 @@ class RedisStreamConsumer:
             f"{self._config.consumer_prefix}-{slot_index}"
             for slot_index in range(self._config.concurrency)
         }
+        stale_consumers: list[str] = []
         for consumer in consumers:
             name = _text(consumer["name"])
             if name in current_consumers:
@@ -196,11 +203,17 @@ class RedisStreamConsumer:
             idle = int(consumer.get("idle", 0))
             if idle < minimum_idle:
                 continue
-            await self._redis.xgroup_delconsumer(
+            stale_consumers.append(name)
+        if not stale_consumers:
+            return
+        pipeline = self._redis.pipeline(transaction=False)
+        for name in stale_consumers:
+            pipeline.xgroup_delconsumer(
                 self._config.stream,
                 self._config.group,
                 name,
             )
+        await pipeline.execute()
 
     async def process_message(
         self,
@@ -210,8 +223,7 @@ class RedisStreamConsumer:
     ) -> None:
         started_at = perf_counter()
         outcome = "succeeded"
-        lock_key: str | None = None
-        lock_value: str | None = None
+        lock_lease: _LockLease | None = None
         self._notify(self._observer.operation_started)
         try:
             try:
@@ -221,14 +233,8 @@ class RedisStreamConsumer:
                 await self._dead_letter(message, str(error))
                 return
             if lock_key is not None:
-                lock_value = str(uuid4())
-                acquired = await self._redis.set(
-                    lock_key,
-                    lock_value,
-                    nx=True,
-                    ex=self._config.lock_ttl_seconds,
-                )
-                if not acquired:
+                lock_lease = await self._acquire_lock(lock_key)
+                if lock_lease is None:
                     outcome = "contended"
                     self._notify(self._observer.lock_contended)
                     return
@@ -237,13 +243,8 @@ class RedisStreamConsumer:
                     consumer,
                     handler,
                     message,
-                    lock_key=lock_key,
-                    lock_value=lock_value,
+                    lock_lease=lock_lease,
                 )
-            except PermanentMessageError as error:
-                outcome = "dead_lettered"
-                await self._dead_letter(message, str(error))
-                return
             except Exception:
                 outcome = "failed"
                 logger.exception(
@@ -256,23 +257,10 @@ class RedisStreamConsumer:
                 )
                 return
             outcome = result.outcome
-            if result.decision is AckDecision.ACK:
-                await self._ack(message.message_id)
-            elif result.decision is AckDecision.DEAD_LETTER:
-                await self._dead_letter(
-                    message,
-                    result.reason or "handler rejected message",
-                )
         finally:
             try:
-                if lock_key is not None and lock_value is not None:
-                    release = self._redis.eval(
-                        _RELEASE_LOCK_SCRIPT,
-                        1,
-                        lock_key,
-                        lock_value,
-                    )
-                    await cast(Awaitable[Any], release)
+                if lock_lease is not None:
+                    await self._release_lock(lock_lease)
             finally:
                 self._notify(
                     self._observer.operation_finished,
@@ -360,18 +348,18 @@ class RedisStreamConsumer:
         handler: StreamMessageHandler,
         message: StreamMessage,
         *,
-        lock_key: str | None,
-        lock_value: str | None,
+        lock_lease: _LockLease | None,
     ) -> HandlerResult:
         heartbeat = asyncio.create_task(
             self._renew_lease(
                 consumer,
                 message.message_id,
-                lock_key=lock_key,
-                lock_value=lock_value,
+                lock_lease=lock_lease,
             )
         )
-        handler_task = asyncio.create_task(handler.handle(message))
+        handler_task = asyncio.create_task(
+            self._handle_and_finalize(handler, message)
+        )
         try:
             done, _ = await asyncio.wait(
                 {heartbeat, handler_task},
@@ -400,23 +388,33 @@ class RedisStreamConsumer:
         consumer: str,
         message_id: str,
         *,
-        lock_key: str | None,
-        lock_value: str | None,
+        lock_lease: _LockLease | None,
     ) -> None:
         while True:
             await asyncio.sleep(self._config.lock_renew_interval_seconds)
-            if lock_key is not None and lock_value is not None:
-                renewal = self._redis.eval(
-                    _RENEW_LOCK_SCRIPT,
-                    1,
-                    lock_key,
-                    lock_value,
-                    str(self._config.lock_ttl_seconds),
-                )
-                renewed = await cast(Awaitable[Any], renewal)
-                if renewed != 1:
-                    raise StreamLeaseLostError(lock_key)
-            claimed: Any = await self._redis.xclaim(
+            await self._renew_lease_once(
+                consumer,
+                message_id,
+                lock_lease=lock_lease,
+            )
+
+    async def _renew_lease_once(
+        self,
+        consumer: str,
+        message_id: str,
+        *,
+        lock_lease: _LockLease | None,
+    ) -> None:
+        if lock_lease is not None:
+            pipeline = self._redis.pipeline(transaction=False)
+            pipeline.eval(
+                _RENEW_LOCK_SCRIPT,
+                1,
+                lock_lease.key,
+                lock_lease.value,
+                str(self._config.lock_ttl_seconds),
+            )
+            pipeline.xclaim(
                 self._config.stream,
                 self._config.group,
                 consumer,
@@ -424,8 +422,62 @@ class RedisStreamConsumer:
                 message_ids=[message_id],
                 justid=True,
             )
-            if not claimed:
-                raise StreamLeaseLostError(message_id)
+            renewed, claimed = await pipeline.execute()
+            if renewed != 1:
+                raise StreamLeaseLostError(lock_lease.key)
+        else:
+            claimed = await self._redis.xclaim(
+                self._config.stream,
+                self._config.group,
+                consumer,
+                min_idle_time=0,
+                message_ids=[message_id],
+                justid=True,
+            )
+        if not claimed:
+            raise StreamLeaseLostError(message_id)
+
+    async def _handle_and_finalize(
+        self,
+        handler: StreamMessageHandler,
+        message: StreamMessage,
+    ) -> HandlerResult:
+        try:
+            result = await handler.handle(message)
+        except PermanentMessageError as error:
+            await self._dead_letter(message, str(error))
+            return HandlerResult(
+                AckDecision.DEAD_LETTER,
+                outcome="dead_lettered",
+                reason=str(error),
+            )
+        if result.decision is AckDecision.ACK:
+            await self._ack(message.message_id)
+        elif result.decision is AckDecision.DEAD_LETTER:
+            await self._dead_letter(
+                message,
+                result.reason or "handler rejected message",
+            )
+        return result
+
+    async def _acquire_lock(self, lock_key: str) -> _LockLease | None:
+        lease = _LockLease(lock_key, str(uuid4()))
+        acquired = await self._redis.set(
+            lease.key,
+            lease.value,
+            nx=True,
+            ex=self._config.lock_ttl_seconds,
+        )
+        return lease if acquired else None
+
+    async def _release_lock(self, lease: _LockLease) -> None:
+        release = self._redis.eval(
+            _RELEASE_LOCK_SCRIPT,
+            1,
+            lease.key,
+            lease.value,
+        )
+        await cast(Awaitable[Any], release)
 
     async def _ack(self, message_id: str) -> None:
         await self._redis.xack(
