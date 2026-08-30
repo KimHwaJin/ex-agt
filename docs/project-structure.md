@@ -18,11 +18,12 @@ composition root와 프로세스로 실행된다.
 - `persistence/repositories`: Task/Session, Command lifecycle, Plan revision,
   outbox, 실행 binding/event ingestion, Workflow catalog, model audit 저장 기능
 - `transport`: Redis publisher와 재사용 가능한 Stream consumer runtime
-- `workers`: command/event processor, Stream handler, observer, checkpoint helper
+- `workers`: worker lifecycle, consumer 구성, maintenance loop, compatibility
+  façade와 command/event processor, Stream handler, observer, checkpoint helper
 - `api/routers`: health/metrics와 Task REST/SSE route
 
 `worker.py`, `persistence/repository.py`, `api/app.py`, `models.py`의 기존 import
-경로는 호환 façade로 유지한다. 새 코드는 각각 `workers`,
+경로는 조립 또는 호환 façade로 유지한다. 새 코드는 각각 `workers`,
 `persistence.repositories`, `api.routers`, `llm.factory`를 직접 사용한다.
 
 ## 허용 의존 방향
