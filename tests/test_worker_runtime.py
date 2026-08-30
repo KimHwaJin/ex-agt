@@ -46,6 +46,10 @@ async def test_worker_starts_bounded_graph_slots() -> None:
         if run_task.done():
             await run_task
         assert len(worker._graphs) == 2
+        readiness = worker._readiness.payload(
+            settings.worker_readiness_stale_seconds
+        )
+        assert readiness["ready"] is True
     finally:
         run_task.cancel()
         with pytest.raises(asyncio.CancelledError):

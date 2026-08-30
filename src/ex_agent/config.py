@@ -112,6 +112,8 @@ class Settings(BaseSettings):
     worker_metrics_host: str = "0.0.0.0"
     worker_metrics_port: int = Field(default=8011, ge=1, le=65535)
     worker_metrics_refresh_seconds: float = Field(default=10, ge=1)
+    readiness_probe_timeout_seconds: float = Field(default=2, ge=0.1)
+    worker_readiness_stale_seconds: float = Field(default=30, ge=2)
 
     @model_validator(mode="after")
     def validate_concurrency_settings(self) -> "Settings":
@@ -161,6 +163,13 @@ class Settings(BaseSettings):
             raise ValueError(
                 "outbox_poll_milliseconds cannot exceed "
                 "outbox_idle_max_milliseconds"
+            )
+        if self.worker_readiness_stale_seconds <= (
+            self.worker_metrics_refresh_seconds
+        ):
+            raise ValueError(
+                "worker_readiness_stale_seconds must exceed "
+                "worker_metrics_refresh_seconds"
             )
         return self
 

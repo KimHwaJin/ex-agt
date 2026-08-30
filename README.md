@@ -24,6 +24,8 @@ docker compose --profile test run --rm test
 API 부하 테스트와 Prometheus 지표 설명은
 [Performance Testing](docs/performance-testing.md)을 참고한다. API는 `/metrics`,
 Worker는 기본적으로 `8011` 포트에서 metrics를 제공한다.
+Liveness/readiness 계약과 Prometheus 경보 기준은
+[Readiness and Alerting](docs/operations-readiness.md)을 참고한다.
 
 결정론적 전체 수명주기 benchmark 예시:
 

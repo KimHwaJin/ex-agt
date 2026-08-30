@@ -1,0 +1,154 @@
+groups:
+  - name: ex-agent-readiness
+    rules:
+      - alert: ExAgentApiMetricsMissing
+        expr: absent(ex_agent_component_ready{component="api"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent API metrics are missing
+          description: >-
+            No API readiness metric has been scraped for two minutes.
+
+      - alert: ExAgentWorkerMetricsMissing
+        expr: absent(ex_agent_component_ready{component="worker"})
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent Worker metrics are missing
+          description: >-
+            No Worker readiness metric has been scraped for two minutes.
+
+      - alert: ExAgentDependencyUnavailable
+        expr: >-
+          max by (component, dependency) (ex_agent_dependency_ready) == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent dependency is unavailable
+          description: >-
+            Every scraped {{ $labels.component }} instance reports
+            {{ $labels.dependency }} unavailable.
+
+      - alert: ExAgentDependencyProbeStale
+        expr: >-
+          time() - max by (component, dependency)
+          (ex_agent_dependency_probe_timestamp_seconds) > 45
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent dependency probes are stale
+          description: >-
+            {{ $labels.component }} has not refreshed its
+            {{ $labels.dependency }} probe for more than 45 seconds.
+
+  - name: ex-agent-capacity
+    rules:
+      - record: ex_agent:delivery_backlog:max
+        expr: >-
+          max by (kind)
+          (sum by (instance, kind)
+          (ex_agent_delivery_backlog{state=~"PENDING|PUBLISHING"}))
+
+      - record: ex_agent:redis_stream_pending:max
+        expr: max by (stream) (ex_agent_redis_stream_pending)
+
+      - record: ex_agent:redis_stream_lag:max
+        expr: max by (stream) (ex_agent_redis_stream_lag)
+
+      - record: ex_agent:worker_retries:rate5m
+        expr: >-
+          sum by (component)
+          (rate(ex_agent_worker_retries_total[5m]))
+
+      - alert: ExAgentDeliveryBacklogHigh
+        expr: >-
+          (ex_agent:delivery_backlog:max > 100)
+          and (ex_agent:delivery_backlog:max <= 1000)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ex-Agent durable delivery backlog is high
+          description: >-
+            {{ $labels.kind }} backlog has exceeded 100 for ten minutes.
+
+      - alert: ExAgentDeliveryBacklogCritical
+        expr: ex_agent:delivery_backlog:max > 1000
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent durable delivery backlog is critical
+          description: >-
+            {{ $labels.kind }} backlog has exceeded 1000 for five minutes.
+
+      - alert: ExAgentRedisPendingHigh
+        expr: >-
+          (ex_agent:redis_stream_pending:max > 50)
+          and (ex_agent:redis_stream_pending:max <= 500)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ex-Agent Redis pending entries are high
+          description: >-
+            {{ $labels.stream }} has more than 50 pending entries.
+
+      - alert: ExAgentRedisPendingCritical
+        expr: ex_agent:redis_stream_pending:max > 500
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent Redis pending entries are critical
+          description: >-
+            {{ $labels.stream }} has more than 500 pending entries.
+
+      - alert: ExAgentRedisLagHigh
+        expr: >-
+          (ex_agent:redis_stream_lag:max > 100)
+          and (ex_agent:redis_stream_lag:max <= 1000)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ex-Agent Redis consumer lag is high
+          description: >-
+            {{ $labels.stream }} lag has exceeded 100 for ten minutes.
+
+      - alert: ExAgentRedisLagCritical
+        expr: ex_agent:redis_stream_lag:max > 1000
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent Redis consumer lag is critical
+          description: >-
+            {{ $labels.stream }} lag has exceeded 1000 for five minutes.
+
+      - alert: ExAgentWorkerTransportRetriesHigh
+        expr: >-
+          (ex_agent:worker_retries:rate5m > 0.1)
+          and (ex_agent:worker_retries:rate5m <= 1)
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: Ex-Agent Worker transport retries are high
+          description: >-
+            {{ $labels.component }} retries exceed 0.1 per second.
+
+      - alert: ExAgentWorkerTransportRetriesCritical
+        expr: ex_agent:worker_retries:rate5m > 1
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: Ex-Agent Worker transport retries are critical
+          description: >-
+            {{ $labels.component }} retries exceed one per second.

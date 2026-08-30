@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest
 from pydantic import TypeAdapter
 from redis.asyncio import Redis
@@ -31,7 +31,11 @@ from ex_agent.domain.contracts import (
     WorkflowSelectionDecision,
 )
 from ex_agent.domain.enums import PlanDecisionType, ResumeSignalType
-from ex_agent.metrics import SSE_CONNECTIONS, update_database_pool_metrics
+from ex_agent.metrics import (
+    SSE_CONNECTIONS,
+    record_readiness,
+    update_database_pool_metrics,
+)
 from ex_agent.persistence.database import (
     create_engine,
     create_session_factory,
@@ -40,6 +44,7 @@ from ex_agent.persistence.repository import (
     AgentRepository,
     SessionLockedError,
 )
+from ex_agent.readiness import ReadinessResult, probe_dependencies
 from ex_agent.transport.streams import task_event_channel
 
 _resume_adapter = TypeAdapter(ResumeSignal)
@@ -55,6 +60,7 @@ class ApiContainer:
             decode_responses=True,
         )
         self.identity: IdentityProvider = TrustedHeaderIdentityProvider()
+        record_readiness("api", ReadinessResult.starting())
 
     async def close(self) -> None:
         await self.redis.aclose()
@@ -91,6 +97,22 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.get("/healthz")
     async def health() -> dict[str, str]:
         return {"status": "ok"}
+
+    @app.get("/readyz", include_in_schema=False)
+    async def readiness(
+        app_container: ApiContainer = Depends(container),
+    ) -> JSONResponse:
+        result = await probe_dependencies(
+            app_container.engine,
+            app_container.redis,
+            timeout_seconds=resolved.readiness_probe_timeout_seconds,
+        )
+        record_readiness("api", result)
+        payload = result.payload()
+        return JSONResponse(
+            content=payload,
+            status_code=200 if result.ready else 503,
+        )
 
     @app.get("/metrics", include_in_schema=False)
     async def metrics(

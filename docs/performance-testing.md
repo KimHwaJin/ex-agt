@@ -107,6 +107,13 @@ extension 계약이 현재 Executor와 일치하는지 확인한다.
 | `ex_agent_checkpoint_pool` | checkpoint pool 사용·대기 통계 |
 | `ex_agent_database_pool` | API/Worker SQLAlchemy pool 사용량 |
 | `ex_agent_sse_connections` | API process의 활성 SSE 연결 수 |
+| `ex_agent_component_ready` | API/Worker의 마지막 readiness 결과 |
+| `ex_agent_dependency_ready` | Component별 PostgreSQL/Redis 상태 |
+| `ex_agent_dependency_probe_seconds` | 의존성 probe 지연 histogram |
+| `ex_agent_dependency_probe_timestamp_seconds` | 마지막 probe Unix 시각 |
+
+Readiness endpoint와 초기 Prometheus 경보 기준은
+`docs/operations-readiness.md`를 참고한다.
 
 ## 장애 검증
 

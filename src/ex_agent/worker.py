@@ -3,10 +3,10 @@ from __future__ import annotations
 import asyncio
 import logging
 from contextlib import suppress
-from http.server import HTTPServer
 from time import perf_counter
 from typing import Any
 from uuid import UUID, uuid4
+from wsgiref.simple_server import WSGIServer
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
@@ -35,6 +35,7 @@ from ex_agent.metrics import (
     WORKER_OPERATION_SECONDS,
     WORKER_OPERATIONS,
     WORKER_RETRIES,
+    record_readiness,
     start_worker_metrics_server,
     update_database_pool_metrics,
 )
@@ -43,6 +44,11 @@ from ex_agent.persistence.database import (
     create_session_factory,
 )
 from ex_agent.persistence.repository import AgentRepository
+from ex_agent.readiness import (
+    ReadinessResult,
+    ReadinessState,
+    probe_dependencies,
+)
 from ex_agent.tools.registry import ToolRegistry
 from ex_agent.transport.streams import CommandPublisher
 
@@ -103,7 +109,9 @@ class WorkflowWorker:
         self._consumer = f"worker-{instance_id}"
         self._checkpoint_pool: AsyncConnectionPool[Any] | None = None
         self._graphs: list[Any] = []
-        self._metrics_server: HTTPServer | None = None
+        self._readiness = ReadinessState()
+        self._metrics_server: WSGIServer | None = None
+        record_readiness("worker", ReadinessResult.starting())
 
     async def run(self) -> None:
         WORKER_CONFIGURED_SLOTS.labels(kind="command").set(
@@ -116,6 +124,10 @@ class WorkflowWorker:
             self._metrics_server = start_worker_metrics_server(
                 self._settings.worker_metrics_host,
                 self._settings.worker_metrics_port,
+                self._readiness,
+                stale_after_seconds=(
+                    self._settings.worker_readiness_stale_seconds
+                ),
             )
         self._checkpoint_pool = AsyncConnectionPool(
             conninfo=self._settings.agent_checkpoint_database_url,
@@ -163,6 +175,9 @@ class WorkflowWorker:
             await self.close()
 
     async def close(self) -> None:
+        stopping = ReadinessResult.starting()
+        self._readiness.update(stopping)
+        record_readiness("worker", stopping)
         if self._metrics_server is not None:
             await asyncio.to_thread(self._metrics_server.shutdown)
             self._metrics_server.server_close()
@@ -201,7 +216,17 @@ class WorkflowWorker:
     async def _metrics_loop(self) -> None:
         while True:
             try:
-                await self._collect_runtime_metrics()
+                readiness = await probe_dependencies(
+                    self._engine,
+                    self._redis,
+                    timeout_seconds=(
+                        self._settings.readiness_probe_timeout_seconds
+                    ),
+                )
+                self._readiness.update(readiness)
+                record_readiness("worker", readiness)
+                if readiness.ready:
+                    await self._collect_runtime_metrics()
             except Exception:
                 logger.exception("Runtime metrics collection failed")
                 WORKER_RETRIES.labels(component="metrics").inc()

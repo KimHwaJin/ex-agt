@@ -81,6 +81,10 @@
   중복 binding/event, failure compensation, Session lock 누수 없이 두 consumer
   group pending이 0건으로 수렴했다. Task 완료 직후 지연될 수 있는 마지막
   Executor 감사 경계의 수렴 시간도 별도로 측정한다.
+- API와 Worker가 liveness `/healthz`와 dependency-aware `/readyz`를 분리한다.
+  PostgreSQL·Redis probe는 timeout과 Worker stale 기준을 적용하며 readiness,
+  latency, 마지막 probe 시각을 Prometheus에 노출한다. backlog/pending/lag는
+  readiness에서 제외하고 실제 Prometheus warning/critical rule로 관리한다.
 
 ## 다음 구현 범위
 
@@ -88,7 +92,6 @@
 - Workflow 승격 command/API와 승격 권한 정책
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
-- API/Worker dependency-aware readiness endpoint와 장애 알림 기준
 - 종료된 Worker의 pending 없는 Redis consumer metadata 안전 GC 정책
 - pgvector ANN index와 Workflow risk 사전 계산은
   `docs/performance-backlog.md`의 benchmark 선행 작업으로 관리
