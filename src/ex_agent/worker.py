@@ -99,7 +99,8 @@ class WorkflowWorker:
             self._executor,
             self._registry,
         )
-        self._consumer = f"worker-{uuid4()}"
+        instance_id = settings.worker_instance_id or str(uuid4())
+        self._consumer = f"worker-{instance_id}"
         self._checkpoint_pool: AsyncConnectionPool[Any] | None = None
         self._graphs: list[Any] = []
         self._metrics_server: HTTPServer | None = None

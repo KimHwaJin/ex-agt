@@ -76,7 +76,9 @@ async def _resume_new_interrupt(
     interrupt = task.get("current_interrupt")
     if not isinstance(interrupt, dict):
         return None
-    fingerprint = json.dumps(interrupt, sort_keys=True)
+    fingerprint = (
+        f"{task.get('version')}:{json.dumps(interrupt, sort_keys=True)}"
+    )
     if fingerprint in observation.handled_interrupts:
         return str(interrupt["kind"])
     observation.handled_interrupts.add(fingerprint)

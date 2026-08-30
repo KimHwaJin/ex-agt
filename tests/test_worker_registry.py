@@ -14,10 +14,12 @@ async def test_worker_loads_registry_from_configured_skill_root() -> None:
         Settings(
             agent_skill_root=_SKILL_ROOT,
             worker_metrics_enabled=False,
+            worker_instance_id="registry-test",
         )
     )
 
     try:
+        assert worker._consumer == "worker-registry-test"
         assert worker._registry.get_tool("fetch_dataset").skill.name == (
             "data-access"
         )

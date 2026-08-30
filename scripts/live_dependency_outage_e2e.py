@@ -100,7 +100,9 @@ async def _resume_new_interrupt(
     interrupt = task.get("current_interrupt")
     if not isinstance(interrupt, dict):
         return
-    fingerprint = json.dumps(interrupt, sort_keys=True)
+    fingerprint = (
+        f"{task.get('version')}:{json.dumps(interrupt, sort_keys=True)}"
+    )
     if fingerprint in observation.handled_interrupts:
         return
     observation.handled_interrupts.add(fingerprint)
@@ -179,14 +181,47 @@ async def _compose(
     return rendered
 
 
-async def _stop_service(compose_directory: Path, service: str) -> None:
+async def _docker(*arguments: str, check: bool = True) -> str:
+    process = await asyncio.create_subprocess_exec(
+        "docker",
+        *arguments,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+    )
+    output, _ = await process.communicate()
+    rendered = output.decode(errors="replace").strip()
+    if check and process.returncode != 0:
+        raise RuntimeError(f"docker {' '.join(arguments)} failed:\n{rendered}")
+    return rendered
+
+
+async def _stop_service(
+    compose_directory: Path,
+    service: str,
+    *,
+    redis_container: str | None,
+) -> None:
+    if service == "redis" and redis_container is not None:
+        await _docker("stop", "--time", "5", redis_container)
+        return
     await _compose(compose_directory, "stop", "--timeout", "5", service)
 
 
-async def _start_service(compose_directory: Path, service: str) -> None:
-    await _compose(compose_directory, "start", service)
+async def _start_service(
+    compose_directory: Path,
+    service: str,
+    *,
+    redis_container: str | None,
+) -> None:
+    external_redis = service == "redis" and redis_container is not None
+    if external_redis:
+        await _docker("start", redis_container)
+    else:
+        await _compose(compose_directory, "start", service)
     deadline = perf_counter() + 60
-    if service == "redis":
+    if external_redis:
+        check = ("exec", redis_container, "redis-cli", "ping")
+    elif service == "redis":
         check = ("exec", "-T", "redis", "redis-cli", "ping")
     else:
         check = (
@@ -200,11 +235,14 @@ async def _start_service(compose_directory: Path, service: str) -> None:
             "agent",
         )
     while perf_counter() < deadline:
-        output = await _compose(
-            compose_directory,
-            *check,
-            check=False,
-        )
+        if external_redis:
+            output = await _docker(*check, check=False)
+        else:
+            output = await _compose(
+                compose_directory,
+                *check,
+                check=False,
+            )
         if output.endswith("PONG") or "accepting connections" in output:
             return
         await asyncio.sleep(0.25)
@@ -321,30 +359,43 @@ async def _database_audit(
     )
 
 
-async def _redis_pending(compose_directory: Path) -> int:
-    output = await _compose(
-        compose_directory,
-        "exec",
-        "-T",
-        "redis",
+async def _redis_pending(
+    compose_directory: Path,
+    redis_container: str | None,
+) -> int:
+    command = (
         "redis-cli",
         "XPENDING",
         "executor.events",
         "agent-executor-events-v1",
     )
+    if redis_container is not None:
+        output = await _docker("exec", redis_container, *command)
+    else:
+        output = await _compose(
+            compose_directory,
+            "exec",
+            "-T",
+            "redis",
+            *command,
+        )
     first_line = output.splitlines()[0] if output else "0"
     return int(first_line)
 
 
 async def _wait_for_no_pending(
     compose_directory: Path,
+    redis_container: str | None,
     *,
     timeout_seconds: float,
 ) -> int:
     deadline = perf_counter() + timeout_seconds
     pending = -1
     while perf_counter() < deadline:
-        pending = await _redis_pending(compose_directory)
+        pending = await _redis_pending(
+            compose_directory,
+            redis_container,
+        )
         if pending == 0:
             return pending
         await asyncio.sleep(0.5)
@@ -407,7 +458,11 @@ async def _run_scenario(
             )
 
             outage_started_at = perf_counter()
-            await _stop_service(args.compose_directory, service)
+            await _stop_service(
+                args.compose_directory,
+                service,
+                redis_container=args.redis_container,
+            )
             service_running = False
             locked_during: int | None = None
             task_status_during: str | None = None
@@ -429,7 +484,11 @@ async def _run_scenario(
                     session_id,
                 )
             await asyncio.sleep(args.outage_seconds)
-            await _start_service(args.compose_directory, service)
+            await _start_service(
+                args.compose_directory,
+                service,
+                redis_container=args.redis_container,
+            )
             service_running = True
             restored_at = perf_counter()
 
@@ -492,11 +551,16 @@ async def _run_scenario(
                 )
             pending = await _wait_for_no_pending(
                 args.compose_directory,
+                args.redis_container,
                 timeout_seconds=args.recovery_timeout_seconds,
             )
         finally:
             if not service_running:
-                await _start_service(args.compose_directory, service)
+                await _start_service(
+                    args.compose_directory,
+                    service,
+                    redis_container=args.redis_container,
+                )
 
     return ScenarioResult(
         service=service,
@@ -560,6 +624,13 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--user-id", default="dependency-e2e-user")
     parser.add_argument("--project-id", default="dependency-e2e-project")
     parser.add_argument("--outage-seconds", type=float, default=20)
+    parser.add_argument(
+        "--redis-container",
+        help=(
+            "External Redis container used by Agent. Omit when Agent uses "
+            "the redis service from this Compose project."
+        ),
+    )
     parser.add_argument("--phase-timeout-seconds", type=float, default=180)
     parser.add_argument(
         "--recovery-timeout-seconds",

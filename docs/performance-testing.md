@@ -153,11 +153,15 @@ Compose 서비스를 순서대로 중단하므로 격리된 검증 환경에서�
 ```bash
 uv run --no-sync python scripts/live_dependency_outage_e2e.py \
   --scenario all \
+  --redis-container executor-redis-1 \
   --output /tmp/ex-agent-dependency-outage-e2e.json
 ```
 
 `--scenario`에는 `redis`, `postgres`, `all`을 사용할 수 있다. 각 시나리오는
 Executor가 실행 중일 때 의존 서비스를 중단하고 다음 계약을 확인한다.
+Agent가 이 저장소의 Compose Redis를 사용하면 `--redis-container`를 생략한다.
+외부 Redis를 사용하면 실제 `AGENT_REDIS_URL`에 대응하는 컨테이너를 명시해야
+하며, 다른 Redis를 중단한 결과는 유효한 장애 검증으로 간주하지 않는다.
 
 - 같은 Task와 `execution_id`가 성공 상태까지 복원됨
 - Executor binding과 `task.completed` event가 각각 정확히 1개임
@@ -171,13 +175,40 @@ Executor가 실행 중일 때 의존 서비스를 중단하고 다음 계약을 
 
 | 장애 대상 | 실제 outage | 재가동 후 Task 복구 | 전체 복구 |
 |---|---:|---:|---:|
-| Redis | 22.2초 | 16.7초 | 38.9초 |
+| Redis | 21.6초 | 47.4초 | 69.0초 |
 | PostgreSQL | 21.6초 | 16.2초 | 37.7초 |
 
 두 경우 모두 Agent와 Executor는 `SUCCEEDED`였고, 중복 binding/완료 event,
 Session lock 누수, Redis pending event는 없었다. PostgreSQL 중단 중 발생한
 SQLAlchemy와 LangGraph checkpointer 연결 오류는 Worker 재시도 경로로
-회수됐으며 프로세스를 재시작하지 않고 복구됐다.
+회수됐으며 프로세스를 재시작하지 않고 복구됐다. Redis 결과는 Agent와
+Executor가 실제로 공유하는 `executor-redis-1`을 중단해 다시 측정한 값이다.
+
+## 다중 Worker failover
+
+기본 Worker와 임시 Worker를 같은 consumer group에 연결한 뒤 실제 command
+owner 하나만 `SIGKILL`하는 검증은 다음과 같이 실행한다. `--redis-url`은
+컨테이너의 `AGENT_REDIS_URL`에 대응하는 host 주소여야 한다.
+
+```bash
+uv run --no-sync python scripts/live_multi_worker_e2e.py \
+  --redis-url redis://127.0.0.1:6379/0 \
+  --output /tmp/ex-agent-multi-worker-e2e.json
+```
+
+스크립트는 두 코드 실행 Task를 동시에 생성하고 active command의 Redis PEL
+owner를 찾는다. 해당 컨테이너만 종료한 뒤 생존 Worker의 재claim을 확인하고,
+종료된 Worker를 복구해 두 실행을 병렬로 진행한다.
+
+2026-08-30 실제 qwen/Executor/Jupyter 환경 결과:
+
+- 기본 Worker command owner를 `SIGKILL`한 뒤 87.4초에 계획 복구
+- 복구된 Task의 최대 command attempt count 2, 실패 보상 0건
+- 서로 다른 `execution_id` 2개가 동시에 `RUNNING`
+- Task/Executor 2건 모두 `SUCCEEDED`
+- Task별 binding 1개, `task.completed` 1개, Executor 완료 경계 2개
+- 완료 후 Session lock 누수 0건
+- command와 Executor event consumer group pending 모두 0건
 
 4번과 5번 및 서로 다른 Execution의 실제 병렬 처리는 다음 Compose 테스트가
 Redis consumer group/lock/ACK와 PostgreSQL binding/inbox를 함께 사용해 검증한다.

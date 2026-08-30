@@ -84,6 +84,7 @@ class Settings(BaseSettings):
 
     command_block_milliseconds: int = Field(default=5000, ge=100)
     command_claim_idle_milliseconds: int = Field(default=30000, ge=1000)
+    worker_instance_id: str | None = Field(default=None, max_length=128)
     worker_command_concurrency: int = Field(default=4, ge=1, le=64)
     worker_executor_event_concurrency: int = Field(default=8, ge=1, le=64)
     checkpoint_pool_min_size: int = Field(default=1, ge=1, le=64)

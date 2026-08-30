@@ -68,6 +68,8 @@ event ID뿐이다.
 규칙:
 
 - consumer name은 Pod/process마다 고유하고 consumer group은 deployment 역할별로 고정한다.
+  `WORKER_INSTANCE_ID`에는 Kubernetes Pod name처럼 운영자가 역추적할 수 있는
+  고유 값을 주입한다. 미지정 시 process별 UUID를 사용한다.
 - `executor.events` message는 `event_id`와 Executor `event_sequence`로 중복 제거/순서 검증한다.
 - Redis ACK 전에 BFF PostgreSQL의 inbox/event checkpoint와 필요한 side effect를 commit한다.
 - gap이 있으면 Executor REST event history를 조회해 복구한다.
