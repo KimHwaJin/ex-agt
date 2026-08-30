@@ -18,13 +18,23 @@ from ex_agent.domain.contracts import (
 from ex_agent.domain.enums import TaskStatus
 
 
-class WorkflowServices(Protocol):
+class LifecycleServices(Protocol):
     async def update_status(
         self,
         state: AgentGraphState,
         status: TaskStatus,
     ) -> None: ...
 
+    async def commit_terminal(
+        self,
+        state: AgentGraphState,
+        *,
+        status: TaskStatus,
+        message: str,
+    ) -> None: ...
+
+
+class ConversationServices(Protocol):
     async def classify_intent(
         self,
         state: AgentGraphState,
@@ -43,6 +53,8 @@ class WorkflowServices(Protocol):
         answer: str,
     ) -> None: ...
 
+
+class PlanningServices(Protocol):
     async def review_request_risk(
         self,
         state: AgentGraphState,
@@ -79,6 +91,8 @@ class WorkflowServices(Protocol):
         state: AgentGraphState,
     ) -> None: ...
 
+
+class ExecutionServices(Protocol):
     async def submit_execution(
         self,
         state: AgentGraphState,
@@ -113,6 +127,8 @@ class WorkflowServices(Protocol):
         reason: str | None,
     ) -> None: ...
 
+
+class ReportingServices(Protocol):
     async def build_report_evidence(
         self,
         state: AgentGraphState,
@@ -124,10 +140,23 @@ class WorkflowServices(Protocol):
         evidence: dict,
     ) -> ReportResult: ...
 
-    async def commit_terminal(
-        self,
-        state: AgentGraphState,
-        *,
-        status: TaskStatus,
-        message: str,
-    ) -> None: ...
+
+class WorkflowServices(
+    ConversationServices,
+    ExecutionServices,
+    LifecycleServices,
+    PlanningServices,
+    ReportingServices,
+    Protocol,
+):
+    """Complete service contract consumed by the production graph."""
+
+
+__all__ = [
+    "ConversationServices",
+    "ExecutionServices",
+    "LifecycleServices",
+    "PlanningServices",
+    "ReportingServices",
+    "WorkflowServices",
+]

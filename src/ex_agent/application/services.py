@@ -36,7 +36,7 @@ from ex_agent.executor.client import ExecutorClient
 from ex_agent.executor.contracts import ExecutionResult, executor_step_payload
 from ex_agent.executor.files import materialize_input_file
 from ex_agent.executor.results import validated_result_summaries
-from ex_agent.models import build_chat_model, build_embeddings
+from ex_agent.llm.factory import build_chat_model, build_embeddings
 from ex_agent.persistence.repository import AgentRepository
 from ex_agent.planners.agent import PlannerAgent
 from ex_agent.tools.compiler import SourceCompiler

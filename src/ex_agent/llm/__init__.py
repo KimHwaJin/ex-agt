@@ -1,5 +1,3 @@
-"""Compatibility imports for the relocated LLM factories."""
-
 from ex_agent.llm.factory import (
     DeterministicHashEmbeddings,
     build_chat_model,

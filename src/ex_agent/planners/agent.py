@@ -7,6 +7,7 @@ from langchain_core.language_models import BaseChatModel
 
 from ex_agent.config import Settings
 from ex_agent.domain.contracts import PlanDraft
+from ex_agent.llm.factory import build_chat_model
 from ex_agent.middleware.planning import (
     ModelAuditMiddleware,
     ModelAuditSink,
@@ -17,7 +18,6 @@ from ex_agent.middleware.planning import (
     RiskPrerequisiteMiddleware,
     SkillContextMiddleware,
 )
-from ex_agent.models import build_chat_model
 from ex_agent.tools.registry import ToolRegistry
 
 
