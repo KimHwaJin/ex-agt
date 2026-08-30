@@ -1,6 +1,6 @@
 # Promoted Workflow Retrieval Contract
 
-상태: `IMPLEMENTED_V1_SEARCH_BASELINE`
+상태: `IMPLEMENTED_V1_PROMOTION_AND_SEARCH`
 
 ## 1. 정의
 
@@ -80,6 +80,11 @@ WorkflowVersion은 생성 후 수정하지 않는다. Workflow 내용 변경은 
   parameter를 제거하고 재사용 가능한 parameter template로 변환한다.
 
 승격은 원본 Plan을 수정하지 않고 별도 WorkflowVersion snapshot을 만든다.
+
+현재 구현은 Executor 성공 경계에서 확인한 Step만
+`agent_successful_execution_steps`에 멱등 기록한다. MULTI의 실패한 보정 Step은
+여기에 포함되지 않는다. 이 기록이 없는 기존 Task는 실행 성공 여부와 실제 Step
+순서를 재구성할 수 없으므로 승격하지 않는다.
 
 ## 4. WorkflowStep
 
@@ -172,6 +177,33 @@ searched_at
 
 선택/거절 결정은 `workflow_version_id`, binding hash, proposal version에 묶어 멱등 저장한다.
 사용자가 전체 Step과 binding parameter를 확인하고 선택한 행위가 곧 실행계획 승인이다.
+
+승격 시 원본 parameter 값은 공개 version에 복사하지 않는다. 각 값은
+`step_<sequence>_<parameter>` 입력 placeholder로 변환된다. 사용자가 승격 요청에서
+`public_parameter_defaults`로 명시한 값만 서비스 공개 기본값으로 저장된다. Workflow
+선택 응답의 `input_values`가 나머지 입력을 제공하며, application은 placeholder를
+해결하고 Tool parameter schema와 compiler를 다시 검증한다.
+
+## 7.1 승격 API
+
+성공한 Tool-only Task의 최종 commit 뒤에는 best-effort
+`workflow.promotion_available` Task event가 생성된다. 이 이벤트 생성 실패는 이미
+성공한 분석을 실패 처리하지 않는다.
+
+```http
+GET /api/v1/tasks/{task_id}/workflow-promotion-draft
+POST /api/v1/tasks/{task_id}/workflow-promotions
+```
+
+draft API는 공개 parameter placeholder, Skill/Tool과 제안 이름·설명·요청 예시·태그를
+반환한다. POST는 사용자가 확인·수정한 메타데이터, 공개 기본값과 idempotency key를
+받는다. 동일 key와 동일 payload의 재요청은 기존 version을 반환하고, payload가 다르면
+충돌로 거절한다.
+
+공개 snapshot의 Step 제목·설명·선택 근거는 원본 query를 재사용하지 않고 registry의
+공식 Tool metadata로 다시 구성한다. objective와 strategy는 사용자가 확정한 공개
+이름·설명으로 저장한다. Task/Execution/Plan ID는 검색 텍스트나 공개 plan이 아니라
+감사용 lineage column에만 저장된다.
 
 초기 `PromotionPolicy`는 인증된 모든 사용자를 허용한다. promotion application service는
 policy를 우회하지 않으며 다음 확장점을 가진다.

@@ -297,7 +297,23 @@ class Workflow(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), unique=True)
     description: Mapped[str] = mapped_column(Text)
+    owner_user_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
+    owner_project_id: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+        index=True,
+    )
     visibility: Mapped[str] = mapped_column(String(32), default="SERVICE")
+    status: Mapped[str] = mapped_column(String(32), default="ACTIVE")
+    latest_version: Mapped[int] = mapped_column(Integer, default=1)
+    access_policy: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+    )
     required_permission: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,
@@ -324,6 +340,60 @@ class WorkflowVersion(Base, TimestampMixin):
         index=True,
     )
     version: Mapped[int] = mapped_column(Integer)
+    source_task_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+        index=True,
+    )
+    source_plan_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+    )
+    source_plan_revision_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+    )
+    source_execution_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+    )
+    objective: Mapped[str | None] = mapped_column(Text, nullable=True)
+    strategy_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    runtime_profile: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
+    input_contract: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+    )
+    output_contract: Mapped[dict[str, Any]] = mapped_column(
+        JSONB,
+        default=dict,
+    )
+    tool_registry_snapshot_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    searchable_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    searchable_text_hash: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+    embedding_model: Mapped[str | None] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+    embedding_dimension: Mapped[int | None] = mapped_column(
+        Integer,
+        nullable=True,
+    )
+    request_examples: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    tags: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    promotion_policy_version: Mapped[str | None] = mapped_column(
+        String(128),
+        nullable=True,
+    )
     plan_payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
     public_payload_hash: Mapped[str] = mapped_column(String(64))
     embedding: Mapped[list[float] | None] = mapped_column(
@@ -332,6 +402,101 @@ class WorkflowVersion(Base, TimestampMixin):
     )
     promoted_by: Mapped[str] = mapped_column(String(255))
     active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+
+class WorkflowStep(Base):
+    __tablename__ = "agent_workflow_steps"
+    __table_args__ = (
+        UniqueConstraint(
+            "workflow_version_id",
+            "sequence",
+            name="uq_agent_workflow_step_sequence",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    workflow_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_workflow_versions.id", ondelete="CASCADE"),
+        index=True,
+    )
+    source_plan_revision_id: Mapped[UUID | None] = mapped_column(
+        PGUUID(as_uuid=True),
+        nullable=True,
+    )
+    sequence: Mapped[int] = mapped_column(Integer)
+    skill_ref: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    tool_ref: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    purpose: Mapped[str] = mapped_column(Text)
+    selection_rationale: Mapped[str] = mapped_column(Text)
+    parameter_template: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    expected_outputs: Mapped[list[str]] = mapped_column(JSONB, default=list)
+    validation_criteria: Mapped[list[str]] = mapped_column(
+        JSONB,
+        default=list,
+    )
+    timeout_seconds: Mapped[int] = mapped_column(Integer)
+
+
+class SuccessfulExecutionStep(Base, TimestampMixin):
+    __tablename__ = "agent_successful_execution_steps"
+    __table_args__ = (
+        UniqueConstraint(
+            "task_id",
+            "execution_sequence",
+            name="uq_agent_successful_execution_step",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_tasks.id", ondelete="CASCADE"),
+        index=True,
+    )
+    execution_sequence: Mapped[int] = mapped_column(Integer)
+    operation_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_plan_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    source_plan_revision_id: Mapped[UUID] = mapped_column(PGUUID(as_uuid=True))
+    registry_snapshot_hash: Mapped[str] = mapped_column(String(64))
+    step_payload: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    step_payload_hash: Mapped[str] = mapped_column(String(64))
+
+
+class WorkflowPromotion(Base, TimestampMixin):
+    __tablename__ = "agent_workflow_promotions"
+    __table_args__ = (
+        UniqueConstraint(
+            "idempotency_key",
+            name="uq_agent_workflow_promotion_idem",
+        ),
+    )
+
+    id: Mapped[UUID] = mapped_column(
+        PGUUID(as_uuid=True),
+        primary_key=True,
+        default=uuid4,
+    )
+    task_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_tasks.id", ondelete="CASCADE"),
+        index=True,
+    )
+    actor_user_id: Mapped[str] = mapped_column(String(255))
+    idempotency_key: Mapped[str] = mapped_column(String(255))
+    request_hash: Mapped[str] = mapped_column(String(64))
+    workflow_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_workflows.id", ondelete="RESTRICT"),
+    )
+    workflow_version_id: Mapped[UUID] = mapped_column(
+        ForeignKey("agent_workflow_versions.id", ondelete="RESTRICT"),
+    )
+    policy_version: Mapped[str] = mapped_column(String(128))
 
 
 class ModelCallAudit(Base):

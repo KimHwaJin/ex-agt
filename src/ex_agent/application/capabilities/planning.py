@@ -15,6 +15,7 @@ from ex_agent.application.capabilities.common import (
     task_id,
     validate_model,
 )
+from ex_agent.application.promotions import bind_workflow_inputs
 from ex_agent.application.state import AgentGraphState
 from ex_agent.config import Settings
 from ex_agent.domain.contracts import (
@@ -23,7 +24,7 @@ from ex_agent.domain.contracts import (
     RiskReview,
     WorkflowCandidate,
 )
-from ex_agent.domain.enums import ExecutionMode, PlanningKind, TaskStatus
+from ex_agent.domain.enums import PlanningKind, TaskStatus
 from ex_agent.persistence.repository import AgentRepository
 from ex_agent.planners.agent import PlannerAgent
 from ex_agent.tools.compiler import SourceCompiler
@@ -133,8 +134,10 @@ class PlanningCapability:
             raise ValueError(
                 "Selected Workflow version changed after proposal"
             )
-        plan = PlanDraft.model_validate(version.plan_payload).model_copy(
-            update={"execution_mode": ExecutionMode.SINGLE}
+        plan = bind_workflow_inputs(
+            PlanDraft.model_validate(version.plan_payload),
+            version.input_contract,
+            state.get("workflow_input_values", {}),
         )
         persisted = await self.compile_and_persist_plan(state, plan)
         return plan, persisted

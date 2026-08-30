@@ -26,6 +26,7 @@ class WorkflowState(TypedDict, total=False):
     workflow_candidates: list[WorkflowCandidate]
     workflow_proposal_version: int
     selected_workflow_version_id: str
+    workflow_input_values: dict[str, Any]
     plan: PlanDraft
     plan_id: str
     plan_revision_id: str

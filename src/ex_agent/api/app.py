@@ -6,6 +6,7 @@ from fastapi import FastAPI
 
 from ex_agent.api.container import ApiContainer
 from ex_agent.api.routers.health import health_router
+from ex_agent.api.routers.promotions import promotion_router
 from ex_agent.api.routers.tasks import (
     task_router,
     validate_signal_against_interrupt,
@@ -32,6 +33,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.include_router(health_router(resolved))
     app.include_router(task_router(resolved))
+    app.include_router(promotion_router())
     return app
 
 

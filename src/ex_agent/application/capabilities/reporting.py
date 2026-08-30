@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 from typing import Any
 from uuid import UUID
 
@@ -13,12 +14,14 @@ from ex_agent.application.capabilities.common import (
 )
 from ex_agent.application.state import AgentGraphState
 from ex_agent.config import Settings
-from ex_agent.domain.contracts import ReportResult
-from ex_agent.domain.enums import TaskStatus
+from ex_agent.domain.contracts import PlanStepDraft, ReportResult
+from ex_agent.domain.enums import PlanningKind, TaskStatus
 from ex_agent.executor.client import ExecutorClient
 from ex_agent.executor.files import materialize_input_file
 from ex_agent.executor.results import validated_result_summaries
 from ex_agent.persistence.repository import AgentRepository
+
+logger = logging.getLogger(__name__)
 
 
 class ReportingCapability:
@@ -115,6 +118,41 @@ class ReportingCapability:
                 "report_artifact_id": state.get("report_artifact_id"),
             },
         )
+        if status is TaskStatus.SUCCEEDED:
+            await self._offer_workflow_promotion(task_id(state))
+
+    async def _offer_workflow_promotion(self, source_task_id: UUID) -> None:
+        try:
+            source = await self._repository.workflow_promotion_source(
+                source_task_id
+            )
+            if not source.steps:
+                return
+            steps = [
+                PlanStepDraft.model_validate(row.step_payload)
+                for row in source.steps
+            ]
+            if any(
+                step.planning_kind is not PlanningKind.TOOL_PLAN
+                for step in steps
+            ):
+                return
+            await self._repository.append_task_event(
+                source_task_id,
+                "workflow.promotion_available",
+                {
+                    "task_id": str(source_task_id),
+                    "draft_path": (
+                        f"/api/v1/tasks/{source_task_id}/"
+                        "workflow-promotion-draft"
+                    ),
+                },
+            )
+        except Exception:
+            logger.warning(
+                "Workflow promotion suggestion could not be created",
+                exc_info=True,
+            )
 
 
 __all__ = ["ReportingCapability"]

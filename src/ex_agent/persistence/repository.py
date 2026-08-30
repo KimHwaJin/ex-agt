@@ -12,6 +12,7 @@ from ex_agent.domain.contracts import (
     PersistedPlan,
     PlanDraft,
     WorkflowCandidate,
+    WorkflowPromotionResult,
 )
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.persistence.models import (
@@ -32,6 +33,10 @@ from ex_agent.persistence.repositories.executions import (
     ExecutorEventSequenceGapError as ExecutorEventSequenceGapError,
 )
 from ex_agent.persistence.repositories.plans import PlanRepository
+from ex_agent.persistence.repositories.promotions import (
+    PromotionSource,
+    WorkflowPromotionRepository,
+)
 from ex_agent.persistence.repositories.tasks import (
     SessionLockedError as SessionLockedError,
 )
@@ -51,6 +56,7 @@ class AgentRepository:
         self.delivery = DeliveryRepository(sessions)
         self.executions = ExecutionRepository(sessions)
         self.plans = PlanRepository(sessions)
+        self.promotions = WorkflowPromotionRepository(sessions)
         self.tasks = TaskRepository(sessions)
         self.workflows = WorkflowCatalogRepository(sessions)
 
@@ -394,3 +400,42 @@ class AgentRepository:
 
     async def workflow_version(self, version_id: UUID) -> WorkflowVersion:
         return await self.workflows.version(version_id)
+
+    async def record_successful_execution_steps(
+        self,
+        *,
+        task_id: UUID,
+        operation_id: UUID,
+        plan_id: UUID,
+        plan_revision_id: UUID,
+        registry_snapshot_hash: str,
+        start_sequence: int,
+        steps: list[Any],
+    ) -> None:
+        await self.promotions.record_successful_steps(
+            task_id=task_id,
+            operation_id=operation_id,
+            plan_id=plan_id,
+            plan_revision_id=plan_revision_id,
+            registry_snapshot_hash=registry_snapshot_hash,
+            start_sequence=start_sequence,
+            steps=steps,
+        )
+
+    async def workflow_promotion_source(
+        self,
+        task_id: UUID,
+    ) -> PromotionSource:
+        return await self.promotions.source(task_id)
+
+    async def existing_workflow_promotion(
+        self,
+        **values: Any,
+    ) -> WorkflowPromotionResult | None:
+        return await self.promotions.existing(**values)
+
+    async def promote_workflow(
+        self,
+        **values: Any,
+    ) -> WorkflowPromotionResult:
+        return await self.promotions.create(**values)

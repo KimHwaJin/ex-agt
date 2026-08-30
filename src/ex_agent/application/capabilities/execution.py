@@ -127,6 +127,32 @@ class ExecutionCapability:
                 self._settings.executor_result_manifest_max_bytes
             ),
         )
+        if outcome in {
+            ExecutorOutcome.OPERATION_SUCCEEDED,
+            ExecutorOutcome.SUCCEEDED,
+        }:
+            if latest_operation is None:
+                raise ValueError(
+                    "Successful Executor result omitted Operation"
+                )
+            binding = await self._repository.binding_for_task(task_id(state))
+            completed_steps = list(state["plan"].steps)
+            if state_execution_mode(state) is ExecutionMode.MULTI:
+                completed_steps = completed_steps[:1]
+            start_sequence = binding.next_step_sequence - len(completed_steps)
+            if start_sequence < 0:
+                raise ValueError("Executor Step lineage sequence is invalid")
+            await self._repository.record_successful_execution_steps(
+                task_id=task_id(state),
+                operation_id=latest_operation.operation_id,
+                plan_id=UUID(state["plan_id"]),
+                plan_revision_id=UUID(state["plan_revision_id"]),
+                registry_snapshot_hash=(
+                    self._registry.registry_snapshot_hash()
+                ),
+                start_sequence=start_sequence,
+                steps=completed_steps,
+            )
         await self._repository.update_binding(
             task_id(state),
             execution_version=result.execution.state.version,
