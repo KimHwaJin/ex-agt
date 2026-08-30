@@ -158,16 +158,84 @@ class RedisStreamConsumer:
         self._observer = observer or NullConsumerObserver()
         self._retry_initial_seconds = retry_initial_seconds
         self._retry_max_seconds = retry_max_seconds
+        self._initialize_lock = asyncio.Lock()
+        self._initialized = False
+        self._running = False
+        self._stop_requested = asyncio.Event()
+        self._stopped = asyncio.Event()
+        self._stopped.set()
+        self._slot_tasks: set[asyncio.Task[None]] = set()
+
+    @property
+    def is_running(self) -> bool:
+        return self._running
+
+    async def initialize(self) -> None:
+        if self._initialized:
+            return
+        async with self._initialize_lock:
+            if self._initialized:
+                return
+            await self.ensure_group()
+            await self.cleanup_consumers()
+            self._initialized = True
 
     async def run(self) -> None:
-        await self.ensure_group()
-        await self.cleanup_consumers()
-        await asyncio.gather(
-            *(
-                self._consume_slot(slot_index)
+        if self._running:
+            raise RuntimeError("Redis Stream consumer is already running")
+        self._running = True
+        self._stopped.clear()
+        try:
+            if self._stop_requested.is_set():
+                return
+            await self.initialize()
+            if self._stop_requested.is_set():
+                return
+            self._slot_tasks = {
+                asyncio.create_task(self._consume_slot(slot_index))
                 for slot_index in range(self._config.concurrency)
+            }
+            try:
+                await asyncio.gather(*self._slot_tasks)
+            except asyncio.CancelledError:
+                current_task = asyncio.current_task()
+                externally_cancelled = (
+                    current_task is not None and current_task.cancelling() > 0
+                )
+                if externally_cancelled or not self._stop_requested.is_set():
+                    raise
+        finally:
+            tasks = tuple(self._slot_tasks)
+            for task in tasks:
+                if not task.done():
+                    task.cancel()
+            if tasks:
+                await asyncio.gather(*tasks, return_exceptions=True)
+            self._slot_tasks.clear()
+            self._running = False
+            self._stopped.set()
+
+    def request_stop(self) -> None:
+        """Permanently stop taking new messages after handlers finish."""
+        self._stop_requested.set()
+
+    async def shutdown(self, grace_period_seconds: float = 30) -> None:
+        """Drain active handlers, then cancel slots after the grace period."""
+        if grace_period_seconds < 0:
+            raise ValueError("grace_period_seconds cannot be negative")
+        self.request_stop()
+        tasks = tuple(self._slot_tasks)
+        if tasks:
+            _, pending = await asyncio.wait(
+                tasks,
+                timeout=grace_period_seconds,
             )
-        )
+            for task in pending:
+                task.cancel()
+            if pending:
+                await asyncio.gather(*pending, return_exceptions=True)
+        if self._running:
+            await self._stopped.wait()
 
     async def ensure_group(self) -> None:
         try:
@@ -274,6 +342,8 @@ class RedisStreamConsumer:
         retry_delay = self._retry_initial_seconds
         claim_cursor = "0-0"
         while True:
+            if self._stop_requested.is_set():
+                return
             try:
                 claim_cursor, claimed = await self._claim_stale(
                     consumer,
@@ -281,6 +351,8 @@ class RedisStreamConsumer:
                 )
                 if claimed:
                     for message_id, fields in claimed:
+                        if self._stop_requested.is_set():
+                            return
                         await self.process_message(
                             consumer,
                             handler,
@@ -303,6 +375,8 @@ class RedisStreamConsumer:
                 )
                 for _, entries in messages:
                     for message_id, fields in entries:
+                        if self._stop_requested.is_set():
+                            return
                         await self.process_message(
                             consumer,
                             handler,

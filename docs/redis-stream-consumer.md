@@ -65,6 +65,26 @@ consumer = RedisStreamConsumer(
 await consumer.run()
 ```
 
+서비스 종료 시에는 `run()` task를 무조건 취소하는 대신 먼저 drain을 요청한다.
+
+```python
+import asyncio
+
+run_task = asyncio.create_task(consumer.run())
+
+# SIGTERM 등 종료 신호를 받은 뒤
+await consumer.shutdown(grace_period_seconds=30)
+await run_task
+```
+
+`request_stop()`은 새 메시지 처리를 중단하고 현재 handler가 끝나기를 기다린다.
+`shutdown()`은 같은 요청을 보낸 뒤 grace period 안에 끝나지 않은 slot task를
+취소한다. 취소된 메시지는 ACK하지 않고 PEL에 남으며, 보유한 분산 락은
+token 검증 후 해제되어 다른 replica가 claim idle 이후 복구할 수 있다. Redis
+connection의 소유권은 호출자에게 있으므로 consumer 종료가 connection을 닫지는
+않는다. stop 요청은 되돌리지 않는 one-shot lifecycle이다. 같은 설정으로 다시
+실행해야 하면 새 consumer 인스턴스를 만든다.
+
 현재 contract의 message ID와 fields는 문자열이므로 Redis client는
 `decode_responses=True`로 생성한다.
 

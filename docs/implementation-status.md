@@ -36,8 +36,9 @@
   지수 backoff를 적용하며 실패 event는 ACK하지 않고 재claim한다.
 - Redis Stream 소비 런타임을 Agent/LangGraph와 분리했다. command와 Executor
   event가 같은 공개 consumer contract를 사용하며 cursor 기반 batch reclaim,
-  malformed envelope DLQ, pending 없는 idle consumer GC를 지원한다. 실행 binding
-  보다 먼저 도착한 event는 ACK하지 않고 binding 생성 후 재claim한다.
+  malformed envelope DLQ, pending 없는 idle consumer GC, grace period 기반 drain과
+  취소 복구를 지원한다. 단일 파일 standalone import도 회귀 테스트로 보장한다.
+  실행 binding보다 먼저 도착한 event는 ACK하지 않고 binding 생성 후 재claim한다.
 - application workflow state를 LangGraph adapter 밖으로 이동해
   `application → graph` 역의존을 제거했다. Worker command/event processor와
   Stream handler, FastAPI container/router, LLM factory와
