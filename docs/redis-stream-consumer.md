@@ -85,6 +85,11 @@ connection의 소유권은 호출자에게 있으므로 consumer 종료가 conne
 않는다. stop 요청은 되돌리지 않는 one-shot lifecycle이다. 같은 설정으로 다시
 실행해야 하면 새 consumer 인스턴스를 만든다.
 
+Compose 통합 테스트는 처리 중인 첫 runtime을 grace timeout으로 종료한 뒤 원본
+message가 PEL에 남고 lock이 해제되는지 확인한다. 이어 두 번째 runtime이 같은
+group에서 `XAUTOCLAIM`으로 message를 가져와 `reclaimed=True`로 한 번 처리하고
+ACK하여 pending 0건으로 수렴하는지 검증한다.
+
 현재 contract의 message ID와 fields는 문자열이므로 Redis client는
 `decode_responses=True`로 생성한다.
 

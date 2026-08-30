@@ -21,6 +21,10 @@ docker compose --profile test build
 docker compose --profile test run --rm test
 ```
 
+`test` profile은 app container와 격리된 임시 `test-postgres`와 `test-redis`를
+사용한다. API/worker가 실행 중이어도 같은 outbox나 consumer group을 경쟁하지
+않으며 test migration도 별도 DB에 적용된다.
+
 API 부하 테스트와 Prometheus 지표 설명은
 [Performance Testing](docs/performance-testing.md)을 참고한다. API는 `/metrics`,
 Worker는 기본적으로 `8011` 포트에서 metrics를 제공한다.

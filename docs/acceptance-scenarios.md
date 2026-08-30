@@ -69,6 +69,8 @@ Tool로 대체하지만 PostgreSQL/pgvector, Redis, Executor/Jupyter는 실제 c
 - Executor 대기 중 API/worker Pod를 재시작해도 열린 coroutine 없이 checkpoint와 DB state로
   복구된다.
 - Redis event 중복/누락/역순을 처리해 graph resume과 사용자 event가 한 번만 적용된다.
+- 처리 중 worker가 종료되면 원본 message를 ACK하지 않고 lock을 해제한다. claim idle 이후
+  다른 worker가 PEL message를 reclaim하여 완료하고 최종 pending은 0건이 된다.
 
 ### A10. Session 잠금
 
