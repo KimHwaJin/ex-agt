@@ -3,6 +3,7 @@ import importlib.util
 import shutil
 import sys
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -14,6 +15,7 @@ from ex_agent.application.ports import (
     ReportingServices,
 )
 from ex_agent.application.services import DefaultWorkflowServices
+from ex_agent.graph.builder import build_workflow_graph
 from ex_agent.graph.nodes import WorkflowNodes
 from ex_agent.worker import WorkflowWorker
 
@@ -139,18 +141,9 @@ def test_default_services_implements_every_capability_contract() -> None:
 
 
 def test_workflow_node_facade_covers_every_registered_node() -> None:
-    builder = _PACKAGE_ROOT / "graph" / "builder.py"
-    tree = ast.parse(builder.read_text(), filename=str(builder))
-    registered = {
-        call.args[0].value
-        for call in ast.walk(tree)
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr == "add_node"
-        and call.args
-        and isinstance(call.args[0], ast.Constant)
-        and isinstance(call.args[0].value, str)
-    }
+    # Test the compiled topology, independent of literal vs. table wiring.
+    graph = build_workflow_graph(MagicMock()).get_graph()
+    registered = set(graph.nodes) - {"__start__", "__end__"}
     missing = sorted(
         name
         for name in registered
