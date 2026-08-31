@@ -35,6 +35,9 @@ requires = ["uv_build>=0.11.29,<0.12"]
 build-backend = "uv_build"
 
 [dependency-groups]
+chat-ui = [
+    "langgraph-cli[inmem]>=0.4,<1",
+]
 dev = [
     "pytest>=8.4,<9",
     "pytest-asyncio>=1.1,<2",
@@ -48,6 +51,7 @@ addopts = "-ra"
 asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
+    "llm: opt-in live model evaluation (EX_AGENT_TEST_LIVE_MODEL_URL)",
     "postgres: requires the Compose PostgreSQL service",
     "redis: requires the Compose Redis service",
     "executor: requires the Executor REST service",

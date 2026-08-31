@@ -56,6 +56,18 @@ def test_package_dependency_direction() -> None:
                 violations.append(
                     f"{path.relative_to(_PACKAGE_ROOT)}: domain -> {target}"
                 )
+            if target == "dev_chat" and source != "dev_chat":
+                violations.append(
+                    f"{path.relative_to(_PACKAGE_ROOT)}: {source} -> dev_chat"
+                )
+            if source == "dev_chat" and target not in {
+                "dev_chat",
+                "api",
+                "domain",
+            }:
+                violations.append(
+                    f"{path.relative_to(_PACKAGE_ROOT)}: dev_chat -> {target}"
+                )
     assert violations == []
 
 

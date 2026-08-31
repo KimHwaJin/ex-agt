@@ -38,5 +38,7 @@ FROM runtime AS test
 USER root
 COPY tests ./tests
 COPY examples ./examples
+COPY docker-compose.yml ./
+COPY langgraph.json ./
 RUN uv sync --frozen --no-editable
 USER agent

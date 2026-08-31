@@ -6,12 +6,17 @@ Executor Redis event에서 workflow를 재개한다.
 
 ## 개발 명령
 
+기존 API/Worker 컨테이너를 그대로 두고 **Agent Chat UI에서 테스트**하려면
+[Agent Chat UI Testing](docs/agent-chat-ui-testing.md)을 참고한다.
+로컬 `langgraph dev`에 UI 연결 그래프만 추가하며 업무 그래프 실행은
+기존 Redis Worker에서 유지한다.
+
 ```bash
 uv sync --no-editable
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
 uv run --no-sync ty check
-uv run --no-sync pytest
+uv run --no-sync python -m pytest
 ```
 
 실제 PostgreSQL/pgvector와 Redis 통합 테스트:
@@ -54,6 +59,13 @@ API와 worker 실행:
 cp .env.example .env
 docker compose up --build
 ```
+
+기본 Compose는 `migrate`, `api`, `worker`만 실행하고 Executor 쪽
+PostgreSQL(`5432`)과 Redis(`6379`)에 연결한다. PostgreSQL 서버는 공유하되
+Agent의 DB/role은 `agent`로 분리하며 Executor DB에 Agent migration을
+실행하지 않는다. 최초 DB 생성과 기존 데이터 전환 주의사항은
+[Shared Executor Infrastructure](docs/shared-executor-infrastructure.md)를
+참고한다. `.env`의 두 DB URL과 Redis URL이 실제 접속 정보와 일치해야 한다.
 
 Executor는 별도로 실행하고 `EXECUTOR_BASE_URL`을 설정한다. Agent와 Executor가
 PATH source를 교환하려면 `EXECUTOR_SHARED_DIR`이 Executor의 `shared_dir`을
