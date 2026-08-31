@@ -171,9 +171,57 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
 - 기존 구조 테스트의 AST 리터럴 탐색은 topology 추출에 맞춰 실제 컴파일된
   그래프의 31개 노드 검증으로 바꾸었다. 테스트를 제외한 것이 아니다.
 
-### 다음 단계 — 2B 이후
+### 2B — Agent 외부 요청과 결과 반영 복구
 
-기존 업무 capability의 append/report 등 외부 효과 멱등성을 먼저 보완한다.
-API 접수·승인·취소의 내구성 있는 기록과 복구, 최종 실패 업무 보상, 운영 factory
-자원 연결을 구현한 후 FastAPI/UI/배포를 전환한다. `worker_hooks.create_graph`의
-미연결 보호는 아직 유지한다. 이번 그래프 테스트 통과만으로 운영 전환하지 않는다.
+- 2A를 main `ba03dfe`로 머지·푸시했다. 후속 작업 브랜치는
+  `codex/durable-agent-effects`다.
+- `src/agent/services.py`의 SessionWorkflowServices를 추가했다. 기존 분류·계획·
+  위험 검토 capability는 재사용하고, Executor 쓰기와 실행 완료 저장을 보완한다.
+- `src/agent/effects`는 Agent DB에 첫 요청과 응답을 저장한다. 같은 입력을 재시도할
+  때 expected_version·코드·파일 경로·Markdown·멱등 키를 다시 만들지 않는다.
+  새 메시지 큐나 컨슈머를 추가한 것이 아니며 `src/worker`는 변경하지 않았다.
+- append 키는 가변 DB 순번 대신 Task+직전 Operation으로 고정한다. 응답 후 DB
+  반영이 실패하면 영수증을 재사용하고, 반영 후 실패하면 계획 revision·실행 순번·
+  최종 메시지가 중복/역행하지 않게 한다. 승격 안내 이벤트도 중복 생성하지 않는다.
+- 추가 셀의 실제 계획/revision을 그래프 상태에 돌려줘 후속 결과의 lineage를 유지한다.
+  단독 계획의 로컬 순번은 0부터, Executor의 전체 순번은 제출 단계에서 지정한다.
+  이 구분 누락으로 checkpoint 복원 시 Step이 dict로 남던 경로도 수정했다.
+- 코드/리포트 입력은 내용 해시 기반 PATH이며 준비한 원문으로 파일 복구가 가능하다.
+  컴파일/파일 IO는 스레드로 분리하고 HTTP/LLM 대기 중 DB 트랜잭션을 유지하지 않는다.
+- 신규 Agent migration은 `0007_executor_effects`다. 기존 baseline의 동적
+  create_all이 미래 테이블을 미리 만들지 않도록 별도 ORM metadata를 사용한다.
+  기존 migration이나 공통 Worker의 `ew_0001`은 변경하지 않았다.
+- 사용법·복구 경계·보존 주의점은 [효과 모듈 안내](../src/agent/effects/README.md)에
+  기록했다. 이 기록은 자동 실행 스케줄러나 API 요청 접수 기록을 대체하지 않는다.
+
+#### 2B 검증 기록
+
+- uv 파일 기반 설치, 전체 Ruff lint/format, ty 통과.
+- 전체 로컬: **349 passed, 108 skipped**. DB/Redis 및 opt-in 실서비스 항목 제외.
+- 전체 격리 Compose: **428 passed, 29 skipped**. opt-in 실제 모델/API 항목 제외.
+- 실제 PostgreSQL에서 제출/append/finalize/cancel/report 응답 유실, 요청 저장 실패,
+  binding 반영 전후 장애, 동일 키 입력 변경 거부, 단조 순번/버전, 동시 중복 계획·
+  최종 메시지·승격 안내 저장을 검증했다.
+- 실제 PG/Redis/별도 checkpointer 연결로 MULTI append binding 반영 후 중단과
+  완료 메시지 반영 후 중단을 재전달해 복구했다. HTTP 요청·리포트 생성은 중복되지 않았다.
+- 빈 DB 초기화 및 직전 Agent migration에서 Task 데이터를 보존한 upgrade/repeat를
+  검증했다. migration 테스트는 자신이 생성한 별도 임시 DB만 제거한다.
+- 모델은 결정적 출력, Executor는 멱등 영수증과 응답 유실을 구현한 HTTP 대역이다.
+  실제 Executor/Jupyter·LLM·K8s 종료/재시작 검증을 수행했다는 의미는 아니다.
+- 미추적 복사본은 그대로 보존했다. Git 관리 파일과 이번 변경의 스냅샷에서 검증했으며,
+  운영 DB·기존 컨테이너에는 적용하지 않았다.
+
+### 다음 단계 — 2C/3
+
+1. API 시작·승인·취소를 먼저 DB에 접수하고 같은 세션 guard/checkpoint 아래에서
+   호출·복구하는 경로를 구현한다. 기존 START/RESUME 발행과 새 직접 호출이 함께
+   동작해 이중 실행하지 않도록 분리한다. API 응답 유실과 승인 재전송도 검증한다.
+2. Executor 제출 전 API 종료처럼 이벤트가 생기지 않는 구간의 복구 루프를 연결한다.
+   체크포인트에 수락된 요청은 새 resume를 재주입하지 않고 미완료 노드를 복구한다.
+3. 최종 처리 실패 시 Executor 취소/종료 확인·사용자 안내·장기 세션 잠금 정리의
+   업무 보상을 연결한다. cancel HTTP 성공만으로 취소 완료를 알리지 않는다.
+4. 공통 운영 factory와 FastAPI/UI 진입점을 바꾸고, 실제 Executor·모델·배포를
+   검증한 뒤 구 Worker/임시 import를 제거한다.
+
+`worker_hooks.create_graph`의 미연결 보호와 기존 운영 배포 경로는 아직 유지한다.
+이번 2B 검증 통과만으로 운영 전환하거나 `ex_agent`를 삭제하지 않는다.

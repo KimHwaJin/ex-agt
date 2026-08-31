@@ -13,6 +13,7 @@ from ex_agent.domain.contracts import (
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.graph.node_groups.common import (
     WorkflowNodeGroup,
+    persisted_plan_updates,
     validate_resume_signal,
 )
 from ex_agent.graph.state import AgentGraphState
@@ -85,8 +86,14 @@ class ExecutionNodes(WorkflowNodeGroup):
         if reconciliation.outcome.value == "OPERATION_FAILED":
             updates["correction_count"] = state.get("correction_count", 0) + 1
         if decision.next_step is not None:
+            # Plan-local sequence starts at zero; Executor's global sequence
+            # is assigned at submission. Keep the checkpoint schema valid.
             plan = state["plan"].model_copy(
-                update={"steps": [decision.next_step]}
+                update={
+                    "steps": [
+                        decision.next_step.model_copy(update={"sequence": 0})
+                    ]
+                }
             )
             updates["plan"] = plan
         return updates
@@ -97,7 +104,14 @@ class ExecutionNodes(WorkflowNodeGroup):
     ) -> dict[str, Any]:
         decision = MultiDecision.model_validate(state["multi_decision"])
         receipt = await self._services.append_operation(state, decision)
-        return {"current_operation_id": str(receipt.operation_id)}
+        updates = {"current_operation_id": str(receipt.operation_id)}
+        if receipt.persisted_plan is not None:
+            if receipt.plan is None:
+                raise ValueError("Append receipt requires persisted plan")
+            updates.update(
+                persisted_plan_updates(receipt.plan, receipt.persisted_plan)
+            )
+        return updates
 
     async def finalize_execution(
         self,

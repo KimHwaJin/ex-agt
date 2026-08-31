@@ -511,6 +511,8 @@ class SubmissionReceipt(ContractModel):
     execution_id: UUID
     operation_id: UUID
     execution_version: int = Field(ge=0)
+    persisted_plan: PersistedPlan | None = None
+    plan: PlanDraft | None = None
 
 
 class ReportResult(ContractModel):
