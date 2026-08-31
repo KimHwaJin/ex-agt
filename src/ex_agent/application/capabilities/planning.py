@@ -14,6 +14,7 @@ from ex_agent.application.capabilities.common import (
     state_execution_mode,
     task_id,
     validate_model,
+    validate_plan_execution_mode,
 )
 from ex_agent.application.promotions import bind_workflow_inputs
 from ex_agent.application.state import AgentGraphState
@@ -77,7 +78,9 @@ class PlanningCapability:
                 "workflow.search_degraded",
                 {
                     "reason": f"{type(error).__name__}: {error}",
-                    "fallback": "DYNAMIC_MULTI_PLAN",
+                    "fallback": (
+                        f"DYNAMIC_{state.get('execution_mode', 'MULTI')}_PLAN"
+                    ),
                 },
             )
             return []
@@ -206,6 +209,7 @@ class PlanningCapability:
     ) -> None:
         if state.get("review_action") != "APPROVE":
             raise ValueError("Plan approval is required")
+        validate_plan_execution_mode(state, state["plan"])
         await self._repository.lock_session(task_id(state))
         await self._repository.update_status(
             task_id(state),
@@ -240,6 +244,7 @@ async def compile_and_persist_plan(
     state: AgentGraphState,
     plan: PlanDraft,
 ) -> PersistedPlan:
+    validate_plan_execution_mode(state, plan)
     next_revision = state.get("plan_revision_number", 0) + 1
     compiled = []
     for step in plan.steps:

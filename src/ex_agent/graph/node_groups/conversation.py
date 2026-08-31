@@ -5,7 +5,7 @@ from typing import Any
 from langgraph.types import interrupt
 
 from ex_agent.domain.contracts import ClarificationAnswer
-from ex_agent.domain.enums import TaskStatus
+from ex_agent.domain.enums import Intent, PlanningKind, TaskStatus
 from ex_agent.graph.node_groups.common import (
     WorkflowNodeGroup,
     validate_resume_signal,
@@ -33,7 +33,19 @@ class ConversationNodes(WorkflowNodeGroup):
         state: AgentGraphState,
     ) -> dict[str, Any]:
         decision = await self._services.classify_intent(state)
-        return {"intent_decision": decision}
+        updates: dict[str, Any] = {"intent_decision": decision}
+        if decision.intent in {
+            Intent.CODE_EXECUTION,
+            Intent.DATA_ANALYSIS_EXECUTION,
+        }:
+            updates["planning_kind"] = (
+                PlanningKind.CUSTOM_CODE
+                if decision.intent is Intent.CODE_EXECUTION
+                else PlanningKind.TOOL_PLAN
+            )
+            if decision.requested_execution_mode is not None:
+                updates["execution_mode"] = decision.requested_execution_mode
+        return updates
 
     def clarify_request(self, state: AgentGraphState) -> dict[str, Any]:
         decision = state["intent_decision"]

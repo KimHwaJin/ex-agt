@@ -4,6 +4,15 @@
 최소 참조 구현이다. `ex_agent`의 분석 도메인, Executor 계약, repository를
 가져가지 않으며 아래 구성만 복사해서 다른 Agent에 맞게 구현할 수 있다.
 
+실제 전달 범위, Executor 계약과의 차이, 실행 명령, 운영 이식 주의사항은
+[Worker 인수인계 가이드](../../docs/worker-handoff-guide.md)를 먼저 참고한다.
+이 예제는 운영용 PostgreSQL Bridge나 outbox relay를 제공하지 않는다.
+
+API에서 Agent를 직접 invoke하고 Worker에서 Executor 이벤트로 이어가는
+인수 구조라면 [API+Agent / Worker 예제](../api_agent_worker/README.md)를
+사용한다. API/Worker 실행 경계와 과거 Command receipt, pending 노드 복구를
+추가한 예제이며 이 디렉터리의 최소 Command 모델/저장소 계약을 재사용한다.
+
 - `contracts.py`: 외부 이벤트와 내부 커맨드의 최소 wire 계약
 - `ports.py`: 영속 저장소와 LangGraph 실행기의 교체 가능한 경계
 - `handlers.py`: 공통 Redis 소비기에 연결하는 두 handler

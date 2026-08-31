@@ -69,7 +69,30 @@ async def test_live_intent(message: str, intent: Intent) -> None:
     assert result.intent is intent, result.model_dump()
     assert not result.requires_clarification, result.model_dump()
     assert result.clarification_question is None, result.model_dump()
-    assert result.requires_execution_mode == (intent is Intent.CODE_EXECUTION)
+    assert result.requires_execution_mode == (
+        intent is Intent.CODE_EXECUTION
+        and result.requested_execution_mode is None
+    )
+
+
+@pytest.mark.parametrize(
+    ("message", "mode"),
+    [
+        ("싱글모드로 샘플 데이터 생성, EDA, 플롯까지 실행해줘", "SINGLE"),
+        (
+            "분석 계획 전체를 먼저 정하고 그대로 한 번에 실행해줘. "
+            "중간 결과를 보고 다음 계획을 바꾸지 마",
+            "SINGLE",
+        ),
+        ("멀티로 결과를 보면서 샘플 데이터를 분석해줘", "MULTI"),
+        ("샘플 데이터 만들어서 EDA와 플롯까지 실행해줘", None),
+        ("SINGLE과 MULTI의 차이가 뭐야?", None),
+        ("SINGLE로 1부터 10까지 더하는 코드를 실행해줘", "SINGLE"),
+    ],
+)
+async def test_live_explicit_execution_mode(message: str, mode: str | None):
+    result = await capability().classify_intent({"user_message": message})
+    assert result.requested_execution_mode == mode, result.model_dump()
 
 
 @pytest.mark.asyncio

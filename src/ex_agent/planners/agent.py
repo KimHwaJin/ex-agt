@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from langchain.agents import create_agent
@@ -12,6 +13,7 @@ from ex_agent.middleware.planning import (
     ModelAuditMiddleware,
     ModelAuditSink,
     NullModelAuditSink,
+    PlanModeMismatchError,
     PlannerBudgetMiddleware,
     PlannerContext,
     PlanOutputMiddleware,
@@ -31,6 +33,7 @@ class PlannerAgent:
         audit_sink: ModelAuditSink | None = None,
     ) -> None:
         resolved_model = model or build_chat_model(settings)
+        self._timeout_seconds = settings.planner_timeout_seconds
         self._agent = create_agent(
             model=resolved_model,
             tools=[],
@@ -51,19 +54,22 @@ class PlannerAgent:
         )
 
     async def plan(self, context: PlannerContext) -> PlanDraft:
-        result: dict[str, Any] = await self._agent.ainvoke(
-            {
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": context.user_request,
-                    }
-                ]
-            },
-            context=context,
-            config={"recursion_limit": 8},
-        )
-        raw = result.get("structured_response")
-        if isinstance(raw, PlanDraft):
-            return raw
-        return PlanDraft.model_validate(raw)
+        messages = [{"role": "user", "content": context.user_request}]
+        # One correction within the original time budget, never silent
+        # mode coercion or an unbounded model retry loop.
+        async with asyncio.timeout(self._timeout_seconds):
+            for attempt in range(2):
+                try:
+                    result: dict[str, Any] = await self._agent.ainvoke(
+                        {"messages": list(messages)},
+                        context=context,
+                        config={"recursion_limit": 8},
+                    )
+                    return PlanDraft.model_validate(
+                        result.get("structured_response")
+                    )
+                except PlanModeMismatchError as error:
+                    if attempt:
+                        raise
+                    messages.append({"role": "user", "content": str(error)})
+        raise RuntimeError("Planner did not return a plan")

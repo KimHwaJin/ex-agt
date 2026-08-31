@@ -80,8 +80,9 @@ def describe(task: dict[str, Any], kind: str) -> str:
             "HIGH 위험 승인에는 risk_acknowledged=true가 필요합니다."
         )
     elif kind == "WORKFLOW_SELECTION":
+        mode = payload.get("dynamic_execution_mode", "MULTI")
         content = (
-            "Approve: 후보를 선택하지 않고 동적 MULTI 계획 생성. "
+            f"Approve: 후보를 선택하지 않고 동적 {mode} 계획 생성. "
             "후보를 사용하려면 Edit에서 workflow_version_id와 "
             "input_values를 입력하세요. 선택하면 SINGLE 실행을 승인합니다."
         )

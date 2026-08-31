@@ -34,6 +34,9 @@ ex-agent-stream-maintenance = "ex_agent.stream_maintenance_main:run_cli"
 requires = ["uv_build>=0.11.29,<0.12"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = ["ex_agent", "agent", "worker"]
+
 [dependency-groups]
 chat-ui = [
     "langgraph-cli[inmem]>=0.4,<1",

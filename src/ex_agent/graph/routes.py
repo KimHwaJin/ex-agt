@@ -30,6 +30,8 @@ def route_intent(
         return "answer_data_question"
     if decision.intent is Intent.DATA_ANALYSIS_EXECUTION:
         return "review_request_risk"
+    if decision.requested_execution_mode is not None:
+        return "review_request_risk"
     return "choose_execution_mode"
 
 

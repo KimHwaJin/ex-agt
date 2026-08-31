@@ -20,6 +20,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
 COPY migrations ./migrations
+COPY worker_migrations ./worker_migrations
 COPY alembic.ini ./
 COPY skills ./skills
 RUN uv sync --frozen --no-dev --no-editable
@@ -40,5 +41,7 @@ COPY tests ./tests
 COPY examples ./examples
 COPY docker-compose.yml ./
 COPY langgraph.json ./
+COPY docs/worker-centered-refactor.md ./docs/worker-centered-refactor.md
+COPY deploy/worker ./deploy/worker
 RUN uv sync --frozen --no-editable
 USER agent

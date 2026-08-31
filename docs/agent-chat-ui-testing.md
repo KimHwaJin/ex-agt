@@ -122,12 +122,22 @@ Task ID는 UI 그래프의 `task_id`/`snapshot`과 기존 API에 보존한다.
 `EXECUTION_MODE` 카드에서 Approve는 SINGLE이다. MULTI를 선택하려면
 Edit에서 `mode`를 `MULTI`로 바꾸고 제출한다.
 
+입력에 "싱글모드로 샘플 데이터 생성, EDA, 플롯까지 실행해줘"처럼 모드를
+명시해도 된다. LLM 분류가 모드를 추출하고, 별도의 모드 카드 없이 계획 승인으로
+진행한다. 분석 요청도 해당 모드를 보존한다. 셀 개수만으로 모드를 정하지 않는다.
+
 ### 워크플로우
 
 `WORKFLOW_SELECTION` 카드의 설명에 후보의 ID, 스킬·함수, 입력 계약이 나온다.
 Edit에서 `workflow_version_id`와 `input_values`를 입력하면 해당 워크플로우를
-SINGLE로 실행하도록 승인한다. 후보를 선택하지 않고 Approve하면 MULTI
-동적 계획으로 넘어간다. 후보 ID와 payload hash는 서버 제안을 기준으로 검증한다.
+SINGLE로 실행하도록 승인한다. 후보를 선택하지 않고 Approve하면 입력에서
+명시한 모드의 동적 계획으로 넘어가며, 모드를 지정하지 않았으면 MULTI다.
+카드 설명에 실제 동적 모드를 표시한다.
+후보 ID와 payload hash는 서버 제안을 기준으로 검증한다.
+
+기존에 생성된 Task의 실행 모드를 소급 변경하지 않는다. 모드 보존 수정 후에는
+API/Worker 이미지를 갱신하고 새 Task로 검증한다. 이미 제출된 execution의
+모드를 바꾸거나 실행을 재제출하지 않는다.
 
 ### 실행계획
 

@@ -82,7 +82,9 @@ class PlanningNodes(WorkflowNodeGroup):
         return {
             "workflow_candidates": candidates,
             "workflow_proposal_version": 1,
-            "execution_mode": ExecutionMode.MULTI,
+            "execution_mode": ExecutionMode(
+                state.get("execution_mode", ExecutionMode.MULTI)
+            ),
             "planning_kind": PlanningKind.TOOL_PLAN,
         }
 
@@ -95,6 +97,9 @@ class PlanningNodes(WorkflowNodeGroup):
                 "kind": "WORKFLOW_SELECTION",
                 "task_id": state["active_task_id"],
                 "proposal_version": state["workflow_proposal_version"],
+                "dynamic_execution_mode": ExecutionMode(
+                    state.get("execution_mode", ExecutionMode.MULTI)
+                ).value,
                 "candidates": [
                     item.model_dump(mode="json")
                     for item in state["workflow_candidates"]
@@ -135,7 +140,9 @@ class PlanningNodes(WorkflowNodeGroup):
             "execution_mode": (
                 ExecutionMode.SINGLE
                 if signal.workflow_version_id
-                else ExecutionMode.MULTI
+                else ExecutionMode(
+                    state.get("execution_mode", ExecutionMode.MULTI)
+                )
             ),
             "planning_kind": (
                 PlanningKind.FIXED_WORKFLOW

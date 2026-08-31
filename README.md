@@ -4,6 +4,14 @@ LangGraph 상태 머신과 LangChain `create_agent()` middleware를 사용하는
 데이터 분석/코드 실행 Agent BFF다. 승인된 코드는 Executor REST API로 제출하고
 Executor Redis event에서 workflow를 재개한다.
 
+## 워커 중심 구조 전환 진행 중
+
+공통 워커는 [src/worker](src/worker)로 편입했고, 그래프 연결·시작 코드는
+src/agent로 이동했다. [현재 워커 안내](src/worker/README.md)와
+[전환 계획·검증 상태](docs/worker-centered-refactor.md)를 참고한다.
+현재는 1단계이며 기존 API/Worker/Agent Chat UI 실행 경로는 유지한다.
+새 agent.worker_main은 실제 Agent 연결 완료 전에는 배포하지 않는다.
+
 ## 개발 명령
 
 기존 API/Worker 컨테이너를 그대로 두고 **Agent Chat UI에서 테스트**하려면
@@ -41,6 +49,17 @@ Liveness/readiness 계약과 Prometheus 경보 기준은
 참조 구현은
 [Durable event to LangGraph](examples/durable_event_to_langgraph/README.md)를
 참고한다.
+기존 Agent 개발자에게 Worker를 전달할 때는
+[독립 Worker 모듈](src/worker/README.md)을 먼저 읽는다.
+`src/worker/`에 공통 소스와 문서가 함께 있다. 실행하려면 루트 의존성과
+`worker_migrations/`도 필요하며, Agent 연결 예제와 테스트·배포 자료의 위치는
+워커 README에서 안내한다. 별도 standalone_worker 폴더는 유지하지 않는다.
+이전 Task 기반 연결 예제 설명은
+[Worker 인수인계 가이드](docs/worker-handoff-guide.md)에 보존했다.
+이전 Task 기반 [연결 예제](examples/api_agent_worker/README.md)와
+[동일 Pod 배포 템플릿](deploy/handoff/README.md)도 참조용으로 보존한다.
+현재 서비스 실행 구조를 바꾼 것은 아니며, 기존 Worker 중심 구현은
+[현재 서비스 참조](docs/worker-reference-implementation.md)에 별도 정리했다.
 현재 모듈 경계와 허용 import 방향은
 [Project Structure](docs/project-structure.md)를 참고한다.
 공통 audit 필드, cursor pagination과 OpenAPI 규칙은

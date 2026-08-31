@@ -1,5 +1,6 @@
 from hashlib import sha256
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
@@ -14,6 +15,20 @@ from ex_agent.middleware.planning import (
 from ex_agent.tools.registry import ToolRegistry
 
 _SKILL_ROOT = Path(__file__).resolve().parents[1] / "skills"
+
+
+def runtime(mode: ExecutionMode = ExecutionMode.MULTI) -> Any:
+    return SimpleNamespace(
+        context=PlannerContext(
+            task_id="test",
+            user_request="분석 실행",
+            planning_kind=PlanningKind.TOOL_PLAN,
+            execution_mode=mode,
+            runtime_profile="basic",
+            request_risk_review_id="risk-test",
+            request_risk_allowed=True,
+        )
+    )
 
 
 def test_multi_prompt_requires_only_immediate_next_cell() -> None:
@@ -70,7 +85,7 @@ async def test_output_middleware_hydrates_registry_lineage() -> None:
     )
     state = {"structured_response": plan}
 
-    update = await middleware.aafter_agent(cast(Any, state), None)
+    update = await middleware.aafter_agent(cast(Any, state), runtime())
 
     assert update is not None
     normalized = update["structured_response"]
@@ -118,5 +133,5 @@ async def test_output_middleware_rejects_wrong_skill_name() -> None:
     with pytest.raises(ValueError, match="mismatched Skill"):
         await middleware.aafter_agent(
             cast(Any, {"structured_response": plan}),
-            None,
+            runtime(),
         )
