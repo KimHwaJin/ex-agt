@@ -61,8 +61,18 @@ class IntentDecision(ContractModel):
     requires_execution_mode: bool = Field(
         default=False,
         description=(
-            "True only for CODE_EXECUTION. A separate workflow node asks "
-            "the user to select the mode, not the classifier."
+            "True only for CODE_EXECUTION without an explicit requested "
+            "mode. A separate node collects that missing choice."
+        ),
+    )
+    requested_execution_mode: ExecutionMode | None = Field(
+        default=None,
+        description=(
+            "The user's explicit execution strategy, for either analysis "
+            "or code execution: SINGLE for a complete plan run unchanged; "
+            "MULTI for adaptive cell-by-cell planning. Null if unspecified "
+            "or merely discussing modes. Never infer it from task size, "
+            "the number of cells, or available workflows."
         ),
     )
 

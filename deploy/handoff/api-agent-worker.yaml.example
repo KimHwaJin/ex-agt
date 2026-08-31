@@ -1,0 +1,148 @@
+# Integration template, NOT a deployment of the current ex-agent service.
+# Replace the image/modules, Secret, Executor URL and PVC before using it.
+# The host must implement both entrypoints and the health endpoints below.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: handoff-agent-config
+data:
+  EXECUTOR_BASE_URL: http://executor-api:8000/api/v1
+  EXECUTOR_SOURCE_MODE: PATH
+  EXECUTOR_SHARED_STORAGE_ROOT: /workspace/shared
+  EXECUTOR_EVENT_STREAM: executor.events
+  EXECUTOR_EVENT_CONSUMER_GROUP: handoff-agent-executor-events
+  AGENT_COMMAND_STREAM: handoff-agent.commands
+  AGENT_COMMAND_CONSUMER_GROUP: handoff-agent-command-workers
+  AGENT_COMMAND_DEAD_LETTER_STREAM: handoff-agent.commands.dlq
+  EXECUTOR_EVENT_DEAD_LETTER_STREAM: executor.events.handoff-agent-dlq
+  WORKER_SHUTDOWN_GRACE_SECONDS: "25"
+  WORKER_METRICS_HOST: "0.0.0.0"
+  WORKER_METRICS_PORT: "8011"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: handoff-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: handoff-agent
+  template:
+    metadata:
+      labels:
+        app: handoff-agent
+    spec:
+      terminationGracePeriodSeconds: 40
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: api-agent
+          image: registry.example.com/your-agent:REPLACE_WITH_VERSION
+          # args replaces CMD and keeps the image's tini ENTRYPOINT.
+          args:
+            - uvicorn
+            - your_agent.api:app
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "8010"
+            - --timeout-graceful-shutdown
+            - "25"
+          envFrom:
+            - configMapRef:
+                name: handoff-agent-config
+            - secretRef:
+                name: handoff-agent-secrets
+          ports:
+            - name: http
+              containerPort: 8010
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: executor-shared
+              mountPath: /workspace/shared
+        - name: worker
+          image: registry.example.com/your-agent:REPLACE_WITH_VERSION
+          args: ["python", "-m", "your_agent.worker_main"]
+          envFrom:
+            - configMapRef:
+                name: handoff-agent-config
+            - secretRef:
+                name: handoff-agent-secrets
+          env:
+            - name: WORKER_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          ports:
+            - name: worker-health
+              containerPort: 8011
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: worker-health
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: worker-health
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: worker-health
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+          volumeMounts:
+            - name: executor-shared
+              mountPath: /workspace/shared
+      volumes:
+        - name: executor-shared
+          persistentVolumeClaim:
+            claimName: REPLACE-WITH-EXECUTOR-SHARED-PVC
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: handoff-agent-api
+spec:
+  selector:
+    app: handoff-agent
+  ports:
+    - name: http
+      port: 8010
+      targetPort: http
+  type: ClusterIP

@@ -73,4 +73,4 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 python-version = "3.12"
 
 [tool.ty.src]
-exclude = ["migrations/versions", "skills"]
+exclude = ["migrations/versions", "skills", "standalone_worker"]

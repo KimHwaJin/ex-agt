@@ -27,7 +27,8 @@ class EventRepository:
 
 
 @pytest.mark.asyncio
-async def test_workflow_search_degrades_to_dynamic_planning() -> None:
+@pytest.mark.parametrize("mode", [None, "SINGLE", "MULTI"])
+async def test_workflow_search_degrades_to_dynamic_planning(mode) -> None:
     task_id = UUID("6a35ab4f-ca25-4ce3-9cb5-7d51ff65646b")
     repository = EventRepository()
     services = object.__new__(DefaultWorkflowServices)
@@ -41,6 +42,7 @@ async def test_workflow_search_degrades_to_dynamic_planning() -> None:
             {
                 "active_task_id": str(task_id),
                 "user_message": "매출 추이를 분석해줘",
+                **({"execution_mode": mode} if mode else {}),
             },
         )
     )
@@ -52,7 +54,7 @@ async def test_workflow_search_degrades_to_dynamic_planning() -> None:
             "workflow.search_degraded",
             {
                 "reason": ("RuntimeError: embedding backend unavailable"),
-                "fallback": "DYNAMIC_MULTI_PLAN",
+                "fallback": f"DYNAMIC_{mode or 'MULTI'}_PLAN",
             },
         )
     ]

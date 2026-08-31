@@ -41,6 +41,16 @@ Liveness/readiness 계약과 Prometheus 경보 기준은
 참조 구현은
 [Durable event to LangGraph](examples/durable_event_to_langgraph/README.md)를
 참고한다.
+기존 Agent 개발자에게 Worker를 전달할 때는
+[독립 Worker 모듈](standalone_worker/README.md)을 먼저 읽는다.
+`standalone_worker/`만 전달할 수 있고 실제 Inbox/Outbox 저장소와 세션 기반
+연결 예제, 자체 uv/Docker/Compose 테스트를 포함한다.
+이전 Task 기반 연결 예제 설명은
+[Worker 인수인계 가이드](docs/worker-handoff-guide.md)에 보존했다.
+이전 Task 기반 [연결 예제](examples/api_agent_worker/README.md)와
+[동일 Pod 배포 템플릿](deploy/handoff/README.md)도 참조용으로 보존한다.
+현재 서비스 실행 구조를 바꾼 것은 아니며, 기존 Worker 중심 구현은
+[현재 서비스 참조](docs/worker-reference-implementation.md)에 별도 정리했다.
 현재 모듈 경계와 허용 import 방향은
 [Project Structure](docs/project-structure.md)를 참고한다.
 공통 audit 필드, cursor pagination과 OpenAPI 규칙은

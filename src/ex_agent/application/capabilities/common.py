@@ -7,6 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from ex_agent.application.state import AgentGraphState
+from ex_agent.domain.contracts import PlanDraft
 from ex_agent.domain.enums import ExecutionMode, ExecutorOutcome
 from ex_agent.executor.contracts import ExecutionResult, executor_step_payload
 
@@ -17,6 +18,17 @@ def task_id(state: AgentGraphState) -> UUID:
 
 def state_execution_mode(state: AgentGraphState) -> ExecutionMode:
     return ExecutionMode(state["execution_mode"])
+
+
+def validate_plan_execution_mode(
+    state: AgentGraphState, plan: PlanDraft
+) -> None:
+    expected = state_execution_mode(state)
+    if plan.execution_mode is not expected:
+        raise ValueError(
+            f"Plan execution mode {plan.execution_mode} does not match "
+            f"selected execution mode {expected}"
+        )
 
 
 def executor_source_path(path: Path, shared_root: Path) -> str:
@@ -92,4 +104,5 @@ __all__ = [
     "state_execution_mode",
     "task_id",
     "validate_model",
+    "validate_plan_execution_mode",
 ]

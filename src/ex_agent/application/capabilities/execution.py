@@ -12,6 +12,7 @@ from ex_agent.application.capabilities.common import (
     state_execution_mode,
     task_id,
     validate_model,
+    validate_plan_execution_mode,
 )
 from ex_agent.application.capabilities.planning import (
     compile_and_persist_plan,
@@ -60,6 +61,7 @@ class ExecutionCapability:
         self,
         state: AgentGraphState,
     ) -> SubmissionReceipt:
+        validate_plan_execution_mode(state, state["plan"])
         execution_mode = state_execution_mode(state)
         steps = list(
             await self._repository.approved_steps(
