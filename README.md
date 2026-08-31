@@ -6,8 +6,8 @@ Executor Redis event에서 workflow를 재개한다.
 
 ## 워커 중심 구조 전환 진행 중
 
-공통 워커는 [src/worker](src/worker/)로 편입했고, 그래프 연결·시작 코드는
-src/agent로 이동했다. [현재 워커 안내](docs/worker/README.md)와
+공통 워커는 [src/worker](src/worker)로 편입했고, 그래프 연결·시작 코드는
+src/agent로 이동했다. [현재 워커 안내](src/worker/README.md)와
 [전환 계획·검증 상태](docs/worker-centered-refactor.md)를 참고한다.
 현재는 1단계이며 기존 API/Worker/Agent Chat UI 실행 경로는 유지한다.
 새 agent.worker_main은 실제 Agent 연결 완료 전에는 배포하지 않는다.
@@ -50,9 +50,10 @@ Liveness/readiness 계약과 Prometheus 경보 기준은
 [Durable event to LangGraph](examples/durable_event_to_langgraph/README.md)를
 참고한다.
 기존 Agent 개발자에게 Worker를 전달할 때는
-[독립 Worker 모듈](standalone_worker/README.md)을 먼저 읽는다.
-`standalone_worker/`만 전달할 수 있고 실제 Inbox/Outbox 저장소와 세션 기반
-연결 예제, 자체 uv/Docker/Compose 테스트를 포함한다.
+[독립 Worker 모듈](src/worker/README.md)을 먼저 읽는다.
+`src/worker/`에 공통 소스와 문서가 함께 있다. 실행하려면 루트 의존성과
+`worker_migrations/`도 필요하며, Agent 연결 예제와 테스트·배포 자료의 위치는
+워커 README에서 안내한다. 별도 standalone_worker 폴더는 유지하지 않는다.
 이전 Task 기반 연결 예제 설명은
 [Worker 인수인계 가이드](docs/worker-handoff-guide.md)에 보존했다.
 이전 Task 기반 [연결 예제](examples/api_agent_worker/README.md)와

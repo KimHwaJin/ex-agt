@@ -1,4 +1,4 @@
-"""Agent integration points. See docs/worker/agent-integration.md.
+"""Agent integration points. See src/worker/docs/agent-integration.md.
 
 No demo graph is loaded implicitly. Implement create_graph before deploying.
 The reusable consumer/Inbox/Outbox modules do not need application edits.
@@ -36,7 +36,8 @@ async def create_graph(
     raise NotImplementedError(
         "Connect your Agent in "
         "agent.integrations.worker_hooks.create_graph(); "
-        "see docs/worker/agent-integration.md. No events have been consumed."
+        "see src/worker/docs/agent-integration.md. "
+        "No events have been consumed."
     )
 
 

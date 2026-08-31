@@ -1,7 +1,8 @@
 # 공통 Worker — 정식 소스
 
-공통 실행 기반은 [src/worker](../../src/worker/)다. 기존 standalone_worker의
+공통 실행 기반은 [src/worker](.)다. 기존 standalone_worker의
 소비·Inbox/Outbox 구현을 이동했으며 별도 소스 복사본은 유지하지 않는다.
+이 README가 문서 진입점이며 기능·연결·DB 초기화·과거 검증 문서는 docs/에 있다.
 
 현재 전체 통합의 **1단계**다. 기존 ex_agent API/Worker는 여전히 기존 경로로
 실행된다. 새 agent.worker_main의 실제 Agent 연결은 다음 단계에서 구현한다.
@@ -12,6 +13,7 @@
 | 위치 | 책임 |
 |---|---|
 | src/worker | Redis 소비, Inbox/Outbox, 순서·중복·재시도, guard, telemetry |
+| src/worker/docs | 기능 설명·Agent 연결·DB 초기화·과거 검증 이력 |
 | src/agent/integrations | Agent State에 종속된 LangGraph 어댑터와 핸들러 연결 |
 | src/agent/worker_main.py | 공통 Worker와 Agent 그래프 조립·시작·종료 |
 | tests/worker | 공통 워커 및 그래프 연결 회귀 테스트 |
@@ -63,7 +65,7 @@ uv run --no-sync --env-file .env python -m agent.worker_main
 ```
 
 아직 이 명령을 기존 ex-agent-worker의 배포 대체로 사용하지 않는다.
-[연결 가이드](agent-integration.md)와 [전환 계획](../worker-centered-refactor.md)의
+[연결 가이드](docs/agent-integration.md)와 [전환 계획](../../docs/worker-centered-refactor.md)의
 완료 조건을 확인한다. root Docker runtime의 기본 CMD도 아직 기존 API다.
 
 ## 전달과 복구 계약
@@ -94,8 +96,8 @@ Worker 종료는 Executor 실행 취소가 아니다.
 소비기의 DLQ 발행과 Store의 Command retry/skip·audit는 유지한다.
 관리 API 및 Stream 정리는 별도 후속 작업이다.
 
-- [기능별 설명](features.md)
-- [Agent 개발자 연결 지점](agent-integration.md)
-- [DB 초기화와 전환 주의사항](../../worker_migrations/README.md)
-- [통합 전환·검증 상태](../worker-centered-refactor.md)
-- [이동 이전 검증 이력](validation-history.md)
+- [기능별 설명](docs/features.md)
+- [Agent 개발자 연결 지점](docs/agent-integration.md)
+- [DB 초기화와 전환 주의사항](docs/migrations.md)
+- [통합 전환·검증 상태](../../docs/worker-centered-refactor.md)
+- [이동 이전 검증 이력](docs/validation-history.md)

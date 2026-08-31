@@ -2,7 +2,7 @@
 
 > 이동 이전의 역사 기록이다. 이 문서의 옛 경로·명령을 현재 실행 안내로
 > 사용하지 않는다. 현재 소스는 src/worker이고, 실행·검증은
-> [README](README.md), 현재 결과는 [전환 계획](../worker-centered-refactor.md)을 본다.
+> [README](../README.md), 현재 결과는 [전환 계획](../../../docs/worker-centered-refactor.md)을 본다.
 
 기존 기능을 독립 모듈에서 재검증하기 위한 목록이다. 원본 서비스 테스트의
 과거 통과 결과를 이 전달물의 통과 결과로 대신하지 않는다.

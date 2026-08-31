@@ -14,12 +14,12 @@
 | 호스트 그래프 | 실행 제출, 대기, 반영, 업무 분기 | 아래 State·receipt 계약 |
 | 호스트 API | 사용자 입력과 승인·취소 | 공통 guard와 요청 복구 계약 |
 
-실제 main은 [worker_main.py](../../src/agent/worker_main.py)이고 실행 명령은
+실제 main은 [worker_main.py](../../agent/worker_main.py)이고 실행 명령은
 저장소 루트에서 python -m agent.worker_main이다. examples는 자동 로드하지 않는다.
 
 ## 2. create_graph — API와 같은 그래프를 연결
 
-[worker_hooks.py](../../src/agent/integrations/worker_hooks.py)의
+[worker_hooks.py](../../agent/integrations/worker_hooks.py)의
 create_graph(checkpointer, bindings)에 있는 NotImplementedError를 실제 factory
 호출로 바꾼다. 아래 my_agent는 인수자의 실제 패키지명으로 교체해야 한다.
 
@@ -77,7 +77,7 @@ Dispatcher가 이미 guard를 잡으므로 핸들러에서 같은 guard를 다�
 
 ## 4. 그래프 State·interrupt 계약
 
-[어댑터](../../src/agent/integrations/langgraph_adapter.py)는 다음 필드를 사용한다.
+[어댑터](../../agent/integrations/langgraph_adapter.py)는 다음 필드를 사용한다.
 
 | 필드 | 내용 |
 |---|---|
@@ -103,7 +103,7 @@ action은 command_id/task_id/event이며, 어댑터는 대상 interrupt ID로 re
 중간 실패 복구는 이미 수락한 action으로 ainvoke(None)을 수행한다.
 새 Task에서 이전 계획·결과는 초기화하되 영수증·순번은 보존한다.
 
-[참조 그래프](../../examples/worker/session_graph.py)에 최소 구현이 있다.
+[참조 그래프](../../../examples/worker/session_graph.py)에 최소 구현이 있다.
 실제 분석·제출·리포트는 예제에 없으며 호스트에서 구현한다.
 execution.completed는 성공·실패·취소 모두 가능하므로 최종 결과를 조회하고 분기한다.
 이전 Task의 늦은 이벤트와 사용자 승인 interrupt 보호도 회귀 검증해야 한다.
@@ -136,11 +136,11 @@ await bindings.register(
 
 제출부터 binding·대기 checkpoint까지 같은 짧은 guard 안에서 진행한다.
 API가 중간에 종료되면 같은 제출 키로 실행을 복원하고 binding을 다시 등록해야 한다.
-[API 예제](../../examples/worker/api_integration.py)는 이미 존재하는 Execution을
+[API 예제](../../../examples/worker/api_integration.py)는 이미 존재하는 Execution을
 연결하는 참조일 뿐 실제 접수·제출 API가 아니다.
 
 장기 채팅 잠금, 사용자 요청 내구성, 취소 정책, 프론트 전달은 호스트 책임이다.
-구체적인 전환 요구사항은 [전체 계획](../worker-centered-refactor.md)에 정리했다.
+구체적인 전환 요구사항은 [전체 계획](../../../docs/worker-centered-refactor.md)에 정리했다.
 
 ## 6. 환경과 배포
 
@@ -152,6 +152,6 @@ EW_NAMESPACE는 DB 행·Redis group/key 범위이지 K8s namespace나 권한 경
 초기화는 worker_migrations/alembic.ini로 Alembic을 실행하고 checkpoint setup은
 호스트 배포 단계에서 별도 수행한다. Worker 시작에서 자동 DDL을 하지 않는다.
 
-[설치·실행 안내](README.md)와
-[배포 템플릿](../../deploy/worker/deployment.yaml.example)을 참고한다.
+[설치·실행 안내](../README.md)와
+[배포 템플릿](../../../deploy/worker/deployment.yaml.example)을 참고한다.
 현재 배포 템플릿은 실제 Agent 연결 후 적용할 자료이며 자동 전환되지 않는다.

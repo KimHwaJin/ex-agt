@@ -2,11 +2,13 @@
 
 ## 전달물
 
-- `alembic.ini`: 독립 설정, 실행 디렉터리가 아닌 ini 위치 기준 경로.
-- `env.py`: EW_DATABASE_URL로 PostgreSQL에 비동기 연결.
-- `versions/0001_worker_tables.py`: 런타임에 의존하지 않는 초기 스키마.
-- `script.py.mako`: 이후 수동 리비전 생성 템플릿.
-- `../deploy/worker/migrate-job.yaml.example`: Kubernetes 초기화 Job 예시.
+아래 경로는 이 문서 위치가 아닌 저장소 루트 기준이다.
+
+- `worker_migrations/alembic.ini`: ini 위치 기준으로 동작하는 독립 설정.
+- `worker_migrations/env.py`: EW_DATABASE_URL로 PostgreSQL에 비동기 연결.
+- `worker_migrations/versions/0001_worker_tables.py`: 독립 초기 스키마.
+- `worker_migrations/script.py.mako`: 이후 수동 리비전 생성 템플릿.
+- `deploy/worker/migrate-job.yaml.example`: Kubernetes 초기화 Job 예시.
 
 리비전 `ew_0001`은 `ew_bindings`, `ew_inbox`, `ew_commands`, `ew_outbox`,
 `ew_audit`를 생성한다. 기본값, PK/FK, UNIQUE/CHECK, 부분 인덱스까지 포함한다.
@@ -113,7 +115,7 @@ alembic -c worker_migrations/alembic.ini revision -m "worker schema change"
 테스트용 DB는 Alembic으로 생성한다. 신규/반복/동시 upgrade, 기존 서비스 버전
 테이블 보존, 실패 시 트랜잭션 rollback, 명시적 downgrade 보호를 검증한다.
 삭제된 SQL의 동등성 검증은 제거하고 기존 스키마의 명시적 채택 보호를 검증한다.
-현재 결과는 [전환 계획](../docs/worker-centered-refactor.md)에 있다.
+현재 결과는 [전환 계획](../../../docs/worker-centered-refactor.md)에 있다.
 
 비동기 연결과 트랜잭션 연결은
 [Alembic 공식 가이드](https://alembic.sqlalchemy.org/en/latest/cookbook.html#using-asyncio-with-alembic),

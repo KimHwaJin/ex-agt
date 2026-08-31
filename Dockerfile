@@ -41,5 +41,7 @@ COPY tests ./tests
 COPY examples ./examples
 COPY docker-compose.yml ./
 COPY langgraph.json ./
+COPY docs/worker-centered-refactor.md ./docs/worker-centered-refactor.md
+COPY deploy/worker ./deploy/worker
 RUN uv sync --frozen --no-editable
 USER agent

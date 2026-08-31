@@ -50,7 +50,7 @@ async def main() -> None:
                 raise ValueError(
                     "worker_hooks.create_graph() must return a compiled "
                     "graph with a checkpointer; "
-                    "see docs/worker/agent-integration.md"
+                    "see src/worker/docs/agent-integration.md"
                 )
             adapter = SessionGraphAdapter(graph)
             loop = asyncio.get_running_loop()

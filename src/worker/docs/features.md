@@ -8,11 +8,11 @@
 
 정식 소스 편입과 삭제된 운영 도구의 잔여 참조 정리를 완료했다.
 실제 Agent 연결은 다음 단계이며, 현재 단계와 검증 범위는
-[전환 계획](../worker-centered-refactor.md)을 확인한다.
+[전환 계획](../../../docs/worker-centered-refactor.md)을 확인한다.
 
 ## 1. Redis 메시지 소비
 
-담당: [consumer.py](../../src/worker/consumer.py)
+담당: [consumer.py](../consumer.py)
 
 | 기능 이름 | 기능 설명 |
 |---|---|
@@ -42,9 +42,9 @@
 
 ## 2. 이벤트 접수·실행 연결·순서 관리
 
-담당: [contracts.py](../../src/worker/contracts.py),
-[ingress.py](../../src/worker/ingress.py),
-[store.py](../../src/worker/store.py)
+담당: [contracts.py](../contracts.py),
+[ingress.py](../ingress.py),
+[store.py](../store.py)
 
 | 기능 이름 | 기능 설명 |
 |---|---|
@@ -74,8 +74,8 @@ namespace, session_id, task_id, execution_id, command_id를 결합한 핸들러 
 
 ## 3. Outbox 기반 내부 메시지 발행
 
-담당: [outbox.py](../../src/worker/outbox.py),
-[store.py](../../src/worker/store.py)
+담당: [outbox.py](../outbox.py),
+[store.py](../store.py)
 
 | 기능 이름 | 기능 설명 |
 |---|---|
@@ -97,9 +97,9 @@ DB를 조회해 원본 이벤트와 실행 연결을 복원한다.
 
 ## 4. 핸들러 실행·중복 처리·세션 보호
 
-담당: [dispatcher.py](../../src/worker/dispatcher.py),
-[guard.py](../../src/worker/guard.py),
-[store.py](../../src/worker/store.py)
+담당: [dispatcher.py](../dispatcher.py),
+[guard.py](../guard.py),
+[store.py](../store.py)
 
 | 기능 이름 | 기능 설명 |
 |---|---|
@@ -126,7 +126,7 @@ API도 동일 SessionGuard를 사용해야 API·워커 간 동시 실행을 보�
 
 ## 5. LangGraph 연결: 선택적 참조 구현
 
-담당: [langgraph_adapter.py](../../src/agent/integrations/langgraph_adapter.py)
+담당: [langgraph_adapter.py](../../agent/integrations/langgraph_adapter.py)
 
 | 기능 이름 | 기능 설명 |
 |---|---|
@@ -159,9 +159,9 @@ EventContext와 State가 같은 구조일 필요는 없다. 개발자의 State �
 
 ## 6. 실행 환경·설정·모니터링
 
-담당: [runtime.py](../../src/worker/runtime.py),
-[config.py](../../src/worker/config.py),
-[telemetry.py](../../src/worker/telemetry.py)
+담당: [runtime.py](../runtime.py),
+[config.py](../config.py),
+[telemetry.py](../telemetry.py)
 
 | 기능 이름 | 기능 설명 |
 |---|---|
@@ -188,8 +188,8 @@ namespace는 같은 서비스를 처리하는 API·워커가 공유한다. 사�
 
 ## 7. DB 초기화·감사 기록·내부 운영 함수
 
-담당: [Alembic 가이드](../../worker_migrations/README.md),
-[store.py](../../src/worker/store.py)
+담당: [Alembic 가이드](migrations.md),
+[store.py](../store.py)
 
 | 기능 이름 | 기능 설명 |
 |---|---|
@@ -239,7 +239,7 @@ CLI, DLQ replay/discard, Stream trim 도구는 사용자가 삭제한 상태를 
 소비기의 DLQ 발행·ACK·재시도 검증과 Store의 수동 복구 함수는 유지한다.
 기존 스키마의 무조건 채택 금지·검증 후 stamp 경로는 Alembic 테스트로 확인한다.
 삭제 전·이동 전 기록은 [과거 검증 이력](validation-history.md)이고, 현재 결과는
-[전환 계획](../worker-centered-refactor.md)에 기록한다.
+[전환 계획](../../../docs/worker-centered-refactor.md)에 기록한다.
 
 ## 10. 호스트 에이전트가 별도로 구현할 범위
 
@@ -259,6 +259,6 @@ CLI, DLQ replay/discard, Stream trim 도구는 사용자가 삭제한 상태를 
 다음으로 읽을 문서:
 
 - [정식 시작·개발자 작성 가이드](agent-integration.md)
-- [인수인계 README](README.md)
-- [DB 초기화·마이그레이션](../../worker_migrations/README.md)
+- [인수인계 README](../README.md)
+- [DB 초기화·마이그레이션](migrations.md)
 - [기존 검증 기록과 테스트 매핑](validation-history.md)

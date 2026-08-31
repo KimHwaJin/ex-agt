@@ -1,6 +1,6 @@
 # Worker 인수인계: API+Agent / Background Worker
 
-> 최신 전달물은 [독립 Worker 모듈](../standalone_worker/README.md)이다.
+> 최신 전달물은 [독립 Worker 모듈](../src/worker/README.md)이다.
 > 실제 독립 DB 구현과 `session_id = thread_id` 예제를 포함한다.
 > 아래 문서는 이전 Task 기반 연결 예제의 참조 기록이며, 새 모듈의 설치
 > 절차나 현재 스레드 ID 정책으로 사용하지 않는다.

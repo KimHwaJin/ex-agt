@@ -124,8 +124,20 @@ docker compose -p ex-agent-refactor-regression --profile test \
   stop test-postgres test-redis
 ```
 
-Worker만 검증하는 격리 Compose 명령은 [워커 안내](worker/README.md)에 있다.
+Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/README.md)에 있다.
 실제 Executor·LLM·K8s 배포 검증은 아직 수행하지 않았다.
+
+### 1단계 후속 — 워커 문서 통합
+
+- 워커 안내는 `src/worker/README.md`, 상세 문서는 `src/worker/docs/`로 모았다.
+  마이그레이션 안내도 함께 이동했지만 실행 파일은 `worker_migrations/`에 유지한다.
+- 남은 `standalone_worker` 안내 파일을 제거했다. 구 가상환경·캐시는 저장소 밖의
+  임시 백업으로 이동했다. 워커 동작과 DB 스키마는 변경하지 않았다.
+- 문서의 패키지 포함 여부와 로컬 링크를 검사하는 회귀 테스트를 추가했다.
+  테스트 이미지에도 링크 검증에 필요한 배포 예시와 전환 계획을 포함한다.
+- 전체 로컬 320 passed, 87 skipped. 워커 격리 Compose 94 passed, skip 없음.
+  Ruff lint/format, ty 전체 통과. 실제 Executor·LLM·K8s 검증은 포함하지 않는다.
+- 이 정리는 문서·경로 통합이다. 아래 2단계 Agent 연결은 아직 완료되지 않았다.
 
 ### 다음 단계
 

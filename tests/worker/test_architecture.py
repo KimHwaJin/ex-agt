@@ -1,5 +1,6 @@
 import ast
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -72,8 +73,22 @@ def test_legacy_schema_bootstrap_is_not_public():
 
 def test_worker_is_single_source_and_schema_revision_is_preserved():
     root = Path(__file__).resolve().parents[2]
-    # Preserve ignored local caches; forbid a second Python source copy.
-    assert not list((root / "standalone_worker/src").rglob("*.py"))
+    assert not (root / "standalone_worker").exists()
     assert not (root / "src/worker/langgraph_adapter.py").exists()
     revision = root / "worker_migrations/versions/0001_worker_tables.py"
     assert 'revision = "ew_0001"' in revision.read_text()
+
+
+def test_worker_documentation_ships_with_module_and_links_resolve():
+    root = Path(__file__).resolve().parents[2]
+    module = root / "src/worker"
+    installed = Path(worker.__file__).parent
+    paths = [module / "README.md", *sorted((module / "docs").glob("*.md"))]
+    assert len(paths) == 5
+    for path in paths:
+        assert (installed / path.relative_to(module)).is_file()
+        for target in re.findall(r"\]\(([^()\s]+)\)", path.read_text()):
+            if target.startswith(("https://", "http://", "#", "mailto:")):
+                continue
+            target_path = target.split("#", 1)[0]
+            assert (path.parent / target_path).exists(), (path, target)
