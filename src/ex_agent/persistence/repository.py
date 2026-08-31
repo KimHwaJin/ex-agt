@@ -11,6 +11,7 @@ from ex_agent.domain.contracts import (
     CompiledStep,
     PersistedPlan,
     PlanDraft,
+    PlanStepDraft,
     WorkflowCandidate,
     WorkflowLifecycleActionView,
     WorkflowLifecycleResult,
@@ -429,7 +430,7 @@ class AgentRepository:
             plan_revision_id=plan_revision_id,
             registry_snapshot_hash=registry_snapshot_hash,
             start_sequence=start_sequence,
-            steps=steps,
+            steps=[PlanStepDraft.model_validate(step) for step in steps],
         )
 
     async def workflow_promotion_source(

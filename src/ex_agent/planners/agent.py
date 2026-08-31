@@ -36,12 +36,13 @@ class PlannerAgent:
             tools=[],
             middleware=[
                 RiskPrerequisiteMiddleware(),
+                # Audit and bound Skill selection as well as plan generation.
+                ModelAuditMiddleware(audit_sink or NullModelAuditSink()),
+                PlannerBudgetMiddleware(settings.planner_timeout_seconds),
                 SkillContextMiddleware(
                     registry,
                     context_max_chars=(settings.planner_context_max_chars),
                 ),
-                ModelAuditMiddleware(audit_sink or NullModelAuditSink()),
-                PlannerBudgetMiddleware(settings.planner_timeout_seconds),
                 PlanOutputMiddleware(registry),
             ],
             response_format=PlanDraft,
