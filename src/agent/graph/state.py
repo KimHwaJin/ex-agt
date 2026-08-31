@@ -48,3 +48,4 @@ class SessionState(SessionInput, total=False):
     ew_sequences: dict[str, int]
     api_receipts: dict[str, dict[str, str]]
     invocation_owner: dict[str, str]
+    failure_receipts: dict[str, str]

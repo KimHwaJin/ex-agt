@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
+from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -44,6 +45,27 @@ class EffectStore:
         async with self.sessions() as session:
             row = await session.get(ExecutorEffect, key)
             return _record(row) if row is not None else None
+
+    async def execution_references(
+        self, task_id: UUID
+    ) -> tuple[set[UUID], int]:
+        """Read identity fields only, not every code/report body in a Task."""
+        async with self.sessions() as session:
+            rows = await session.execute(
+                select(
+                    ExecutorEffect.kind,
+                    ExecutorEffect.request["execution_id"].astext,
+                    ExecutorEffect.response["execution_id"].astext,
+                ).where(ExecutorEffect.task_id == task_id)
+            )
+            ids: set[UUID] = set()
+            submits = 0
+            for kind, request_id, response_id in rows:
+                submits += kind == "submit"
+                ids.update(
+                    UUID(value) for value in (request_id, response_id) if value
+                )
+            return ids, submits
 
     async def prepare(
         self,

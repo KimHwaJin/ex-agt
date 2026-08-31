@@ -87,7 +87,8 @@ API와 Worker는 같은 session checkpoint DB와 SessionGuard를 사용한다.
 - 이 모듈 자체는 스케줄러가 아니다. API 장애 시 최초 제출을 재개하는 접수 기록과
   복구 루프는 2C의 [admission 모듈](../admission/README.md)에 있으며 호스트 연결은 남아 있다.
 - HTTP 실패/409 등을 새 계획이나 새 키로 자동 변환하지 않는다. 확정 실패 시
-  Executor 취소 확인·사용자 안내·장기 세션 잠금 정리는 후속 보상 처리다.
+  Executor 취소 확인·사용자 안내·장기 세션 잠금 정리는
+  [실패 보상 모듈](../failure/README.md)이 담당한다.
 - cancel HTTP 접수는 취소 완료가 아니다. 기존 그래프가 종료 이벤트/결과를
   확인한 뒤 사용자에게 취소 완료를 알리는 흐름을 유지한다.
 - 보고서는 성공 Execution에 대해서만 생성한다. 실패/취소 보고서를 만들지 않는다.

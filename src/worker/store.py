@@ -276,6 +276,31 @@ class Store:
                 )
                 return await cur.fetchone()
 
+    async def failed_page(
+        self,
+        *,
+        after: tuple[UUID, int] | None = None,
+        limit: int = 32,
+    ) -> list[dict[str, Any]]:
+        """Read-only keyset page for host-owned failure recovery policies."""
+        if not 1 <= limit <= 100:
+            raise ValueError("Failed command page size must be 1..100")
+        condition = "AND (execution_id,sequence)>(%s,%s)" if after else ""
+        params = (self.namespace, *(after or ()), limit)
+        async with self.pool.connection() as conn:
+            async with conn.cursor(row_factory=dict_row) as cur:
+                # Matches the existing ew_commands_order partial index; no
+                # scan of DONE/IGNORED history and no new Worker migration.
+                await cur.execute(
+                    f"""SELECT command_id,execution_id,sequence
+                    FROM ew_commands
+                    WHERE namespace=%s AND state NOT IN ('DONE','IGNORED')
+                    AND state='FAILED' {condition}
+                    ORDER BY execution_id,sequence LIMIT %s""",
+                    params,
+                )
+                return await cur.fetchall()
+
     def context(self, row: dict[str, Any]) -> EventContext:
         return EventContext(
             namespace=self.namespace,

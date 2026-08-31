@@ -13,6 +13,7 @@
 | `graph/nodes.py` | 작업 초기화, 업무 노드 연결, 실행 binding 등록 |
 | `session.py` | 시작·사용자 승인 검증과 저수준 guard 호출 |
 | `admission/` | API 요청 영속 접수·직접 invoke·중단 복구 루프 |
+| `failure/` | API/Worker 최종 실패의 실행 종료 확인·checkpoint·잠금 보상 |
 | `services.py` | 요청 복구를 적용한 세션 그래프 업무 서비스 |
 | `effects/` | Executor 요청·응답 기록과 멱등 DB 반영 |
 | `integrations/langgraph_adapter.py` | Worker 이벤트를 실행 대기 지점에 전달 |
@@ -32,7 +33,8 @@
   과거 Task 재시작을 거부한다. 현재 Task의 같은 시작 요청은 상태 조회로 처리한다.
 - `ew_pending`, `ew_receipts`, `ew_sequences`: 워커 수락 정보, 처리 영수증,
   Execution별 순번. 다음 Task에서도 영수증과 순번을 보존한다.
-- `api_receipts`, `invocation_owner`: API 입력 수락 증거와 미완료 호출의 소유자.
+- `api_receipts`, `failure_receipts`, `invocation_owner`: API 입력·실패 종료 증거와
+  미완료 호출의 소유자.
   이전 승인 복구가 다음 승인이나 Worker 후속 실행을 건드리지 않게 한다.
 - 최상위 `active_task_id`, `execution_id`: 어댑터가 현재 실행을 식별하는 필드.
   실제 업무 상세는 `workflow`에 둔다.
@@ -109,18 +111,20 @@ START의 Task와 접수 기록을 함께 저장하므로 기존 create_task를 �
    finalize/cancel/report의 고정 요청과 멱등 결과 반영은 구현했다.
    Agent DB에 `0007_executor_effects`를 적용해야 한다. 요청 복구 계약은
    [효과 모듈 안내](effects/README.md)를 참고한다.
-2. 구현한 `admission/`을 API와 호스트 lifecycle에 연결하고 Agent DB에
-   `0008_api_requests`를 적용한다. 접수·수락 영수증·재개 루프는 2C에 포함한다.
-   재시도 한도 초과는 현재 BLOCKED로 유지한다. 최종 실패 보상 연결은 남아 있다.
-3. 운영 `worker_hooks.create_graph` 자원 연결과 최종 실패 알림/실행 취소 보상을
-   새 업무 서비스에 맞춘다. handler가 최종 실패했을 때의 업무 정리도 필요하다.
+2. 구현한 `admission/`과 `failure/`을 API/Worker 호스트 lifecycle에 연결하고
+   Agent DB에 `0008_api_requests`, `0009_failure_cleanups`를 적용한다. 보상 구현은
+   완료했지만 운영 factory와 `BLOCKED` 수동 검토 API는 아직 없다.
+3. 운영 `worker_hooks.create_graph` 자원을 연결하고 Agent 이벤트 handler에
+   `FailureService.protect()`를 적용한다. 상세 계약은
+   [실패 보상 안내](failure/README.md)를 참고한다.
 4. 장기 세션 채팅 금지는 업무 DB에서, 짧은 호출 상호배제는 SessionGuard에서
    담당한다. API·Worker 양쪽에서 이 정책을 유지하고 성공 리포트 저장까지 잠근다.
 5. FastAPI/Agent Chat UI·배포 진입점을 전환하고 실제 Executor·모델을 검증한 뒤
    구 Worker와 임시 import를 제거한다. 그 전에 새 그래프의 비최종 상태와
    current_interrupt를 화면용 Task DB에 반영하는 호스트 연결도 필요하다.
 
-2A는 대체 업무 서비스를, 2B/2C는 실제 외부 요청·업무 DB·접수 복구 구현을 검증한다.
+2A는 대체 업무 서비스를, 2B/2C/2D는 실제 외부 요청·업무 DB·접수·실패 복구를
+검증한다.
 LangGraph·PostgreSQL·Redis는 실제 구현이며 모델·Executor HTTP는 대역이다.
 실제 LLM 생성 코드나 Executor/Jupyter 실행의 종단 검증으로 해석하지 않는다.
 

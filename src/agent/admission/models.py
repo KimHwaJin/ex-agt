@@ -19,6 +19,11 @@ class ApiRequestRow(AdmissionBase, TimestampMixin):
     __mapper_args__ = {"eager_defaults": True}  # noqa: RUF012
     __table_args__ = (
         Index(
+            "ix_agent_api_blocked",
+            "request_id",
+            postgresql_where=text("state = 'BLOCKED'"),
+        ),
+        Index(
             "uq_agent_api_active_session",
             "session_id",
             unique=True,

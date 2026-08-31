@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from typing import Any, cast, get_args, get_type_hints
 
-from langgraph.graph import START, StateGraph
+from langgraph.graph import END, START, StateGraph
 
 from agent.admission.graph import with_api_receipt
+from agent.failure.graph import failure_settled
 from agent.graph.nodes import (
     ExecutionBindings,
     WorkerBoundaryNodes,
@@ -47,6 +48,8 @@ def build_session_graph(
         graph.add_node(name, with_api_receipt(name, node))
     graph.add_node("register_execution", boundary.register_execution)
     graph.add_node("record_event_receipt", boundary.record_event_receipt)
+    graph.add_node("failure_settled", failure_settled)
+    graph.add_edge("failure_settled", END)
     graph.add_edge(START, "begin_task")
     graph.add_edge("begin_task", "hydrate_turn")
     for source, target in EDGES:

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent.admission.contracts import ApiRequest, RequestRecord
 from agent.admission.models import ApiRequestRow
+from agent.failure.models import FailureCleanup
 from agent.session import SessionConflictError
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.persistence.database import transaction
@@ -25,6 +26,31 @@ class RequestStore:
         async with self.sessions() as session:
             row = await session.get(ApiRequestRow, request_id)
             return _record(row) if row else None
+
+    async def blocked_page(
+        self, *, after: UUID | None = None, limit: int = 32
+    ) -> list[UUID]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Invalid blocked request page size")
+        query = select(ApiRequestRow.request_id).where(
+            ApiRequestRow.state == "BLOCKED"
+        )
+        if after is not None:
+            query = query.where(ApiRequestRow.request_id > after)
+        async with self.sessions() as session:
+            return list(
+                await session.scalars(
+                    query.order_by(ApiRequestRow.request_id).limit(limit)
+                )
+            )
+
+    async def resolve_applied(self, record: RequestRecord) -> None:
+        """Caller proves completed checkpoint while holding session guard."""
+        async with transaction(self.sessions) as session:
+            row = await _required(session, record.command.request_id)
+            if row.state != "BLOCKED" or row.attempts != record.attempts:
+                raise SessionConflictError("Blocked request was superseded")
+            row.state, row.updated_by = "APPLIED", "AGENT"
 
     async def accept(
         self,
@@ -85,6 +111,11 @@ class RequestStore:
         async with transaction(self.sessions) as session:
             row = await _required(session, request_id)
             if row.state not in ("PENDING", "RUNNING"):
+                return _record(row)
+            if await session.get(FailureCleanup, row.task_id) is not None:
+                row.state = "BLOCKED"
+                row.last_error = "Task failure cleanup owns this invocation"
+                await session.flush()
                 return _record(row)
             if row.attempts >= max_attempts:
                 row.state = "BLOCKED"
@@ -160,6 +191,8 @@ class RequestStore:
 async def _admit_task(session: AsyncSession, command: ApiRequest) -> None:
     turn = command.turn
     task_id = UUID(turn.active_task_id)
+    if await session.get(FailureCleanup, task_id) is not None:
+        raise SessionConflictError("Task failure cleanup forbids new input")
     task = await session.get(Task, task_id, with_for_update=True)
     if command.kind != "START":
         if (

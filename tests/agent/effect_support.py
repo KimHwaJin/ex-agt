@@ -35,9 +35,34 @@ class ExecutorHTTP:
         self.receipts: dict[str, tuple[dict, dict]] = {}
         self.lose_responses = 0
         self.after_post = None
+        self.lookup_items = None
+        self.reads = []
+        self.cancel_pending = False
 
     def handle(self, request):
         if request.method == "GET":
+            self.reads.append(request.url.path)
+            if request.url.path.endswith("/executions"):
+                items = self.lookup_items
+                if items is None:
+                    items = (
+                        [
+                            {
+                                "execution_id": str(self.execution_id),
+                                "context": self.calls[0][1]["context"],
+                            }
+                        ]
+                        if self.operations
+                        else []
+                    )
+                return httpx.Response(
+                    200,
+                    json={
+                        "items": items,
+                        "has_more": False,
+                        "next_cursor": None,
+                    },
+                )
             return httpx.Response(200, json=self.result())
         body = json.loads(request.content)
         self.calls.append((request.url.path, body))
@@ -83,7 +108,9 @@ class ExecutorHTTP:
             elif path.endswith("/finalize"):
                 self.status = "SUCCEEDED"
             elif path.endswith("/cancel"):
-                self.status = "CANCELLED"
+                self.status = (
+                    "CANCEL_REQUESTED" if self.cancel_pending else "CANCELLED"
+                )
             response = (
                 {"artifact_id": str(uuid4())}
                 if path.endswith("/artifacts")
