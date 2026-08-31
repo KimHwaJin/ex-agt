@@ -45,7 +45,7 @@ class AdmissionService:
     async def handle(self, command: ApiRequest) -> RequestRecord:
         """Normal router path: persist admission, then directly invoke."""
         record = await self.accept(command)
-        if record.state in ("APPLIED", "REJECTED", "BLOCKED"):
+        if record.state in ("APPLIED", "REJECTED", "BLOCKED", "COMPENSATED"):
             return record
         return await self.execute(command.request_id)
 

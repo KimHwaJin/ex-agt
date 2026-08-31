@@ -254,16 +254,44 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
 - 모델·Executor HTTP는 결정적 대역이며 실제 Jupyter 실행/K8s 종료 검증은 아니다.
   운영 DB/서비스와 미추적 복사본은 건드리지 않고 Git 스냅샷에서 테스트했다.
 
-### 다음 단계 — 실패 보상과 운영 호스트 전환
+### 2D — 실패 보상과 안전한 잠금 해제
 
-1. API BLOCKED/Worker 최종 처리 실패 시 Executor 조회·취소/종료 확인·사용자
-   안내·장기 세션 잠금 정리의 업무 보상을 연결한다. 불확실한 실행을 남긴 채
-   성공/실패 완료로 처리하거나 새 멱등 키로 우회하지 않는다.
-2. 비최종 Task 상태·current_interrupt의 DB 반영을 새 호스트에 붙인다.
+- 2C는 main `4064dc2`로 머지·푸시했다. 후속 브랜치는
+  `codex/durable-failure-compensation`이다.
+- API BLOCKED와 Worker 최종 FAILED를 `agent_failure_cleanups`에 보존한다.
+  세션 guard 경합은 시도 횟수를 소모하지 않으며 keyset cursor와 제한된 동시성으로
+  복구한다. 일반 Worker에는 읽기 전용 `failed_page()`만 추가했다.
+- Executor 제출 응답이 유실되면 효과 journal과 Task 조건 조회로 Execution ID를
+  복구한다. 빈 결과를 실행 부재로 간주하지 않으며 충돌은 BLOCKED로 보존한다.
+- 복구한 Execution ID는 취소 전에 실패 기록·Task·SessionLock에 고정한다.
+  취소 접수만으로 잠금을 해제하지 않고 터미널 상태를 확인한 뒤 정리한다.
+- 실패했던 LangGraph 업무 노드는 다시 실행하지 않는다. pending checkpoint를
+  END로 닫고 실패 영수증을 남긴 뒤 Task 실패·사용자 안내·API COMPENSATED·잠금
+  해제를 한 DB 트랜잭션으로 완료한다. 성공/취소가 이미 완료됐다면 보존한다.
+- 자세한 처리·연결 계약은
+  [실패 보상 안내](../src/agent/failure/README.md)에 기록했다.
+
+#### 2D 검증 기록
+
+- uv `--no-editable` 파일 기반 설치, 전체 Ruff lint/format·ty 통과.
+- 전체 로컬: **360 passed, 134 skipped**. DB/Redis와 opt-in 실서비스 항목 제외.
+- 전체 격리 Compose: **465 passed, 29 skipped**. 실제 모델/API 항목 제외.
+- 실제 PostgreSQL/Redis/checkpointer에서 제출 응답 유실 후 실행 조회, 취소 접수 후
+  장기 잠금, 터미널 확인, checkpoint/DB 중간 장애와 다음 Task 해제를 검증했다.
+- Worker handler 최종 실패·guard 경합·FAILED cursor·이벤트 재전달에서 보상과
+  원본 command 감사 종료가 중복되지 않음을 검증했다.
+- 모델과 Executor HTTP는 결정적 대역이다. 실제 Executor/Jupyter/K8s 강제 종료
+  종단 검증은 아직 수행하지 않았다.
+
+### 다음 단계 — 운영 호스트 전환
+
+1. 비최종 Task 상태·current_interrupt의 DB 반영을 새 호스트에 붙인다.
    현재 이 부분은 구 runner에 남아 있으므로 새 그래프 모듈만으로 기존 Task 조회
    API의 진행/취소/승인 대기 표시가 자동 완성되는 것은 아니다.
-3. API와 Worker의 공통 factory·자원 lifecycle·RequestRecovery 실행·readiness를
-   연결한다. API+Agent / Worker 두 프로세스를 유지할 수 있다.
+2. API와 Worker의 공통 factory·자원 lifecycle·RequestRecovery·FailureRecovery·
+   readiness를 연결한다. API+Agent / Worker 두 프로세스를 유지할 수 있다.
+3. 인증된 BLOCKED 조회·재시도/수동 종료 API를 설계한다. 실행 증거 없이 잠금을
+   강제로 지우는 기능은 제공하지 않는다.
 4. FastAPI/Chat UI·Docker/Compose/K8s 진입점을 전환하고 실제 Executor·모델을
    검증한 뒤 구 Worker/임시 import를 제거한다. 활성 작업 전환 정책을 먼저 정한다.
 

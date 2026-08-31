@@ -6,7 +6,8 @@ API가 종료돼도 `RequestRecovery`가 같은 세션 guard와 checkpoint를 �
 `src/worker`의 Inbox/Outbox/Dispatcher가 담당한다.
 
 현재는 연결 가능한 내부 서비스다. 운영 FastAPI 라우터·factory·Chat UI의 실행
-경로를 바꾸지는 않았다. 최종 실패 보상과 화면 복원까지 연결한 후 전환한다.
+경로를 바꾸지는 않았다. 최종 실패 보상은 `failure/`에 구현했으며 두 복구 루프와
+화면 복원을 공통 호스트에 연결한 후 전환한다.
 
 ## 파일별 책임
 
@@ -117,6 +118,7 @@ API는 `handle()`로 직접 호출할 수도, `accept()`를 await해 DB 접수�
 | APPLIED | API 입력 처리 후 다음 승인·Executor 대기·종료 지점에 도달 |
 | REJECTED | 접수 후 원래 interrupt/세션이 바뀌어 입력 적용을 거부 |
 | BLOCKED | 복구 근거 불일치 또는 재시도 한도 도달; 추가 자동 처리 금지 |
+| COMPENSATED | 실패 보상이 Executor 종료·Task 안내·잠금 해제를 완료 |
 
 **APPLIED는 분석 작업 성공이나 취소 완료가 아니다.** 작업 결과와 execution_id는
 Task/그래프의 현재 상태를 별도로 조회한다. 취소는 Executor 종료 확인 전까지 장기
@@ -145,8 +147,9 @@ Agent DB의 `0008_api_requests`가 필요하다. 루트 Alembic의 `upgrade head
 Worker만 이식하는 개발자는 이 테이블이 필요 없으며 `ew_0001`도 변경하지 않는다.
 운영 DB 적용은 배포 Job/전환 절차에서 수행한다. 이번 테스트는 격리 DB에만 적용했다.
 
-남은 필수 작업은 BLOCKED 최종 실패 보상(실행 조회·취소 확인·사용자 안내·잠금 정리),
-공통 factory/lifespan 연결, FastAPI/Chat UI 상태 복원, 운영 설정과 readiness다.
+BLOCKED 최종 실패 보상은 [실패 보상 모듈](../failure/README.md)에 구현했다.
+남은 필수 작업은 공통 factory/lifespan 연결, 운영자 수동 검토 API,
+FastAPI/Chat UI 상태 복원, 운영 설정과 readiness다.
 특히 비최종 Task 상태·current_interrupt의 DB 반영은 기존 runner에 남아 있다.
 새 호스트에서 그래프 대기/취소 상태를 화면용 Task 상태에 반영하는 연결이 필요하며,
 현재 모듈만으로 기존 Task 조회 API가 모든 새 진행 상태를 보여주는 것은 아니다.

@@ -53,7 +53,9 @@ class RequestRecord(BaseModel):
     fingerprint: str
     target_node: str
     base_checkpoint_id: str | None
-    state: Literal["PENDING", "RUNNING", "APPLIED", "REJECTED", "BLOCKED"]
+    state: Literal[
+        "PENDING", "RUNNING", "APPLIED", "REJECTED", "BLOCKED", "COMPENSATED"
+    ]
     attempts: int
     next_attempt_at: datetime
     last_error: str | None

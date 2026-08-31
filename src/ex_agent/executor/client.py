@@ -127,6 +127,40 @@ class ExecutorClient:
         )
         return ExecutionResult.model_validate(response.json())
 
+    async def find_task_execution(
+        self,
+        *,
+        user_id: str,
+        project_id: str,
+        session_id: str,
+        task_id: str,
+    ) -> UUID | None:
+        """Read-only recovery lookup. Ambiguity never chooses an execution."""
+        identity = dict(
+            user_id=user_id,
+            project_id=project_id,
+            session_id=session_id,
+            task_id=task_id,
+        )
+        response = await self._request(
+            "GET", "/executions", params={**identity, "limit": 2}
+        )
+        page = response.json()
+        items = page["items"]
+        if (
+            not isinstance(items, list)
+            or not isinstance(page.get("has_more"), bool)
+            or page.get("has_more")
+            or len(items) > 1
+        ):
+            raise ValueError("Task execution lookup is ambiguous")
+        if not items:
+            return None
+        item = items[0]
+        if any(item["context"].get(k) != v for k, v in identity.items()):
+            raise ValueError("Execution lookup returned another Task")
+        return UUID(item["execution_id"])
+
     async def events_after(
         self,
         execution_id: UUID,
