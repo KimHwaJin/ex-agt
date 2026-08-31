@@ -28,6 +28,7 @@ from ex_agent.domain.enums import (
     ExecutionMode,
     ExecutorOutcome,
     MultiAction,
+    PlanningKind,
 )
 from ex_agent.executor.client import ExecutorClient
 from ex_agent.executor.results import validated_result_summaries
@@ -184,6 +185,21 @@ class ExecutionCapability:
                 action=MultiAction.FAIL,
                 rationale="The automatic correction limit was reached.",
             )
+        planning_kind = PlanningKind(state["planning_kind"])
+        context = {
+            "request": state["user_message"],
+            "planning_kind": planning_kind.value,
+            "plan": state["plan"].model_dump(mode="json"),
+            "result": reconciliation.model_dump(mode="json"),
+            "available_skills": (
+                self._registry.planning_catalog()
+                if planning_kind is PlanningKind.TOOL_PLAN
+                else []
+            ),
+        }
+        serialized = json.dumps(context, ensure_ascii=False)
+        if len(serialized) > self._settings.planner_context_max_chars:
+            raise ValueError("MULTI planning context exceeds character budget")
         adapter = self._model.with_structured_output(MultiDecision)
         raw = await adapter.ainvoke(
             [
@@ -191,25 +207,26 @@ class ExecutionCapability:
                     content=(
                         "Decide the next MULTI execution action from the user "
                         "objective and latest operation result. APPEND_STEP "
-                        "must include exactly one function definition plus "
-                        "its call. Use REQUIRE_REAPPROVAL if the next step "
+                        "must describe one next cell. TOOL_PLAN must select "
+                        "an exact Skill/Tool pair from available_skills, "
+                        "with their separate name/version/hash fields and "
+                        "documented parameters; custom_code must be null. "
+                        "The compiler supplies the function and call. Never "
+                        "invent tools or attach a tool to the previous "
+                        "step's Skill. For CUSTOM_CODE include exactly one "
+                        "function definition plus its call, without Skill "
+                        "or Tool references. Use REQUIRE_REAPPROVAL if the "
+                        "next step "
                         "materially changes scope, data access, cost, runtime "
                         "profile, or risk. FINALIZE when the analysis is "
-                        "complete. FAIL when correction is not reasonable. "
+                        "complete. The reporting phase generates the "
+                        "report after FINALIZE; do not invent a report tool. "
+                        "FAIL when correction is not reasonable. "
                         "For analysis, preserve registered Skill/Tool "
                         "lineage; for free code, use CUSTOM_CODE."
                     )
                 ),
-                HumanMessage(
-                    content=json.dumps(
-                        {
-                            "request": state["user_message"],
-                            "plan": state["plan"].model_dump(mode="json"),
-                            "result": reconciliation.model_dump(mode="json"),
-                        },
-                        ensure_ascii=False,
-                    )
-                ),
+                HumanMessage(content=serialized),
             ]
         )
         decision = validate_model(MultiDecision, raw)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -109,6 +110,21 @@ class ToolRegistry:
 
     def list_skills(self) -> list[SkillDocument]:
         return list(self._skills.values())
+
+    def planning_catalog(self) -> list[dict[str, Any]]:
+        """Expose instructions and contracts, without function source."""
+        return [
+            {
+                "name": skill.name,
+                "version": skill.version,
+                "instructions": skill.content,
+                "tools": [
+                    tool.model_dump(mode="json", exclude={"source"})
+                    for tool in skill.tools
+                ],
+            }
+            for skill in self._skills.values()
+        ]
 
     def get_skill(self, name: str) -> SkillDocument:
         try:

@@ -8,8 +8,9 @@ from ex_agent.graph.builder import build_workflow_graph
 
 
 class GeneralQaServices:
-    def __init__(self) -> None:
+    def __init__(self, intent: Intent = Intent.GENERAL_QA) -> None:
         self.committed: str | None = None
+        self.intent = intent
 
     async def update_status(self, state: Any, status: TaskStatus) -> None:
         del state, status
@@ -17,7 +18,7 @@ class GeneralQaServices:
     async def classify_intent(self, state: Any) -> IntentDecision:
         del state
         return IntentDecision(
-            intent=Intent.GENERAL_QA,
+            intent=self.intent,
             confidence=0.99,
             decision_summary="일반 지식 질문",
         )
@@ -29,7 +30,7 @@ class GeneralQaServices:
         data_analysis: bool,
     ) -> str:
         del state
-        assert not data_analysis
+        assert data_analysis == (self.intent is Intent.DATA_ANALYSIS_QA)
         return "응답"
 
     async def commit_answer(self, state: Any, answer: str) -> None:
@@ -38,8 +39,13 @@ class GeneralQaServices:
 
 
 @pytest.mark.asyncio
-async def test_general_question_finishes_without_interrupt() -> None:
-    services = GeneralQaServices()
+@pytest.mark.parametrize(
+    "intent", [Intent.GENERAL_QA, Intent.DATA_ANALYSIS_QA]
+)
+async def test_general_question_finishes_without_interrupt(
+    intent: Intent,
+) -> None:
+    services = GeneralQaServices(intent)
     graph = build_workflow_graph(cast(Any, services))
     result = await graph.ainvoke(
         {

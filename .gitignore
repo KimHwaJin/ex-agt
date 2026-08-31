@@ -1,5 +1,7 @@
 .DS_Store
 .env
+.env.chat-ui
+.langgraph_api/
 .pytest_cache/
 .ruff_cache/
 .venv/

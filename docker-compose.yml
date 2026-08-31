@@ -4,6 +4,7 @@ x-model-hosts: &model-hosts
 services:
   postgres:
     image: pgvector/pgvector:0.8.6-pg17
+    profiles: ["local-infra"]
     environment:
       POSTGRES_DB: agent
       POSTGRES_USER: agent
@@ -21,6 +22,7 @@ services:
 
   redis:
     image: redis:7.4-alpine
+    profiles: ["local-infra"]
     command: ["redis-server", "--appendonly", "yes"]
     ports:
       - "56379:6379"
@@ -66,10 +68,11 @@ services:
     command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
     environment: &agent-environment
       AGENT_DATABASE_URL: >-
-        postgresql+psycopg://agent:agent@postgres:5432/agent
+        ${AGENT_DATABASE_URL:-postgresql+psycopg://agent:agent@host.docker.internal:5432/agent}
       AGENT_CHECKPOINT_DATABASE_URL: >-
-        postgresql://agent:agent@postgres:5432/agent
-      AGENT_REDIS_URL: ${AGENT_REDIS_URL:-redis://redis:6379/0}
+        ${AGENT_CHECKPOINT_DATABASE_URL:-postgresql://agent:agent@host.docker.internal:5432/agent}
+      AGENT_REDIS_URL: >-
+        ${AGENT_REDIS_URL:-redis://host.docker.internal:6379/0}
       EXECUTOR_BASE_URL: >-
         ${EXECUTOR_BASE_URL:-http://host.docker.internal:8000/api/v1}
       EXECUTOR_SHARED_STORAGE_ROOT: /workspace/shared
@@ -161,9 +164,6 @@ services:
       WORKER_READINESS_STALE_SECONDS: >-
         ${WORKER_READINESS_STALE_SECONDS:-30}
     extra_hosts: *model-hosts
-    depends_on:
-      postgres:
-        condition: service_healthy
     restart: "no"
 
   api:
@@ -188,8 +188,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
     volumes:
       - ${EXECUTOR_SHARED_DIR:-./shared_dir}:/workspace/shared
 
@@ -215,8 +213,6 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      redis:
-        condition: service_healthy
     volumes:
       - ${EXECUTOR_SHARED_DIR:-./shared_dir}:/workspace/shared
 

@@ -1,0 +1,7 @@
+{
+  "dependencies": ["."],
+  "graphs": {
+    "agent": "./src/ex_agent/dev_chat/entrypoint.py:graph"
+  },
+  "env": ".env.chat-ui"
+}

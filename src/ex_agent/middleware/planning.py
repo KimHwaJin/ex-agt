@@ -13,19 +13,15 @@ from langchain.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
-from langchain_core.messages import HumanMessage, SystemMessage
-from pydantic import BaseModel, ConfigDict, Field
+from langchain_core.messages import SystemMessage
 
 from ex_agent.domain.contracts import PlanDraft
 from ex_agent.domain.enums import ExecutionMode, PlanningKind
+from ex_agent.middleware.skill_selection import (
+    SkillSelection as SkillSelection,
+)
+from ex_agent.middleware.skill_selection import select_skills
 from ex_agent.tools.registry import SkillDocument, ToolRegistry
-
-
-class SkillSelection(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    skill_names: list[str] = Field(default_factory=list)
-    rationale: str = Field(min_length=1, max_length=2000)
 
 
 @dataclass(slots=True)
@@ -41,6 +37,7 @@ class PlannerContext:
     revision_feedback: str | None = None
     registry_snapshot_hash: str = ""
     selected_skill_names: list[str] = field(default_factory=list)
+    skill_selection_rationale: str = ""
 
 
 class ModelAuditSink(Protocol):
@@ -112,6 +109,8 @@ class SkillContextMiddleware(PlannerMiddleware):
     ) -> ModelResponse[PlanDraft]:
         context = _planner_context(request.runtime)
         skills: list[SkillDocument] = []
+        context.selected_skill_names.clear()
+        context.skill_selection_rationale = ""
         if context.planning_kind is PlanningKind.TOOL_PLAN:
             skills = await self._select_skills(request, context)
             context.selected_skill_names[:] = [item.name for item in skills]
@@ -127,37 +126,14 @@ class SkillContextMiddleware(PlannerMiddleware):
         request: ModelRequest[PlannerContext],
         context: PlannerContext,
     ) -> list[SkillDocument]:
-        available = self._registry.list_skills()
-        descriptions = "\n".join(
-            f"- {item.name}@{item.version}: {item.description}"
-            for item in available
+        selection = await select_skills(
+            request.model,
+            self._registry.list_skills(),
+            user_request=context.user_request,
+            revision_feedback=context.revision_feedback,
+            previous_result_summaries=context.previous_result_summaries,
         )
-        selector = request.model.with_structured_output(SkillSelection)
-        selection = await selector.ainvoke(
-            [
-                SystemMessage(
-                    content=(
-                        "Select only the analysis Skills relevant to the "
-                        "request. Return public, concise rationale."
-                    )
-                ),
-                HumanMessage(
-                    content=(
-                        f"User request:\n{context.user_request}\n\n"
-                        f"Available Skills:\n{descriptions}"
-                    )
-                ),
-            ]
-        )
-        if not isinstance(selection, SkillSelection):
-            selection = SkillSelection.model_validate(selection)
-        unknown = sorted(
-            set(selection.skill_names) - {item.name for item in available}
-        )
-        if unknown:
-            raise ValueError(
-                f"Skill selector returned unknown Skills: {unknown}"
-            )
+        context.skill_selection_rationale = selection.rationale
         return [
             self._registry.get_skill(name) for name in selection.skill_names
         ]
@@ -192,6 +168,9 @@ class ModelAuditMiddleware(PlannerMiddleware):
                 metadata={
                     "registry_snapshot_hash": (context.registry_snapshot_hash),
                     "selected_skill_names": (context.selected_skill_names),
+                    "skill_selection_rationale": (
+                        context.skill_selection_rationale
+                    ),
                 },
             )
 

@@ -21,6 +21,8 @@ composition root와 프로세스로 실행된다.
 - `workers`: worker lifecycle, consumer 구성, maintenance loop, compatibility
   façade와 command/event processor, Stream handler, observer, checkpoint helper
 - `api/routers`: health/metrics와 Task REST/SSE route
+- `dev_chat`: Agent Chat UI 테스트용 메시지/HITL 어댑터. 기존 API의
+  REST/SSE만 사용하며 Worker/Redis/업무 체크포인트를 직접 실행하지 않는다.
 
 `worker.py`, `persistence/repository.py`, `api/app.py`, `models.py`의 기존 import
 경로는 조립 또는 호환 façade로 유지한다. 새 코드는 각각 `workers`,
@@ -43,6 +45,9 @@ executor / persistence / transport / llm / tools
 `application → graph`, `persistence → tools`, `domain → infrastructure` 의존은
 허용하지 않는다. `tests/test_architecture.py`가 이 규칙과 독립 Redis consumer의
 Agent domain 비의존성을 검사한다.
+
+개발 어댑터는 `api.contracts`, `domain`에만 의존한다. 운영 모듈에서
+`dev_chat`을 import하지 않으며 `langgraph.json`에서만 별도 진입점으로 로드한다.
 
 ## 변경 원칙
 
