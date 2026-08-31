@@ -59,6 +59,7 @@ def begin_task(state: SessionState, config: RunnableConfig) -> dict[str, Any]:
             turn.active_task_id: turn.fingerprint,
         },
         "ew_pending": {},
+        "invocation_owner": {},
         "messages": [
             HumanMessage(
                 content=turn.user_message,
@@ -173,6 +174,10 @@ class WorkerBoundaryNodes:
         # No external effects here: acceptance checkpoints before reconcile.
         return {
             "ew_pending": action,
+            "invocation_owner": {
+                "source": "EXECUTOR",
+                "id": action["command_id"],
+            },
             "workflow": {
                 **state["workflow"],
                 "external_signal": boundary.model_dump(mode="json"),

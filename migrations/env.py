@@ -7,6 +7,7 @@ from alembic import context
 from sqlalchemy import Connection, pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
+from agent.admission.models import AdmissionBase
 from agent.effects.models import EffectBase
 from ex_agent.config import get_settings
 from ex_agent.persistence.models import Base
@@ -16,7 +17,7 @@ if config.config_file_name:
     fileConfig(config.config_file_name)
 
 config.set_main_option("sqlalchemy.url", get_settings().agent_database_url)
-target_metadata = [Base.metadata, EffectBase.metadata]
+target_metadata = [Base.metadata, EffectBase.metadata, AdmissionBase.metadata]
 
 
 def run_migrations_offline() -> None:

@@ -25,7 +25,12 @@ class SessionGraphAdapter:
         self.graph = graph
 
     async def __call__(self, context: EventContext) -> None:
-        config = context.graph_config
+        config = {
+            "configurable": {
+                **context.graph_config["configurable"],
+                "api_action": None,
+            }
+        }
         snapshot = await self.graph.aget_state(config)
         values = snapshot.values
         command_id = str(context.command_id)
@@ -34,9 +39,15 @@ class SessionGraphAdapter:
         receipts = values.get("ew_receipts", {})
         interrupted = [i for t in snapshot.tasks for i in t.interrupts]
         receipt = receipts.get(command_id)
+        expected_owner = {"source": "EXECUTOR", "id": command_id}
+        owner = values.get("invocation_owner")
         if receipt is not None:
             if receipt != str(context.event.event_id):
                 raise RejectEvent("Command receipt identity mismatch")
+            if owner is not None and owner != expected_owner:
+                # A later user approval may own the pending nodes while the
+                # previous Worker action is still retained in ew_pending.
+                return
             if (
                 pending.get("command_id") == command_id
                 and snapshot.next
@@ -60,7 +71,9 @@ class SessionGraphAdapter:
             "event": event,
         }
         if snapshot.next and not interrupted:
-            if pending != action:
+            if pending != action or (
+                owner is not None and owner != expected_owner
+            ):
                 raise DeferEvent("Another invocation requires recovery")
             # Wait node already consumed the resume. Continue pending nodes,
             # do not inject another resume into a later approval/wait.

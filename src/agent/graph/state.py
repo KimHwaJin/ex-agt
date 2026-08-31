@@ -46,3 +46,5 @@ class SessionState(SessionInput, total=False):
     ew_pending: dict[str, Any]
     ew_receipts: dict[str, str]
     ew_sequences: dict[str, int]
+    api_receipts: dict[str, dict[str, str]]
+    invocation_owner: dict[str, str]

@@ -31,7 +31,7 @@
 연결되지 않았다. 미구현 factory가 소비 전에 실패하는 보호를 유지한다.
 `ex-agent-api`, `ex-agent-worker`, langgraph dev의 기존 실행 경로는 그대로다.
 
-## 저장과 실행 계약 — 이후 단계에서 구현할 내용
+## 저장과 실행 계약 — 단계별 구현 기준
 
 ### 워커와 업무 저장소
 
@@ -52,6 +52,8 @@ Executor 제출 전 API 종료 시 복구할 이벤트가 없는 공백이 생�
 안에서 checkpoint를 확인해 재실행/재개하는 계약이 필요하다.
 접수 전/접수 후/제출 후 binding 전/checkpoint 후 응답 전 각각을 테스트한다.
 기존 커맨드를 재발행하는 계층을 무조건 추가하지 않고 요청 복구 책임을 명확히 한다.
+2C에서 Agent 요청 접수 모듈을 구현했다. 호스트/factory와 화면용 상태 반영은
+아래 진행 기록의 남은 전환 작업에 해당한다.
 
 ### 세션 상태와 결과 반영
 
@@ -211,17 +213,59 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
 - 미추적 복사본은 그대로 보존했다. Git 관리 파일과 이번 변경의 스냅샷에서 검증했으며,
   운영 DB·기존 컨테이너에는 적용하지 않았다.
 
-### 다음 단계 — 2C/3
+### 2C — API 요청 접수와 직접 호출 복구
 
-1. API 시작·승인·취소를 먼저 DB에 접수하고 같은 세션 guard/checkpoint 아래에서
-   호출·복구하는 경로를 구현한다. 기존 START/RESUME 발행과 새 직접 호출이 함께
-   동작해 이중 실행하지 않도록 분리한다. API 응답 유실과 승인 재전송도 검증한다.
-2. Executor 제출 전 API 종료처럼 이벤트가 생기지 않는 구간의 복구 루프를 연결한다.
-   체크포인트에 수락된 요청은 새 resume를 재주입하지 않고 미완료 노드를 복구한다.
-3. 최종 처리 실패 시 Executor 취소/종료 확인·사용자 안내·장기 세션 잠금 정리의
-   업무 보상을 연결한다. cancel HTTP 성공만으로 취소 완료를 알리지 않는다.
-4. 공통 운영 factory와 FastAPI/UI 진입점을 바꾸고, 실제 Executor·모델·배포를
-   검증한 뒤 구 Worker/임시 import를 제거한다.
+- 2B는 main `6aef717`로 머지·푸시했다. 후속 브랜치는
+  `codex/durable-api-admission`이다.
+- `src/agent/admission`에 START/RESUME/CANCEL 접수 기록, 직접 호출 도구와
+  호스트 관리 복구 루프를 추가했다. 새 Redis 스트림·컨슈머는 만들지 않았다.
+- START의 Task·최초 메시지·접수 이벤트·요청은 한 트랜잭션으로 저장한다.
+  구형 START/RESUME WorkflowCommand는 만들지 않는다.
+- 요청 입력 해시·대상 interrupt·수락 영수증으로 재개 근거를 구분한다.
+  승인 후 미완료 노드만 재개하고 같은 승인으로 다음 계획을 통과시키지 않는다.
+- API와 Worker의 실행 소유권을 양방향으로 확인한다. Worker DONE 기록을 놓친
+  오래된 이벤트도 이후 API 승인 소유의 미완료 노드를 대신 실행하지 않는다.
+- 재시도 동시성·횟수·대기 시간을 제한한다. 세션 guard 경합은 횟수를 소비하지
+  않으며, 마지막 시도 후에도 완료 checkpoint가 있으면 추가 실행 없이 정리한다.
+- 한도 초과/근거 불일치는 BLOCKED로 보존하고 새 요청이 덮어쓰지 못하게 한다.
+  이것은 Task 실패 완료가 아니며 Executor 취소와 잠금 정리 보상은 다음 단계다.
+- `0008_api_requests` 마이그레이션과 생성·수정 at/by를 추가했다.
+  새 테이블은 Agent 소유이고 공통 Worker DB 스키마는 변경하지 않았다.
+- Q&A 최종 메시지 DB 반영도 멱등화했다. 원래 응답을 checkpoint한 뒤 저장하므로
+  최종 저장 직후 장애를 복구해도 답변 생성과 결과 메시지가 중복되지 않는다.
+- [API 접수 안내](../src/agent/admission/README.md)에 연결 코드, 요청 상태,
+  복구 루프 lifecycle, 동작 범위와 미완료 연결을 정리했다.
+
+#### 2C 검증 기록
+
+- uv `--no-editable` 파일 기반 설치. 전체 Ruff lint/format·ty 통과.
+  최종 Docker 테스트 이미지 안의 Ruff lint·ty도 통과했다.
+- 전체 로컬: **356 passed, 123 skipped**. DB/Redis 및 opt-in 실서비스 항목 제외.
+- 전체 격리 Compose: **450 passed, 29 skipped**. opt-in 실제 모델/API 항목 제외.
+- Task/요청 원자적 접수·DB 동시 접수 경합·원래 interrupt 검증·입력 checkpoint
+  직후 장애·승인 수락 출력 직전 장애·승인 후 HTTP 응답 유실을 검증했다.
+- 수정 요청 완료 후 API 종료와 이전 요청 재전송이 새 승인을 건드리지 않음을
+  검증했다. 마지막 시도 완료 증거 확인과 잠금 경합/시도 번호 보호도 포함한다.
+- 실제 PG/Redis/별도 checkpointer 연결로 API 중단 후 Worker 처리, Worker DONE
+  누락 후 API 승인 처리, 양방향 재전달 소유권을 검증했다.
+- 취소 요청 APPLIED와 Task CANCELLED를 구분하고, Executor 종료 이벤트 처리
+  전까지 잠금을 유지하며 취소 리포트는 생성하지 않음을 검증했다.
+- 0006→0007→0008 upgrade 및 반복 적용에서 기존 Task 데이터 보존을 검증했다.
+- 모델·Executor HTTP는 결정적 대역이며 실제 Jupyter 실행/K8s 종료 검증은 아니다.
+  운영 DB/서비스와 미추적 복사본은 건드리지 않고 Git 스냅샷에서 테스트했다.
+
+### 다음 단계 — 실패 보상과 운영 호스트 전환
+
+1. API BLOCKED/Worker 최종 처리 실패 시 Executor 조회·취소/종료 확인·사용자
+   안내·장기 세션 잠금 정리의 업무 보상을 연결한다. 불확실한 실행을 남긴 채
+   성공/실패 완료로 처리하거나 새 멱등 키로 우회하지 않는다.
+2. 비최종 Task 상태·current_interrupt의 DB 반영을 새 호스트에 붙인다.
+   현재 이 부분은 구 runner에 남아 있으므로 새 그래프 모듈만으로 기존 Task 조회
+   API의 진행/취소/승인 대기 표시가 자동 완성되는 것은 아니다.
+3. API와 Worker의 공통 factory·자원 lifecycle·RequestRecovery 실행·readiness를
+   연결한다. API+Agent / Worker 두 프로세스를 유지할 수 있다.
+4. FastAPI/Chat UI·Docker/Compose/K8s 진입점을 전환하고 실제 Executor·모델을
+   검증한 뒤 구 Worker/임시 import를 제거한다. 활성 작업 전환 정책을 먼저 정한다.
 
 `worker_hooks.create_graph`의 미연결 보호와 기존 운영 배포 경로는 아직 유지한다.
-이번 2B 검증 통과만으로 운영 전환하거나 `ex_agent`를 삭제하지 않는다.
+2C 검증 통과만으로 운영 전환하거나 `ex_agent`를 삭제하지 않는다.
