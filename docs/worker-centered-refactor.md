@@ -139,9 +139,41 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
   Ruff lint/format, ty 전체 통과. 실제 Executor·LLM·K8s 검증은 포함하지 않는다.
 - 이 정리는 문서·경로 통합이다. 아래 2단계 Agent 연결은 아직 완료되지 않았다.
 
-### 다음 단계
+### 2A — 세션 그래프와 워커 연결 경계
 
-2단계에서 기존 Agent 업무 capability를 새 그래프 구성에 연결하고,
-session State 초기화/보존, 실행 binding 등록, 수락·receipt 노드를 구현한다.
-단순 인사 → 계획 승인 → 실행 대기 → 이벤트 재개를 최소 통합 시나리오로 먼저
-검증한 뒤 MULTI·취소·리포트를 확장한다. 이후 API 호출·접수 복구를 전환한다.
+- 1단계 변경은 main의 `075543f`로 머지·푸시했다.
+  후속 브랜치는 `codex/session-agent-worker-integration`이다.
+- `src/agent/graph`에 세션 그래프를 추가했다. 현재 Task 상태는 workflow 객체로
+  분리해 매 Task 교체하고, 세션 대화와 워커 영수증/Execution별 순번은 보존한다.
+- 기존 31개 업무 노드와 라우팅은 공통 topology로 재사용한다. 구 그래프의
+  실행 경로·체크포인트 필드·배포 명령은 바꾸지 않는다.
+- 제출 후 binding 등록을 별도 노드로 분리했다. 이벤트 수락 → 결과 조회·반영 →
+  영수증 저장 이후 MULTI/실패/취소/리포트로 분기한다.
+- API 측 호출 도구 SessionCoordinator는 동일한 SessionGuard 안에서 Task 입력
+  중복·소유권·interrupt ID·계획 revision을 검증한다. 요청 큐/복구 루프는 아니다.
+- 자세한 구현 계약과 남은 제한은 [Agent 안내](../src/agent/README.md)에 있다.
+
+#### 2A 검증 기록
+
+- uv 파일 기반 설치, Ruff lint/format, ty 통과.
+- 전체 로컬: 338 passed, 89 skipped. DB/Redis 및 opt-in 실서비스 항목 제외.
+- 전체 격리 Compose: 398 passed, 29 skipped. 실제 모델/API 항목만 제외.
+- 세션 Agent + 공통 Worker 범위의 격리 Compose: 114 passed, skip 없음.
+- 세션 Q&A, 승인/수정/거절, SINGLE/MULTI, 실패/취소 시 리포트 미생성,
+  등록 노드 복구, 수락 후 결과 처리 실패, 영수증 후 리포트 실패를 검증했다.
+- 실제 PG/Redis에서는 별도 graph/checkpointer 연결로 API/Worker를 구분하고,
+  checkpoint 저장 후 Worker DONE 기록 실패·재전달·다음 Task 격리를 검증했다.
+- 업무 서비스는 테스트 대체 구현이다. 실제 Executor/Jupyter·LLM 및 K8s 배포
+  검증은 수행하지 않았으며, 운영 진입점도 전환하지 않았다.
+- 작업 중 미추적 `파일명 2.py` 등의 복사본이 다수 나타나 테스트 수집·중복
+  Alembic revision에 간섭했다. 복사본은 변경·커밋하지 않았다. 최종 검증은
+  Git 관리 파일과 이번 변경만 내보낸 임시 스냅샷에서 수행했다.
+- 기존 구조 테스트의 AST 리터럴 탐색은 topology 추출에 맞춰 실제 컴파일된
+  그래프의 31개 노드 검증으로 바꾸었다. 테스트를 제외한 것이 아니다.
+
+### 다음 단계 — 2B 이후
+
+기존 업무 capability의 append/report 등 외부 효과 멱등성을 먼저 보완한다.
+API 접수·승인·취소의 내구성 있는 기록과 복구, 최종 실패 업무 보상, 운영 factory
+자원 연결을 구현한 후 FastAPI/UI/배포를 전환한다. `worker_hooks.create_graph`의
+미연결 보호는 아직 유지한다. 이번 그래프 테스트 통과만으로 운영 전환하지 않는다.

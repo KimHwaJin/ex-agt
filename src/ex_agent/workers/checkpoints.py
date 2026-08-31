@@ -1,9 +1,9 @@
 from typing import Any
 from uuid import UUID
 
-from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from langgraph.types import Interrupt
 
+from ex_agent.graph.checkpoints import checkpoint_serializer
 from ex_agent.transport.consumer import _autoclaim_page
 
 
@@ -25,22 +25,6 @@ def autoclaim_entries(
 
 def task_graph_config(task_id: UUID) -> dict[str, Any]:
     return {"configurable": {"thread_id": str(task_id)}}
-
-
-def checkpoint_serializer() -> JsonPlusSerializer:
-    return JsonPlusSerializer(
-        allowed_msgpack_modules=[
-            ("ex_agent.domain.contracts", "IntentDecision"),
-            ("ex_agent.domain.contracts", "PlanDraft"),
-            ("ex_agent.domain.contracts", "RiskReview"),
-            ("ex_agent.domain.contracts", "WorkflowCandidate"),
-            ("ex_agent.domain.enums", "ExecutionMode"),
-            ("ex_agent.domain.enums", "Intent"),
-            ("ex_agent.domain.enums", "PlanningKind"),
-            ("ex_agent.domain.enums", "RiskLevel"),
-            ("ex_agent.domain.enums", "TaskStatus"),
-        ]
-    )
 
 
 __all__ = [
