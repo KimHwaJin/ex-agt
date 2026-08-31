@@ -20,6 +20,7 @@ RUN uv sync --frozen --no-dev --no-install-project
 
 COPY src ./src
 COPY migrations ./migrations
+COPY worker_migrations ./worker_migrations
 COPY alembic.ini ./
 COPY skills ./skills
 RUN uv sync --frozen --no-dev --no-editable

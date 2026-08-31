@@ -5,4 +5,9 @@
 .ty
 __pycache__
 *.pyc
+**/__pycache__
+**/*.pyc
+**/.venv
+**/.pytest_cache
+**/.ruff_cache
 shared_dir

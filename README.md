@@ -4,6 +4,14 @@ LangGraph 상태 머신과 LangChain `create_agent()` middleware를 사용하는
 데이터 분석/코드 실행 Agent BFF다. 승인된 코드는 Executor REST API로 제출하고
 Executor Redis event에서 workflow를 재개한다.
 
+## 워커 중심 구조 전환 진행 중
+
+공통 워커는 [src/worker](src/worker/)로 편입했고, 그래프 연결·시작 코드는
+src/agent로 이동했다. [현재 워커 안내](docs/worker/README.md)와
+[전환 계획·검증 상태](docs/worker-centered-refactor.md)를 참고한다.
+현재는 1단계이며 기존 API/Worker/Agent Chat UI 실행 경로는 유지한다.
+새 agent.worker_main은 실제 Agent 연결 완료 전에는 배포하지 않는다.
+
 ## 개발 명령
 
 기존 API/Worker 컨테이너를 그대로 두고 **Agent Chat UI에서 테스트**하려면
