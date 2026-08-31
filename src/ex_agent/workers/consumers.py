@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 
 from redis.exceptions import ResponseError
 
@@ -53,13 +53,13 @@ class WorkerConsumers(WorkerContext):
             retry_component="command_consumer",
             stream="commands",
         )
-        worker = cast(Any, self)
         return RedisStreamConsumer(
             self._redis,
             config,
             lambda slot_index: CommandHandler(
-                worker,
                 selected_graphs[slot_index],
+                self._command_processor.process,
+                self._command_processor.record_failure,
             ),
             observer=observer,
             retry_initial_seconds=(
@@ -111,11 +111,13 @@ class WorkerConsumers(WorkerContext):
             retry_component="executor_event_consumer",
             stream="executor_events",
         )
-        worker = cast(Any, self)
         return RedisStreamConsumer(
             self._redis,
             config,
-            lambda _: ExecutorEventHandler(worker, selected_stream),
+            lambda _: ExecutorEventHandler(
+                selected_stream,
+                self._executor_event_processor.process,
+            ),
             observer=observer,
             retry_initial_seconds=(
                 self._settings.worker_retry_initial_seconds

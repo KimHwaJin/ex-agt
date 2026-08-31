@@ -37,5 +37,6 @@ FROM runtime AS test
 
 USER root
 COPY tests ./tests
+COPY examples ./examples
 RUN uv sync --frozen --no-editable
 USER agent
