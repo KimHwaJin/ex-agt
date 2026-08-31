@@ -165,6 +165,7 @@ def test_worker_facade_preserves_runtime_contract() -> None:
         "_outbox_loop",
         "_handle_command",
         "_process_command",
+        "_record_command_failure",
         "_run_graph_command",
         "_run_failure_compensation",
         "_compensate_failed_execution",

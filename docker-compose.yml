@@ -246,6 +246,8 @@ services:
       - uv
       - run
       - --no-sync
+      - python
+      - -m
       - pytest
       - -m
       - postgres or redis

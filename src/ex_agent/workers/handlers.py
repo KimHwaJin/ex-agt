@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 from uuid import UUID
 
 from ex_agent.executor.contracts import ExecutorEvent
@@ -12,18 +12,44 @@ from ex_agent.transport.consumer import (
     StreamMessage,
 )
 
-if TYPE_CHECKING:
-    from ex_agent.worker import WorkflowWorker
-
 logger = logging.getLogger(__name__)
 
 FAILURE_COMPENSATION = "FAILURE_COMPENSATION"
 
 
+class ProcessCommand(Protocol):
+    async def __call__(self, graph: Any, command_id: UUID) -> None: ...
+
+
+class RecordCommandFailure(Protocol):
+    async def __call__(
+        self,
+        command_id: UUID,
+        task_id: UUID,
+        error: Exception,
+    ) -> None: ...
+
+
+class ProcessExecutorEvent(Protocol):
+    async def __call__(
+        self,
+        stream: str,
+        event: ExecutorEvent,
+        *,
+        catch_up: bool = False,
+    ) -> bool: ...
+
+
 class CommandHandler:
-    def __init__(self, worker: WorkflowWorker, graph: Any) -> None:
-        self._worker = worker
+    def __init__(
+        self,
+        graph: Any,
+        process: ProcessCommand,
+        record_failure: RecordCommandFailure,
+    ) -> None:
         self._graph = graph
+        self._process = process
+        self._record_failure = record_failure
 
     def lock_key(self, message: StreamMessage) -> str:
         try:
@@ -43,43 +69,25 @@ class CommandHandler:
                 f"Invalid command envelope: {error}"
             ) from error
         try:
-            await self._worker._process_command(self._graph, command_id)
+            await self._process(self._graph, command_id)
         except Exception as error:
             logger.exception(
                 "Workflow command failed",
                 extra={"task_id": str(task_id)},
             )
-            current = await self._worker._repository.get_command(command_id)
-            failure_message = f"{type(error).__name__}: {error}"
-            if (
-                current is not None
-                and current.command_type == FAILURE_COMPENSATION
-            ):
-                await self._worker._repository.set_command_state(
-                    command_id,
-                    "PENDING",
-                    failure_message,
-                )
-            elif current is not None and current.attempt_count >= 3:
-                await self._worker._repository.prepare_failure_compensation(
-                    command_id,
-                    task_id,
-                    failure_message,
-                )
-            else:
-                await self._worker._repository.set_command_state(
-                    command_id,
-                    "PENDING",
-                    failure_message,
-                )
+            await self._record_failure(command_id, task_id, error)
             return HandlerResult(AckDecision.ACK, outcome="failed")
         return HandlerResult(AckDecision.ACK)
 
 
 class ExecutorEventHandler:
-    def __init__(self, worker: WorkflowWorker, stream: str) -> None:
-        self._worker = worker
+    def __init__(
+        self,
+        stream: str,
+        process: ProcessExecutorEvent,
+    ) -> None:
         self._stream = stream
+        self._process = process
 
     def _event(self, message: StreamMessage) -> ExecutorEvent:
         try:
@@ -95,7 +103,7 @@ class ExecutorEventHandler:
 
     async def handle(self, message: StreamMessage) -> HandlerResult:
         event = self._event(message)
-        processed = await self._worker._process_executor_event(
+        processed = await self._process(
             self._stream,
             event,
             catch_up=message.reclaimed,
@@ -113,4 +121,7 @@ __all__ = [
     "FAILURE_COMPENSATION",
     "CommandHandler",
     "ExecutorEventHandler",
+    "ProcessCommand",
+    "ProcessExecutorEvent",
+    "RecordCommandFailure",
 ]

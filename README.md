@@ -32,6 +32,10 @@ Liveness/readiness 계약과 Prometheus 경보 기준은
 [Readiness and Alerting](docs/operations-readiness.md)을 참고한다.
 별도 Agent에서도 사용할 수 있는 Redis Stream 소비기 계약과 예시는
 [Reusable Redis Stream Consumer](docs/redis-stream-consumer.md)를 참고한다.
+외부 이벤트를 내구성 있는 커맨드로 바꾸어 LangGraph를 재개하는 이식용
+참조 구현은
+[Durable event to LangGraph](examples/durable_event_to_langgraph/README.md)를
+참고한다.
 현재 모듈 경계와 허용 import 방향은
 [Project Structure](docs/project-structure.md)를 참고한다.
 공통 audit 필드, cursor pagination과 OpenAPI 규칙은

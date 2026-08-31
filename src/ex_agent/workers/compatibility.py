@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from ex_agent.executor.contracts import ExecutorEvent
@@ -28,7 +28,11 @@ class WorkerCompatibility(WorkerContext):
             group=group,
             graphs=[graph],
         )
-        handler = CommandHandler(cast(Any, self), graph)
+        handler = CommandHandler(
+            graph,
+            self._process_command,
+            self._record_command_failure,
+        )
         await runtime.process_message(
             consumer,
             handler,
@@ -41,6 +45,14 @@ class WorkerCompatibility(WorkerContext):
         command_id: UUID,
     ) -> None:
         await self._commands().process(graph, command_id)
+
+    async def _record_command_failure(
+        self,
+        command_id: UUID,
+        task_id: UUID,
+        error: Exception,
+    ) -> None:
+        await self._commands().record_failure(command_id, task_id, error)
 
     async def _run_graph_command(self, graph: Any, command: Any) -> None:
         await self._commands().run_graph(graph, command)
@@ -84,7 +96,10 @@ class WorkerCompatibility(WorkerContext):
             group=group,
             concurrency=1,
         )
-        handler = ExecutorEventHandler(cast(Any, self), stream)
+        handler = ExecutorEventHandler(
+            stream,
+            self._process_executor_event,
+        )
         await runtime.process_message(
             consumer,
             handler,

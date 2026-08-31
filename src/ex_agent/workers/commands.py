@@ -65,6 +65,37 @@ class CommandProcessor:
             payload = interrupt_payload(interrupts[0])
             await self._repository.record_interrupt(task.id, payload)
 
+    async def record_failure(
+        self,
+        command_id: UUID,
+        task_id: UUID,
+        error: Exception,
+    ) -> None:
+        failure_message = f"{type(error).__name__}: {error}"
+        current = await self._repository.get_command(command_id)
+        if (
+            current is not None
+            and current.command_type == FAILURE_COMPENSATION
+        ):
+            await self._repository.set_command_state(
+                command_id,
+                "PENDING",
+                failure_message,
+            )
+            return
+        if current is not None and current.attempt_count >= 3:
+            await self._repository.prepare_failure_compensation(
+                command_id,
+                task_id,
+                failure_message,
+            )
+            return
+        await self._repository.set_command_state(
+            command_id,
+            "PENDING",
+            failure_message,
+        )
+
     async def run_failure_compensation(self, command: Any) -> None:
         raw_message = command.payload.get("failure_message")
         if not isinstance(raw_message, str) or not raw_message:
