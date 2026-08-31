@@ -135,6 +135,18 @@ class SessionWorkflowServices(DefaultWorkflowServices):
         if status is TaskStatus.SUCCEEDED:
             await self._offer_workflow_promotion(task_id(state))
 
+    async def commit_answer(
+        self,
+        state: AgentGraphState,
+        answer: str,
+    ) -> None:
+        await self.projections.terminal(
+            task_id(state),
+            status=TaskStatus.SUCCEEDED,
+            message=answer,
+            metadata={},
+        )
+
     async def _offer_workflow_promotion(self, source_task_id: UUID) -> None:
         try:
             source = await self._repository.workflow_promotion_source(

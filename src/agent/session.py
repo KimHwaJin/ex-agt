@@ -71,7 +71,68 @@ def validate_user_decision(boundary: dict, signal: ResumeSignal) -> None:
             raise SessionConflictError("Risk acknowledgement is required")
 
 
+def validate_start_snapshot(before: Any, turn: TaskTurn) -> bool:
+    """Return True for an existing current Task, without restarting it."""
+    state = before.values
+    for key in ("user_id", "project_id", "session_id"):
+        if key in state and state[key] != getattr(turn, key):
+            raise SessionConflictError("Session ownership mismatch")
+    fingerprint = state.get("task_requests", {}).get(turn.active_task_id)
+    if fingerprint is not None:
+        if (
+            fingerprint != turn.fingerprint
+            or state.get("active_task_id") != turn.active_task_id
+        ):
+            raise SessionConflictError("Task ID reuse is forbidden")
+        return True
+    if before.next:
+        raise SessionConflictError("Session has unfinished work")
+    return False
+
+
+def validate_resume_snapshot(
+    before: Any,
+    turn: TaskTurn,
+    interrupt_id: str,
+    payload: dict[str, Any],
+) -> tuple[ResumeSignal, str]:
+    signal = validate_resume_signal(payload)
+    if isinstance(signal, ExecutorBoundarySignal):
+        raise SessionConflictError("Executor events belong to Worker")
+    state = before.values
+    if (
+        state.get("active_task_id") != turn.active_task_id
+        or state.get("task_requests", {}).get(turn.active_task_id)
+        != turn.fingerprint
+    ):
+        raise SessionConflictError("Task identity mismatch")
+    boundaries = [(t.name, i) for t in before.tasks for i in t.interrupts]
+    if len(boundaries) != 1 or boundaries[0][1].id != interrupt_id:
+        raise SessionConflictError("Interrupt is stale")
+    name, waiting = boundaries[0]
+    boundary = waiting.value
+    expected = (
+        "EXECUTOR_EVENT"
+        if isinstance(signal, CancelRequestedSignal)
+        else signal.type.value
+    )
+    if not isinstance(boundary, dict) or (
+        boundary.get("kind") != expected
+        or boundary.get("task_id") != turn.active_task_id
+    ):
+        raise SessionConflictError("Interrupt kind mismatch")
+    if (
+        isinstance(signal, CancelRequestedSignal)
+        and str(signal.task_id) != turn.active_task_id
+    ):
+        raise SessionConflictError("Cancel task identity mismatch")
+    validate_user_decision(boundary, signal)
+    return signal, name
+
+
 class SessionCoordinator:
+    """Low-level calls only; durable hosts use agent.admission.service."""
+
     def __init__(self, graph: Any, guard: InvocationGuard) -> None:
         self.graph = graph
         self.guard = guard
@@ -80,23 +141,8 @@ class SessionCoordinator:
         config = {"configurable": {"thread_id": turn.session_id}}
         async with self.guard.hold(turn.session_id):
             before = await self.graph.aget_state(config)
-            state = before.values
-            for key in ("user_id", "project_id", "session_id"):
-                if key in state and state[key] != getattr(turn, key):
-                    raise SessionConflictError("Session ownership mismatch")
-            fingerprint = state.get("task_requests", {}).get(
-                turn.active_task_id
-            )
-            if fingerprint is not None:
-                if (
-                    fingerprint != turn.fingerprint
-                    or state.get("active_task_id") != turn.active_task_id
-                ):
-                    raise SessionConflictError("Task ID reuse is forbidden")
-                # A retry is a read, not a restart or recovery attempt.
+            if validate_start_snapshot(before, turn):
                 return before
-            if before.next:
-                raise SessionConflictError("Session has unfinished work")
             await self.graph.ainvoke(
                 {"turn": turn.model_dump(mode="json")},
                 config,
@@ -111,39 +157,12 @@ class SessionCoordinator:
         interrupt_id: str,
         payload: dict[str, Any],
     ) -> Any:
-        signal = validate_resume_signal(payload)
-        if isinstance(signal, ExecutorBoundarySignal):
-            raise SessionConflictError("Executor events belong to Worker")
         config = {"configurable": {"thread_id": turn.session_id}}
         async with self.guard.hold(turn.session_id):
             before = await self.graph.aget_state(config)
-            state = before.values
-            if (
-                state.get("active_task_id") != turn.active_task_id
-                or state.get("task_requests", {}).get(turn.active_task_id)
-                != turn.fingerprint
-            ):
-                raise SessionConflictError("Task identity mismatch")
-            boundaries = [i for t in before.tasks for i in t.interrupts]
-            if len(boundaries) != 1 or boundaries[0].id != interrupt_id:
-                raise SessionConflictError("Interrupt is stale")
-            boundary = boundaries[0].value
-            expected = (
-                "EXECUTOR_EVENT"
-                if isinstance(signal, CancelRequestedSignal)
-                else signal.type.value
+            signal, _ = validate_resume_snapshot(
+                before, turn, interrupt_id, payload
             )
-            if not isinstance(boundary, dict) or (
-                boundary.get("kind") != expected
-                or boundary.get("task_id") != turn.active_task_id
-            ):
-                raise SessionConflictError("Interrupt kind mismatch")
-            if (
-                isinstance(signal, CancelRequestedSignal)
-                and str(signal.task_id) != turn.active_task_id
-            ):
-                raise SessionConflictError("Cancel task identity mismatch")
-            validate_user_decision(boundary, signal)
             await self.graph.ainvoke(
                 Command(resume={interrupt_id: signal.model_dump(mode="json")}),
                 config,

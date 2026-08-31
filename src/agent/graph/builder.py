@@ -4,6 +4,7 @@ from typing import Any, cast, get_args, get_type_hints
 
 from langgraph.graph import START, StateGraph
 
+from agent.admission.graph import with_api_receipt
 from agent.graph.nodes import (
     ExecutionBindings,
     WorkerBoundaryNodes,
@@ -36,14 +37,14 @@ def build_session_graph(
     graph = StateGraph(
         cast(Any, SessionState), input_schema=cast(Any, SessionInput)
     )
-    graph.add_node("begin_task", begin_task)
+    graph.add_node("begin_task", with_api_receipt("begin_task", begin_task))
     for name in NODES:
         node = (
             boundary.wait_external_signal
             if name == "wait_external_signal"
             else lift_node(getattr(nodes, name))
         )
-        graph.add_node(name, node)
+        graph.add_node(name, with_api_receipt(name, node))
     graph.add_node("register_execution", boundary.register_execution)
     graph.add_node("record_event_receipt", boundary.record_event_receipt)
     graph.add_edge(START, "begin_task")

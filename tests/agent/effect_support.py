@@ -114,20 +114,26 @@ class ExecutorHTTP:
 
 
 @asynccontextmanager
-async def effect_harness(tmp_path, *, mode=ExecutionMode.MULTI):
+async def effect_harness(
+    tmp_path,
+    *,
+    mode=ExecutionMode.MULTI,
+    create_task=True,
+):
     engine = create_engine(os.environ["TEST_DATABASE_URL"])
     sessions = create_session_factory(engine)
     repository = AgentRepository(sessions)
     task = turn()
-    await repository.create_task(
-        task_id=UUID(task.active_task_id),
-        input_message_id=UUID(task.current_input_message_id),
-        user_id=task.user_id,
-        project_id=task.project_id,
-        session_id=task.session_id,
-        content=task.user_message,
-        idempotency_key=f"start:{task.active_task_id}",
-    )
+    if create_task:
+        await repository.create_task(
+            task_id=UUID(task.active_task_id),
+            input_message_id=UUID(task.current_input_message_id),
+            user_id=task.user_id,
+            project_id=task.project_id,
+            session_id=task.session_id,
+            content=task.user_message,
+            idempotency_key=f"start:{task.active_task_id}",
+        )
     remote = ExecutorHTTP()
     settings = Settings(_env_file=None, executor_shared_storage_root=tmp_path)
     model = FakeListChatModel(responses=["# 최초 결과", "# 다른 결과"])
