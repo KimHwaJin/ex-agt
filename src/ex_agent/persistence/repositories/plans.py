@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ex_agent.domain.contracts import CompiledStep, PersistedPlan, PlanDraft
 from ex_agent.persistence.database import transaction
-from ex_agent.persistence.models import Plan, PlanRevision, PlanStep
+from ex_agent.persistence.models import Plan, PlanRevision, PlanStep, Task
 
 
 class PlanRepository:
@@ -30,14 +30,32 @@ class PlanRepository:
         compiled: list[tuple[CompiledStep, str]],
         registry_snapshot_hash: str,
         feedback: str | None,
+        *,
+        expected_revision_number: int | None = None,
     ) -> PersistedPlan:
         payload = plan.model_dump(mode="json")
         payload_hash = _payload_hash(payload)
         compiled_bundle_id = uuid4()
         async with transaction(self._sessions) as session:
+            if expected_revision_number is not None:
+                task = await session.get(Task, task_id, with_for_update=True)
+                if task is None:
+                    raise LookupError("Unknown plan Task")
             plan_row = await session.scalar(
                 select(Plan).where(Plan.task_id == task_id).with_for_update()
             )
+            if expected_revision_number is not None:
+                existing = await _existing_revision(
+                    session,
+                    plan_row,
+                    expected_revision_number,
+                    payload_hash,
+                    registry_snapshot_hash,
+                    feedback,
+                    compiled,
+                )
+                if existing is not None:
+                    return existing
             if plan_row is None:
                 plan_row = Plan(task_id=task_id, current_revision=1)
                 session.add(plan_row)
@@ -111,6 +129,56 @@ def _payload_hash(payload: dict[str, Any]) -> str:
         separators=(",", ":"),
     )
     return hashlib.sha256(value.encode()).hexdigest()
+
+
+async def _existing_revision(
+    session: AsyncSession,
+    plan: Plan | None,
+    number: int,
+    payload_hash: str,
+    registry_hash: str,
+    feedback: str | None,
+    compiled: list[tuple[CompiledStep, str]],
+) -> PersistedPlan | None:
+    revision = (
+        None
+        if plan is None
+        else await session.scalar(
+            select(PlanRevision).where(
+                PlanRevision.plan_id == plan.id,
+                PlanRevision.revision_number == number,
+            )
+        )
+    )
+    if revision is None:
+        expected = 1 if plan is None else plan.current_revision + 1
+        if number != expected:
+            raise ValueError("Plan revision must advance exactly once")
+        return None
+    rows = await session.scalars(
+        select(PlanStep).where(PlanStep.plan_revision_id == revision.id)
+    )
+    actual = sorted(
+        (row.sequence, row.compiled_source_sha256, row.compiled_source_path)
+        for row in rows
+    )
+    requested = sorted(
+        (step.sequence, step.source_sha256, path) for step, path in compiled
+    )
+    if (
+        revision.public_payload_hash != payload_hash
+        or revision.registry_snapshot_hash != registry_hash
+        or revision.feedback != feedback
+        or actual != requested
+    ):
+        raise ValueError("Plan revision was reused with different input")
+    return PersistedPlan(
+        plan_id=revision.plan_id,
+        plan_revision_id=revision.id,
+        plan_revision_number=revision.revision_number,
+        public_payload_hash=revision.public_payload_hash,
+        compiled_bundle_id=revision.compiled_bundle_id,
+    )
 
 
 __all__ = ["PlanRepository"]

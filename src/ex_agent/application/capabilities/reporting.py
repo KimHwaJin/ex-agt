@@ -68,6 +68,27 @@ class ReportingCapability:
         state: AgentGraphState,
         evidence: dict[str, Any],
     ) -> ReportResult:
+        markdown = await self.generate_report_markdown(evidence)
+        report_input = materialize_input_file(
+            self._settings.executor_shared_storage_root,
+            f"{state['active_task_id']}/reports/analysis-report.md",
+            markdown,
+        )
+        artifact = await self._executor.materialize_report(
+            UUID(state["execution_id"]),
+            idempotency_key=f"task:{state['active_task_id']}:report",
+            path=report_input.relative_path,
+            sha256=report_input.sha256,
+        )
+        return ReportResult(
+            markdown=markdown,
+            artifact_id=artifact.artifact_id,
+        )
+
+    async def generate_report_markdown(
+        self,
+        evidence: dict[str, Any],
+    ) -> str:
         raw = await self._model.ainvoke(
             [
                 SystemMessage(
@@ -85,22 +106,7 @@ class ReportingCapability:
                 HumanMessage(content=json.dumps(evidence, ensure_ascii=False)),
             ]
         )
-        markdown = bounded_report_markdown(raw.content)
-        report_input = materialize_input_file(
-            self._settings.executor_shared_storage_root,
-            f"{state['active_task_id']}/reports/analysis-report.md",
-            markdown,
-        )
-        artifact = await self._executor.materialize_report(
-            UUID(state["execution_id"]),
-            idempotency_key=f"task:{state['active_task_id']}:report",
-            path=report_input.relative_path,
-            sha256=report_input.sha256,
-        )
-        return ReportResult(
-            markdown=markdown,
-            artifact_id=artifact.artifact_id,
-        )
+        return bounded_report_markdown(raw.content)
 
     async def commit_terminal(
         self,

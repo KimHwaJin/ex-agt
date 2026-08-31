@@ -5,6 +5,7 @@ from uuid import UUID
 
 import httpx
 
+from ex_agent.executor import requests
 from ex_agent.executor.contracts import (
     ArtifactResponse,
     CommandResponse,
@@ -46,34 +47,18 @@ class ExecutorClient:
         workflow_id: str | None,
         steps: list[dict[str, Any]],
     ) -> CommandResponse:
-        _require_path_sources(steps)
-        lifecycle: dict[str, Any] = {"operation_mode": mode}
-        if mode == "MULTI":
-            lifecycle["operation_wait_timeout_seconds"] = wait_timeout_seconds
-        payload = {
-            "idempotency_key": idempotency_key,
-            "lifecycle": lifecycle,
-            "trigger": {
-                "type": "INTERACTIVE",
-                "actor": {"type": "AGENT", "id": "ex-agent"},
-            },
-            "runtime": {
-                "type": "JUPYTER",
-                "profile": runtime_profile,
-            },
-            "context": {
-                "user_id": user_id,
-                "project_id": project_id,
-                "session_id": session_id,
-                "task_id": task_id,
-                "workflow_id": workflow_id,
-            },
-            "operation": {
-                "spec": {"schema_version": "1.0", "steps": steps},
-                "metadata": {},
-            },
-            "metadata": {"agent_plan_task_id": task_id},
-        }
+        payload = requests.submit_payload(
+            idempotency_key=idempotency_key,
+            mode=mode,
+            wait_timeout_seconds=wait_timeout_seconds,
+            runtime_profile=runtime_profile,
+            user_id=user_id,
+            project_id=project_id,
+            session_id=session_id,
+            task_id=task_id,
+            workflow_id=workflow_id,
+            steps=steps,
+        )
         response = await self._request("POST", "/executions", json=payload)
         return CommandResponse.model_validate(response.json())
 
@@ -85,14 +70,11 @@ class ExecutorClient:
         expected_version: int,
         steps: list[dict[str, Any]],
     ) -> CommandResponse:
-        _require_path_sources(steps)
-        payload = {
-            "idempotency_key": idempotency_key,
-            "expected_version": expected_version,
-            "spec": {"schema_version": "1.0", "steps": steps},
-            "metadata": {"reason": "adaptive_multi_plan"},
-            "actor": {"type": "AGENT", "id": "ex-agent"},
-        }
+        payload = requests.append_payload(
+            idempotency_key=idempotency_key,
+            expected_version=expected_version,
+            steps=steps,
+        )
         response = await self._request(
             "POST",
             f"/executions/{execution_id}/operations",
@@ -110,11 +92,10 @@ class ExecutorClient:
         response = await self._request(
             "POST",
             f"/executions/{execution_id}/finalize",
-            json={
-                "idempotency_key": idempotency_key,
-                "expected_version": expected_version,
-                "actor": {"type": "AGENT", "id": "ex-agent"},
-            },
+            json=requests.finalize_payload(
+                idempotency_key=idempotency_key,
+                expected_version=expected_version,
+            ),
         )
         return CommandResponse.model_validate(response.json())
 
@@ -130,11 +111,12 @@ class ExecutorClient:
         response = await self._request(
             "POST",
             f"/executions/{execution_id}/cancel",
-            json={
-                "idempotency_key": idempotency_key,
-                "reason": reason,
-                "actor": {"type": actor_type, "id": actor_id},
-            },
+            json=requests.cancel_payload(
+                idempotency_key=idempotency_key,
+                reason=reason,
+                actor_type=actor_type,
+                actor_id=actor_id,
+            ),
         )
         return CommandResponse.model_validate(response.json())
 
@@ -189,23 +171,21 @@ class ExecutorClient:
         response = await self._request(
             "POST",
             f"/executions/{execution_id}/artifacts",
-            json={
-                "idempotency_key": idempotency_key,
-                "type": "REPORT",
-                "source": {
-                    "type": "PATH",
-                    "path": path,
-                    "sha256": sha256,
-                },
-                "name": "analysis-report.md",
-                "description": "Agent-generated successful execution report",
-                "media_type": "text/markdown",
-                "append_to_notebook": True,
-                "metadata": {"producer": "ex-agent"},
-                "actor": {"type": "AGENT", "id": "ex-agent"},
-            },
+            json=requests.report_payload(
+                idempotency_key=idempotency_key,
+                path=path,
+                sha256=sha256,
+            ),
         )
         return ArtifactResponse.model_validate(response.json())
+
+    async def post_prepared(self, path: str, payload: dict[str, Any]) -> dict:
+        """Send a trusted, persisted wire payload without rebuilding it."""
+        response = await self._request("POST", path, json=payload)
+        result = response.json()
+        if not isinstance(result, dict):
+            raise ValueError("Executor response must be a JSON object")
+        return result
 
     async def _request(
         self,
@@ -235,15 +215,6 @@ class ExecutorClient:
                 if attempt == 2:
                     raise
         raise RuntimeError("Executor request failed") from last_error
-
-
-def _require_path_sources(steps: list[dict[str, Any]]) -> None:
-    for step in steps:
-        source = step.get("payload", {}).get("source", {})
-        if source.get("type") != "PATH":
-            raise ValueError("Executor Step source must use PATH")
-        if not source.get("path") or not source.get("sha256"):
-            raise ValueError("Executor PATH source requires path and sha256")
 
 
 class ExecutorRequestError(RuntimeError):

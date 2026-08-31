@@ -1,4 +1,4 @@
-# 세션 기반 Agent — 전환 2A
+# 세션 기반 Agent — 전환 2A/2B
 
 `build_session_graph()`는 기존 분석 업무 노드와 `src/worker`를 연결하는
 실제 LangGraph 정의다. `session_id = thread_id`이며, 한 세션에서 여러 Task를
@@ -12,6 +12,8 @@
 | `graph/builder.py` | 기존 업무 경로 + 수락/등록/영수증 노드 구성 |
 | `graph/nodes.py` | 작업 초기화, 업무 노드 연결, 실행 binding 등록 |
 | `session.py` | 같은 세션 guard 안에서 시작·사용자 승인 검증·재개 |
+| `services.py` | 요청 복구를 적용한 세션 그래프 업무 서비스 |
+| `effects/` | Executor 요청·응답 기록과 멱등 DB 반영 |
 | `integrations/langgraph_adapter.py` | Worker 이벤트를 실행 대기 지점에 전달 |
 | `integrations/worker_hooks.py` | 운영 그래프 factory와 이벤트별 연결 지점 |
 | `worker_main.py` | Worker 프로세스 자원 생성·종료; 아직 factory 미연결 |
@@ -49,8 +51,9 @@
 ```
 
 제출 결과를 먼저 checkpoint하므로 binding 등록 실패 시 등록 노드만 복구할 수 있다.
-단, Executor 제출 응답이 checkpoint되기 전 장애는 별도의 API 요청 복구와 멱등 제출이
-필요하다. 이벤트 수락 후 장애는 Worker가 같은 action을 확인하고 `ainvoke(None)`으로
+제출 응답이 checkpoint되기 전 장애는 `SessionWorkflowServices`의 요청 기록으로
+동일 제출을 재시도할 수 있다. 다만 이 재실행을 시작할 API 요청 복구 루프는
+아직 필요하다. 이벤트 수락 후 장애는 Worker가 같은 action을 확인하고 `ainvoke(None)`으로
 미완료 노드를 이어 간다. 영수증 이후 리포트 등 후속 노드가 실패해도 같은 규칙이다.
 이미 사용자 승인에 도달했다면 이전 이벤트를 다시 승인 응답으로 넣지 않는다.
 
@@ -65,13 +68,19 @@ API와 Worker가 동일한 factory를 사용하며 동일한 세션 checkpoint D
 ```python
 from agent.graph import build_session_graph, checkpoint_serializer
 from agent.integrations.langgraph_adapter import SessionGraphAdapter
+from agent.services import SessionWorkflowServices
 from agent.session import SessionCoordinator
 
 # saver는 checkpoint_serializer()를 사용해 생성한다.
-# 업무 서비스는 기존 WorkflowServices 계약 구현체다.
-graph = build_session_graph(
-    services, worker.bindings, checkpointer=saver
+# repository와 agent_session_factory는 같은 Agent DB를 가리킨다.
+services = SessionWorkflowServices(
+    settings,
+    repository,
+    executor_client,
+    registry,
+    sessions=agent_session_factory,
 )
+graph = build_session_graph(services, worker.bindings, checkpointer=saver)
 api_calls = SessionCoordinator(graph, worker.guard)
 event_handler = SessionGraphAdapter(graph)
 ```
@@ -88,9 +97,10 @@ HTTP 입력으로 받지 않는다. Dispatcher는 이미 guard를 잡으므로 �
 
 ## 배포 전 남은 필수 작업
 
-1. 기존 업무 서비스의 외부 효과를 안정된 요청/Operation 단위로 멱등화한다.
-   특히 MULTI append에서 DB 순번 갱신 직후 재시도하면 키/본문이 바뀔 수 있고,
-   report 생성 재시도는 같은 키에 다른 LLM 출력·해시를 제출할 수 있다.
+1. 2B의 `SessionWorkflowServices`를 공통 운영 factory에 연결한다. submit/append/
+   finalize/cancel/report의 고정 요청과 멱등 결과 반영은 구현했다.
+   Agent DB에 `0007_executor_effects`를 적용해야 한다. 요청 복구 계약은
+   [효과 모듈 안내](effects/README.md)를 참고한다.
 2. API 시작·승인·취소 접수 기록과 복구 루프를 구현한다. `SessionCoordinator`는
    잠금과 호출 검증 도구이지 내구성 있는 요청 큐나 자동 복구 서비스가 아니다.
    같은 시작 요청 재전송은 상태를 반환할 뿐 실패 노드를 자동 재실행하지 않는다.
@@ -101,7 +111,8 @@ HTTP 입력으로 받지 않는다. Dispatcher는 이미 guard를 잡으므로 �
 5. FastAPI/Agent Chat UI·배포 진입점을 전환하고 실제 Executor·모델을 검증한 뒤
    구 Worker와 임시 import를 제거한다.
 
-현재 테스트는 실제 LangGraph·PostgreSQL·Redis와 대체 업무 서비스를 사용한다.
+2A는 대체 업무 서비스를, 2B는 실제 외부 요청/업무 DB 구현을 검증한다.
+LangGraph·PostgreSQL·Redis는 실제 구현이며 모델·Executor HTTP는 대역이다.
 실제 LLM 생성 코드나 Executor/Jupyter 실행의 종단 검증으로 해석하지 않는다.
 
 전환 전체 계획은 [프로젝트 전환 기록](../../docs/worker-centered-refactor.md),
