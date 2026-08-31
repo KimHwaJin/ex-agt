@@ -30,15 +30,41 @@ class ResourceAuditFields(ContractModel):
 
 
 class IntentDecision(ContractModel):
-    intent: Intent
+    """Semantic intent, including conversation that needs no execution."""
+
+    intent: Intent = Field(
+        description=(
+            "GENERAL_QA: chat, greetings, general answers/code examples; "
+            "DATA_ANALYSIS_QA: analysis explanations/advice without running; "
+            "DATA_ANALYSIS_EXECUTION: actually analyze/retrieve data; "
+            "CODE_EXECUTION: actually run other code."
+        )
+    )
     confidence: float = Field(ge=0, le=1)
     decision_summary: str = Field(min_length=1, max_length=500)
-    requires_clarification: bool = False
+    requires_clarification: bool = Field(
+        default=False,
+        description=(
+            "True only if the intended work is genuinely ambiguous. "
+            "Greetings, concept questions and missing execution mode "
+            "do not require clarification."
+        ),
+    )
     clarification_question: str | None = Field(
         default=None,
         max_length=1000,
+        description=(
+            "One question in the user's language about ambiguous intent, "
+            "otherwise null. Never ask for SINGLE/MULTI here."
+        ),
     )
-    requires_execution_mode: bool = False
+    requires_execution_mode: bool = Field(
+        default=False,
+        description=(
+            "True only for CODE_EXECUTION. A separate workflow node asks "
+            "the user to select the mode, not the classifier."
+        ),
+    )
 
     @model_validator(mode="after")
     def validate_clarification(self) -> IntentDecision:

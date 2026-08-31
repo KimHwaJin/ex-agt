@@ -11,6 +11,10 @@ from ex_agent.application.capabilities.common import (
 from ex_agent.application.state import AgentGraphState
 from ex_agent.domain.contracts import IntentDecision, RiskReview
 from ex_agent.domain.enums import TaskStatus
+from ex_agent.llm.conversation import (
+    ANSWER_SYSTEM_PROMPT,
+    INTENT_SYSTEM_PROMPT,
+)
 from ex_agent.persistence.repository import AgentRepository
 
 
@@ -39,17 +43,7 @@ class ConversationCapability:
         classifier = self._model.with_structured_output(IntentDecision)
         raw = await classifier.ainvoke(
             [
-                SystemMessage(
-                    content=(
-                        "Classify the request semantically without keyword "
-                        "or rule-based routing. Distinguish questions from "
-                        "requests that require code execution. Ask one "
-                        "clarification only when execution intent cannot "
-                        "safely be determined. CODE_EXECUTION requires the "
-                        "user to choose SINGLE or MULTI; "
-                        "DATA_ANALYSIS_EXECUTION does not."
-                    )
-                ),
+                SystemMessage(content=INTENT_SYSTEM_PROMPT),
                 HumanMessage(content=state["user_message"]),
             ]
         )
@@ -68,7 +62,7 @@ class ConversationCapability:
         )
         response = await self._model.ainvoke(
             [
-                SystemMessage(content=domain),
+                SystemMessage(content=ANSWER_SYSTEM_PROMPT + "\n" + domain),
                 HumanMessage(content=state["user_message"]),
             ]
         )
