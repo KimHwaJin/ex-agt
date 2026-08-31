@@ -1,7 +1,6 @@
 """Worker process entrypoint: python -m agent.worker_main.
 
-Edit agent.integrations.worker_hooks to connect the Agent. Owns startup,
-resource lifetime and shutdown, not business event processing.
+Owns startup, shared Agent runtime lifetime and graceful shutdown.
 """
 
 from __future__ import annotations
@@ -12,20 +11,23 @@ import signal
 
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+from agent.graph import checkpoint_serializer
 from agent.integrations import worker_hooks
-from agent.integrations.langgraph_adapter import SessionGraphAdapter
+from agent.runtime import build_worker_settings, open_agent_runtime
+from ex_agent.config import Settings as AgentSettings
 from worker import EventContext, ExecutorWorker, Settings
 
 
 async def main() -> None:
-    settings = Settings()
-    adapter: SessionGraphAdapter | None = None
+    agent_settings = AgentSettings()
+    settings: Settings = build_worker_settings(agent_settings)
+    event_handler = None
 
     async def resume_graph(context: EventContext) -> None:
         # Dispatcher already holds SessionGuard. Do not acquire it again.
-        if adapter is None:
-            raise RuntimeError("Agent graph has not been initialized")
-        await adapter(context)
+        if event_handler is None:
+            raise RuntimeError("Agent runtime has not been initialized")
+        await event_handler(context)
 
     handlers = worker_hooks.build_handlers(resume_graph)
     if not handlers or any(
@@ -40,32 +42,46 @@ async def main() -> None:
         # Both stores stay open until worker.run() has drained its handlers.
         # Schema setup belongs in a deployment Job, never Worker startup.
         async with AsyncPostgresSaver.from_conn_string(
-            settings.database_url,
+            agent_settings.agent_checkpoint_database_url,
+            serde=checkpoint_serializer(),
         ) as saver:
-            graph = await worker_hooks.create_graph(saver, worker.bindings)
-            if not all(
-                callable(getattr(graph, method, None))
-                for method in ("aget_state", "ainvoke")
-            ) or not getattr(graph, "checkpointer", None):
-                raise ValueError(
-                    "worker_hooks.create_graph() must return a compiled "
-                    "graph with a checkpointer; "
-                    "see src/worker/docs/agent-integration.md"
+            async with open_agent_runtime(
+                agent_settings,
+                worker,
+                saver,
+            ) as runtime:
+                graph = runtime.graph
+                if not all(
+                    callable(getattr(graph, method, None))
+                    for method in ("aget_state", "ainvoke")
+                ) or not getattr(graph, "checkpointer", None):
+                    raise ValueError(
+                        "Agent runtime must return a compiled graph with "
+                        "a checkpointer"
+                    )
+                event_handler = runtime.event_handler
+                worker.add_readiness_check(
+                    "agent-runtime", runtime.lifecycle.ready
                 )
-            adapter = SessionGraphAdapter(graph)
-            loop = asyncio.get_running_loop()
-            installed = []
-            try:
-                for signum in (signal.SIGTERM, signal.SIGINT):
-                    loop.add_signal_handler(signum, worker.request_stop)
-                    installed.append(signum)
-                # No consumer groups, reads, routing or ACKs before here.
-                await worker.run()
-            finally:
-                for signum in installed:
-                    loop.remove_signal_handler(signum)
+                loop = asyncio.get_running_loop()
+                installed = []
+                try:
+                    for signum in (signal.SIGTERM, signal.SIGINT):
+                        loop.add_signal_handler(
+                            signum, runtime.lifecycle.request_stop
+                        )
+                        installed.append(signum)
+                    # No consumer groups, routing or ACKs before here.
+                    await runtime.lifecycle.run_worker(worker)
+                finally:
+                    for signum in installed:
+                        loop.remove_signal_handler(signum)
+
+
+def run_worker() -> None:
+    logging.basicConfig(level=logging.INFO)
+    asyncio.run(main())
 
 
 if __name__ == "__main__":
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    run_worker()

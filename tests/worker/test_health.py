@@ -31,3 +31,32 @@ async def test_health_readiness_and_metrics(worker):
             await run
         server.close()
         await server.wait_closed()
+
+
+@pytest.mark.postgres
+@pytest.mark.redis
+async def test_readiness_includes_host_registered_checks(worker):
+    healthy = True
+
+    async def host_ready():
+        return healthy
+
+    worker.add_readiness_check("agent-runtime", host_ready)
+    with pytest.raises(ValueError, match="Duplicate"):
+        worker.add_readiness_check("agent-runtime", host_ready)
+    run = asyncio.create_task(worker.run())
+    try:
+        for _ in range(500):
+            if await worker.ready():
+                break
+            await asyncio.sleep(0.01)
+        assert await worker.ready()
+        healthy = False
+        assert not await worker.ready()
+        healthy = True
+        assert await worker.ready()
+        with pytest.raises(RuntimeError, match="before run"):
+            worker.add_readiness_check("late", host_ready)
+    finally:
+        worker.request_stop()
+        await run

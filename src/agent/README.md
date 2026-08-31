@@ -1,4 +1,4 @@
-# 세션 기반 Agent — 전환 2A/2B/2C
+# 세션 기반 Agent — 전환 2A~2E
 
 `build_session_graph()`는 기존 분석 업무 노드와 `src/worker`를 연결하는
 실제 LangGraph 정의다. `session_id = thread_id`이며, 한 세션에서 여러 Task를
@@ -16,9 +16,10 @@
 | `failure/` | API/Worker 최종 실패의 실행 종료 확인·checkpoint·잠금 보상 |
 | `services.py` | 요청 복구를 적용한 세션 그래프 업무 서비스 |
 | `effects/` | Executor 요청·응답 기록과 멱등 DB 반영 |
+| `runtime/` | API/Worker 공통 factory, 설정 변환, 복구 supervision |
 | `integrations/langgraph_adapter.py` | Worker 이벤트를 실행 대기 지점에 전달 |
-| `integrations/worker_hooks.py` | 운영 그래프 factory와 이벤트별 연결 지점 |
-| `worker_main.py` | Worker 프로세스 자원 생성·종료; 아직 factory 미연결 |
+| `integrations/worker_hooks.py` | Executor 이벤트 타입 registry |
+| `worker_main.py` | 실제 runtime factory를 사용하는 Worker 진입점 |
 
 공통 소비기·Inbox·Outbox에는 Agent 전용 import나 상태 필드를 추가하지 않았다.
 현재 업무 노드/서비스와 공통 topology는 `ex_agent`에서 재사용한다. 업무 모듈의
@@ -68,29 +69,19 @@
 ## 연결 방식
 
 API와 Worker가 동일한 factory를 사용하며 동일한 세션 checkpoint DB를 공유해야 한다.
-아래는 자원이 이미 준비된 호스트에서의 연결 조각이다. 독립 실행 스크립트가 아니다.
+`open_agent_runtime()`이 두 프로세스의 동일 조립 경계다. 아래는 자원이 이미
+준비된 API host의 lifespan 연결 조각이다.
 
 ```python
-from agent.graph import build_session_graph, checkpoint_serializer
-from agent.admission.service import AdmissionService
-from agent.admission.store import RequestStore
-from agent.integrations.langgraph_adapter import SessionGraphAdapter
-from agent.services import SessionWorkflowServices
+from agent.runtime import open_agent_runtime, recovery_lifespan
 
-# saver는 checkpoint_serializer()를 사용해 생성한다.
-# repository와 agent_session_factory는 같은 Agent DB를 가리킨다.
-services = SessionWorkflowServices(
-    settings,
-    repository,
-    executor_client,
-    registry,
-    sessions=agent_session_factory,
-)
-graph = build_session_graph(services, worker.bindings, checkpointer=saver)
-api_calls = AdmissionService(
-    graph, worker.guard, RequestStore(agent_session_factory)
-)
-event_handler = SessionGraphAdapter(graph)
+async with open_agent_runtime(settings, bridge, saver) as runtime:
+    async with recovery_lifespan(
+        runtime.lifecycle,
+        shutdown_timeout_seconds=settings.worker_shutdown_grace_seconds,
+    ):
+        app.state.agent = runtime
+        yield
 ```
 
 `AsyncPostgresSaver.from_conn_string(url, serde=checkpoint_serializer())`로
@@ -105,26 +96,24 @@ START의 Task와 접수 기록을 함께 저장하므로 기존 create_task를 �
 호스트의 복구 루프 실행과 상세 사용법은 [API 접수 안내](admission/README.md)에 있다.
 `SessionCoordinator`는 저수준 검증용이며 이 내구성 있는 접수 경로를 대체하지 않는다.
 
+구체적인 자원 수명과 Worker 실행은 [runtime 안내](runtime/README.md)를 참고한다.
+`agent.worker_main`은 같은 factory와 실패 보호 handler를 실제로 사용한다.
+
 ## 배포 전 남은 필수 작업
 
-1. 2B의 `SessionWorkflowServices`를 공통 운영 factory에 연결한다. submit/append/
-   finalize/cancel/report의 고정 요청과 멱등 결과 반영은 구현했다.
-   Agent DB에 `0007_executor_effects`를 적용해야 한다. 요청 복구 계약은
-   [효과 모듈 안내](effects/README.md)를 참고한다.
-2. 구현한 `admission/`과 `failure/`을 API/Worker 호스트 lifecycle에 연결하고
-   Agent DB에 `0008_api_requests`, `0009_failure_cleanups`를 적용한다. 보상 구현은
-   완료했지만 운영 factory와 `BLOCKED` 수동 검토 API는 아직 없다.
-3. 운영 `worker_hooks.create_graph` 자원을 연결하고 Agent 이벤트 handler에
-   `FailureService.protect()`를 적용한다. 상세 계약은
-   [실패 보상 안내](failure/README.md)를 참고한다.
+1. 구현한 runtime을 FastAPI lifespan과 실제 Task/승인/취소 라우터에 연결한다.
+   기존 API는 아직 구 durable command 경로를 사용하므로 새 Worker와 동시에
+   활성화하지 않는다.
+2. 비최종 Task 상태·`current_interrupt`를 화면용 DB projection에 반영한다.
+3. 인증된 `BLOCKED` 조회·재시도/수동 종료 운영 API를 추가한다.
 4. 장기 세션 채팅 금지는 업무 DB에서, 짧은 호출 상호배제는 SessionGuard에서
    담당한다. API·Worker 양쪽에서 이 정책을 유지하고 성공 리포트 저장까지 잠근다.
 5. FastAPI/Agent Chat UI·배포 진입점을 전환하고 실제 Executor·모델을 검증한 뒤
    구 Worker와 임시 import를 제거한다. 그 전에 새 그래프의 비최종 상태와
    current_interrupt를 화면용 Task DB에 반영하는 호스트 연결도 필요하다.
 
-2A는 대체 업무 서비스를, 2B/2C/2D는 실제 외부 요청·업무 DB·접수·실패 복구를
-검증한다.
+2A는 대체 업무 서비스를, 2B/2C/2D/2E는 실제 외부 요청·업무 DB·접수·실패·
+runtime 복구를 검증한다.
 LangGraph·PostgreSQL·Redis는 실제 구현이며 모델·Executor HTTP는 대역이다.
 실제 LLM 생성 코드나 Executor/Jupyter 실행의 종단 검증으로 해석하지 않는다.
 
