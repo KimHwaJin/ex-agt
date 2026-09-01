@@ -7,16 +7,17 @@ API와 Worker는 liveness와 readiness를 분리한다.
 | Component | Liveness | Readiness | Port |
 |---|---|---|---:|
 | API | `/healthz` | `/readyz` | 8010 |
-| Worker | `/healthz` | `/readyz` | 8011 |
+| Worker | `/health/live` | `/health/ready` | 8011 |
 
-`/healthz`는 프로세스가 HTTP 요청을 받을 수 있는지만 확인하며 항상 의존성과
-분리한다. `/readyz`는 작업을 durable하게 수락하고 처리하는 데 반드시 필요한
-PostgreSQL과 Redis를 확인한다.
+API `/healthz`와 Worker `/health/live`는 프로세스 생존만 확인하고 의존성과
+분리한다. API `/readyz`는 PostgreSQL과 Redis를 확인한다. Worker
+`/health/ready`는 Redis, Worker DB와 Agent runtime loop가 모두 살아 있어야
+성공한다.
 
 - API는 요청마다 두 의존성을 비동기로 동시에 검사한다.
-- Worker는 기본 10초마다 검사한 snapshot을 제공한다.
-- Worker snapshot이 기본 30초보다 오래되면 `503`과 `stale=true`를 반환한다.
-- 각 probe는 기본 2초 timeout을 독립적으로 적용한다.
+- Worker는 readiness 요청마다 Redis, Worker DB와 Agent runtime loop를 함께
+  확인한다.
+- API dependency probe와 Worker readiness는 2초 안에 완료되어야 한다.
 - 오류 응답은 예외 class만 공개하며 접속 URL이나 credential을 노출하지 않는다.
 
 정상 응답은 `200`, 하나라도 실패하거나 snapshot이 오래되면 `503`이다.
@@ -44,8 +45,7 @@ Pod를 endpoint에서 제거하면 가용 처리량이 더 줄기 때문에 capa
 
 ## Kubernetes probe 권장값
 
-API와 Worker 모두 다음 시작값을 사용한다. Worker의 `initialDelaySeconds`는 Skill
-registry와 LangGraph checkpoint 초기화를 고려해 API보다 길게 설정한다.
+API는 다음 시작값을 사용한다.
 
 ```yaml
 livenessProbe:
@@ -64,8 +64,9 @@ readinessProbe:
   failureThreshold: 3
 ```
 
-Worker는 port만 `8011`로 바꾸고 `startupProbe` 또는 최소 20초의 초기 유예를
-둔다. Compose에도 같은 `/readyz` healthcheck가 설정되어 있다.
+Worker는 port `8011`과 `/health/live`, `/health/ready`를 사용하고
+`startupProbe`를 둔다. Compose와 Kubernetes 검증 manifest도 같은 경로를
+사용한다.
 
 ## Worker 종료 계약
 

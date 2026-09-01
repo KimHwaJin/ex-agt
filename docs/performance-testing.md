@@ -219,6 +219,38 @@ owner를 찾는다. 해당 컨테이너만 종료한 뒤 생존 Worker의 재cla
 
 ## 장기 실행과 Worker rolling restart
 
+실제 Kubernetes Pod 수명주기와 PostgreSQL checkpoint 복구는 전용 kind
+환경에서 다음 명령으로 검증한다.
+
+```bash
+UV_CACHE_DIR=/tmp/ex-agent-uv-cache \
+uv run --no-sync python scripts/live_k8s_worker_restart_e2e.py \
+  --executor-shared-directory \
+  /Users/a10054/SKAX_PROJECT/executor/shared_dir \
+  --output /tmp/ex-agent-k8s-rolling-e2e.json
+```
+
+기존 kind 클러스터, Agent DB와 consumer group을 공유하지 않는다. 계획 생성
+중에는 정상 `rollout restart`, Executor 실행 중에는 grace 0 강제 Pod 삭제를
+주입한다. 상세한 격리·재실행·정리 절차는
+`deploy/rolling-e2e/README.md`에 있다.
+
+2026-09-01 실제 qwen/Executor/Jupyter 환경 결과:
+
+- 정상 rollout 복구 6.0초, 강제 삭제 후 최종 복구 24.2초
+- 두 재시작 모두 이전/새 Worker Pod UID가 서로 다름
+- 동일 Task/Execution과 후속 일반 질의 모두 `SUCCEEDED`
+- 실행 중 Session 잠금 요청 `409`, 완료 후 잠금 0건
+- Agent binding과 `task.completed` event 각 1건
+- `session_id` thread에 LangGraph checkpoint 32개
+- Worker binding sequence 6, Executor event pending 0건
+- 미완료 Worker command와 미전송 outbox 0건으로 15초 안에 수렴
+
+이 검증은 Task 성공 직후 비동기 outbox가 잠깐 남을 수 있으므로 즉시 0건을
+가정하지 않고 bounded drain을 확인한다.
+
+### Compose 다중 Worker soak
+
 두 Worker 중 한 대씩 번갈아 컨테이너를 제거·재생성하면서 장기 Executor
 작업과 독립 Session의 일반 질의를 함께 처리하는 검증은 다음과 같이 실행한다.
 항상 다른 Worker 한 대가 살아 있으므로 Kubernetes rolling update에 가까운

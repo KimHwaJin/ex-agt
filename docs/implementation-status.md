@@ -142,10 +142,16 @@
   중복 binding/event, failure compensation, Session lock 누수 없이 두 consumer
   group pending이 0건으로 수렴했다. Task 완료 직후 지연될 수 있는 마지막
   Executor 감사 경계의 수렴 시간도 별도로 측정한다.
-- API와 Worker가 liveness `/healthz`와 dependency-aware `/readyz`를 분리한다.
-  PostgreSQL·Redis probe는 timeout과 Worker stale 기준을 적용하며 readiness,
-  latency, 마지막 probe 시각을 Prometheus에 노출한다. backlog/pending/lag는
-  readiness에서 제외하고 실제 Prometheus warning/critical rule로 관리한다.
+- 전용 kind 클러스터에서 단일 Worker의 정상 `rollout restart`와 grace 0 강제
+  Pod 삭제를 실제 Executor/Jupyter 작업에 주입했다. 두 번 모두 Pod UID가
+  교체된 뒤 같은 Task/Execution이 성공했고, Session checkpoint 32개, Agent
+  binding·완료 event 각 1개, Worker sequence 6, Redis pending·미완료
+  command·미전송 outbox·Session lock 0건을 확인했다.
+- API는 liveness `/healthz`와 dependency-aware `/readyz`, 통합 Worker는
+  `/health/live`와 `/health/ready`를 분리한다.
+  API PostgreSQL·Redis probe와 Worker의 Redis·DB·Agent runtime 확인은 timeout을
+  적용한다. backlog/pending/lag는 readiness에서 제외하고 Prometheus 지표와
+  warning/critical rule로 관리한다.
 
 ## 다음 구현 범위
 

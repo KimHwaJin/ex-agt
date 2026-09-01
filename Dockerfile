@@ -39,6 +39,7 @@ FROM runtime AS test
 USER root
 COPY tests ./tests
 COPY examples ./examples
+COPY scripts ./scripts
 COPY docker-compose.yml ./
 COPY langgraph.json ./
 COPY docs/worker-centered-refactor.md ./docs/worker-centered-refactor.md

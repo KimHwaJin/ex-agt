@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from pathlib import Path
 from time import perf_counter
@@ -27,6 +28,30 @@ class Observation:
             status,
             perf_counter() - self.started_at,
         )
+
+
+@dataclass(frozen=True)
+class RestartEvidence:
+    method: str
+    previous_instances: tuple[str, ...] = ()
+    ready_instances: tuple[str, ...] = ()
+
+
+class WorkerRestarter(ABC):
+    @abstractmethod
+    async def restart_during_planning(
+        self,
+        downtime_seconds: float,
+    ) -> RestartEvidence: ...
+
+    @abstractmethod
+    async def restart_during_execution(
+        self,
+        downtime_seconds: float,
+    ) -> RestartEvidence: ...
+
+    @abstractmethod
+    async def ensure_running(self) -> None: ...
 
 
 async def _json_request(
@@ -171,6 +196,218 @@ async def _start_worker(compose_directory: Path) -> None:
     await _compose(compose_directory, "up", "--detach", "worker")
 
 
+class ComposeWorkerRestarter(WorkerRestarter):
+    def __init__(self, compose_directory: Path) -> None:
+        self._compose_directory = compose_directory
+        self._running = True
+
+    async def restart_during_planning(
+        self,
+        downtime_seconds: float,
+    ) -> RestartEvidence:
+        return await self._forced_restart(downtime_seconds)
+
+    async def restart_during_execution(
+        self,
+        downtime_seconds: float,
+    ) -> RestartEvidence:
+        return await self._forced_restart(downtime_seconds)
+
+    async def ensure_running(self) -> None:
+        if not self._running:
+            await _start_worker(self._compose_directory)
+            self._running = True
+
+    async def _forced_restart(
+        self,
+        downtime_seconds: float,
+    ) -> RestartEvidence:
+        await _kill_worker(self._compose_directory)
+        self._running = False
+        await asyncio.sleep(downtime_seconds)
+        await self.ensure_running()
+        return RestartEvidence(method="compose_sigkill")
+
+
+@dataclass(frozen=True)
+class _Pod:
+    name: str
+    uid: str
+    ready: bool
+
+
+class KubernetesWorkerRestarter(WorkerRestarter):
+    def __init__(
+        self,
+        *,
+        context: str,
+        namespace: str,
+        deployment: str,
+        selector: str,
+        timeout_seconds: float,
+    ) -> None:
+        self._context = context
+        self._namespace = namespace
+        self._deployment = deployment
+        self._selector = selector
+        self._timeout_seconds = timeout_seconds
+
+    async def restart_during_planning(
+        self,
+        downtime_seconds: float,
+    ) -> RestartEvidence:
+        del downtime_seconds
+        previous = [pod for pod in await self._pods() if pod.ready]
+        if len(previous) != 1:
+            raise RuntimeError(
+                "Graceful recovery requires exactly one Worker Pod: "
+                f"{previous}"
+            )
+        await self._kubectl(
+            "rollout",
+            "restart",
+            f"deployment/{self._deployment}",
+        )
+        await self._kubectl(
+            "rollout",
+            "status",
+            f"deployment/{self._deployment}",
+            f"--timeout={self._timeout_seconds}s",
+        )
+        ready = await self._wait_for_replacement({pod.uid for pod in previous})
+        return RestartEvidence(
+            method="kubernetes_graceful_rollout",
+            previous_instances=tuple(pod.uid for pod in previous),
+            ready_instances=tuple(pod.uid for pod in ready),
+        )
+
+    async def restart_during_execution(
+        self,
+        downtime_seconds: float,
+    ) -> RestartEvidence:
+        previous = [pod for pod in await self._pods() if pod.ready]
+        if len(previous) != 1:
+            raise RuntimeError(
+                f"Forced recovery requires exactly one Worker Pod: {previous}"
+            )
+        await self._kubectl(
+            "delete",
+            "pod",
+            previous[0].name,
+            "--grace-period=0",
+            "--force",
+            "--wait=false",
+        )
+        await asyncio.sleep(downtime_seconds)
+        ready = await self._wait_for_replacement({previous[0].uid})
+        return RestartEvidence(
+            method="kubernetes_force_delete",
+            previous_instances=(previous[0].uid,),
+            ready_instances=tuple(pod.uid for pod in ready),
+        )
+
+    async def ensure_running(self) -> None:
+        replicas = await self._deployment_replicas()
+        if replicas == 0:
+            await self._kubectl(
+                "scale",
+                f"deployment/{self._deployment}",
+                "--replicas=1",
+            )
+        await self._wait_for_ready()
+
+    async def _deployment_replicas(self) -> int:
+        output = await self._kubectl(
+            "get",
+            f"deployment/{self._deployment}",
+            "-o",
+            "jsonpath={.spec.replicas}",
+        )
+        return int(output.strip())
+
+    async def _pods(self) -> list[_Pod]:
+        output = await self._kubectl(
+            "get",
+            "pods",
+            "-l",
+            self._selector,
+            "-o",
+            "json",
+        )
+        payload = json.loads(output)
+        pods: list[_Pod] = []
+        for item in payload["items"]:
+            statuses = item.get("status", {}).get(
+                "containerStatuses",
+                [],
+            )
+            pods.append(
+                _Pod(
+                    name=item["metadata"]["name"],
+                    uid=item["metadata"]["uid"],
+                    ready=bool(statuses)
+                    and all(status["ready"] for status in statuses),
+                )
+            )
+        return pods
+
+    async def _wait_for_replacement(
+        self,
+        previous_uids: set[str],
+    ) -> list[_Pod]:
+        deadline = perf_counter() + self._timeout_seconds
+        while perf_counter() < deadline:
+            pods = await self._pods()
+            ready = [pod for pod in pods if pod.ready]
+            if ready and not previous_uids.intersection(
+                pod.uid for pod in ready
+            ):
+                return ready
+            await asyncio.sleep(0.5)
+        raise TimeoutError(
+            "Worker replacement Pod did not become ready after restart"
+        )
+
+    async def _wait_for_ready(self) -> None:
+        deadline = perf_counter() + self._timeout_seconds
+        while perf_counter() < deadline:
+            if any(pod.ready for pod in await self._pods()):
+                return
+            await asyncio.sleep(0.5)
+        raise TimeoutError("Worker Pod did not become ready")
+
+    async def _kubectl(self, *arguments: str) -> str:
+        process = await asyncio.create_subprocess_exec(
+            "kubectl",
+            "--context",
+            self._context,
+            "--namespace",
+            self._namespace,
+            *arguments,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.STDOUT,
+        )
+        output, _ = await process.communicate()
+        rendered = output.decode(errors="replace")
+        if process.returncode != 0:
+            raise RuntimeError(
+                f"kubectl {' '.join(arguments)} failed:\n{rendered}"
+            )
+        return rendered
+
+
+def _worker_restarter(args: argparse.Namespace) -> WorkerRestarter:
+    if args.worker_control == "kubernetes":
+        return KubernetesWorkerRestarter(
+            context=args.kube_context,
+            namespace=args.kube_namespace,
+            deployment=args.kube_worker_deployment,
+            selector=args.kube_worker_selector,
+            timeout_seconds=args.kube_rollout_timeout_seconds,
+        )
+    return ComposeWorkerRestarter(args.compose_directory)
+
+
 async def _wait_for_executor_running(
     client: httpx.AsyncClient,
     execution_id: str,
@@ -241,7 +478,7 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
     task_id = str(uuid4())
     session_id = f"restart-e2e-session-{uuid4()}"
     observation = Observation(perf_counter())
-    worker_running = True
+    restarter = _worker_restarter(args)
     headers = {"X-User-ID": args.user_id}
     async with (
         httpx.AsyncClient(
@@ -274,12 +511,10 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                 timeout_seconds=args.phase_timeout_seconds,
             )
 
-            await _kill_worker(args.compose_directory)
-            worker_running = False
             planning_killed_at = perf_counter()
-            await asyncio.sleep(args.planning_downtime_seconds)
-            await _start_worker(args.compose_directory)
-            worker_running = True
+            planning_restart = await restarter.restart_during_planning(
+                args.planning_downtime_seconds
+            )
             await _wait_for_status(
                 agent,
                 task_id,
@@ -305,17 +540,15 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
                 timeout_seconds=args.phase_timeout_seconds,
             )
 
-            await _kill_worker(args.compose_directory)
-            worker_running = False
             execution_killed_at = perf_counter()
+            execution_restart = await restarter.restart_during_execution(
+                args.execution_downtime_seconds
+            )
             locked_status = await _assert_session_locked(
                 agent,
                 args.project_id,
                 session_id,
             )
-            await asyncio.sleep(args.execution_downtime_seconds)
-            await _start_worker(args.compose_directory)
-            worker_running = True
 
             terminal = await _wait_for_terminal(
                 agent,
@@ -348,11 +581,11 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
             if follow_up["status"] != "SUCCEEDED":
                 raise RuntimeError(f"Follow-up Task failed: {follow_up}")
         finally:
-            if not worker_running:
-                await _start_worker(args.compose_directory)
+            await restarter.ensure_running()
 
     return {
         "task_id": task_id,
+        "session_id": session_id,
         "execution_id": str(execution_id),
         "task_status": terminal["status"],
         "executor_status": result["execution"]["state"]["status"],
@@ -363,12 +596,25 @@ async def _run(args: argparse.Namespace) -> dict[str, Any]:
         "follow_up_status": follow_up["status"],
         "status_first_seen_seconds": observation.status_first_seen,
         "interrupts": observation.interrupts,
+        "planning_restart": {
+            "method": planning_restart.method,
+            "previous_instances": planning_restart.previous_instances,
+            "ready_instances": planning_restart.ready_instances,
+        },
+        "execution_restart": {
+            "method": execution_restart.method,
+            "previous_instances": execution_restart.previous_instances,
+            "ready_instances": execution_restart.ready_instances,
+        },
     }
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Inject two Worker SIGKILL failures into a live Task."
+        description=(
+            "Validate live Task recovery across Compose or Kubernetes "
+            "Worker restarts."
+        )
     )
     parser.add_argument(
         "--agent-base-url",
@@ -382,6 +628,26 @@ def _parser() -> argparse.ArgumentParser:
         "--compose-directory",
         type=Path,
         default=Path(__file__).resolve().parents[1],
+    )
+    parser.add_argument(
+        "--worker-control",
+        choices=("compose", "kubernetes"),
+        default="compose",
+    )
+    parser.add_argument("--kube-context", default="kind-ex-agent-rolling-e2e")
+    parser.add_argument("--kube-namespace", default="ex-agent-rolling-e2e")
+    parser.add_argument(
+        "--kube-worker-deployment",
+        default="ex-agent-worker",
+    )
+    parser.add_argument(
+        "--kube-worker-selector",
+        default="app.kubernetes.io/name=ex-agent-worker",
+    )
+    parser.add_argument(
+        "--kube-rollout-timeout-seconds",
+        type=float,
+        default=300,
     )
     parser.add_argument("--user-id", default="restart-e2e-user")
     parser.add_argument("--project-id", default="restart-e2e-project")
