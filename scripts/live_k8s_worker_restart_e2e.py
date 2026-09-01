@@ -52,7 +52,12 @@ async def _command(
     return rendered
 
 
-def _kind_config(shared_directory: Path) -> str:
+def _kind_config(
+    shared_directory: Path,
+    *,
+    host_port: int = 18010,
+    node_port: int = 30010,
+) -> str:
     host_path = json.dumps(str(shared_directory.resolve()))
     return (
         "kind: Cluster\n"
@@ -63,8 +68,8 @@ def _kind_config(shared_directory: Path) -> str:
         f"      - hostPath: {host_path}\n"
         "        containerPath: /workspace/shared\n"
         "    extraPortMappings:\n"
-        "      - containerPort: 30010\n"
-        "        hostPort: 18010\n"
+        f"      - containerPort: {node_port}\n"
+        f"        hostPort: {host_port}\n"
         "        listenAddress: 127.0.0.1\n"
         "        protocol: TCP\n"
     )
@@ -75,6 +80,8 @@ async def _ensure_cluster(
     shared_directory: Path,
     *,
     reuse: bool,
+    host_port: int = 18010,
+    node_port: int = 30010,
 ) -> None:
     clusters = set((await _command("kind", "get", "clusters")).split())
     if environment.cluster in clusters:
@@ -91,7 +98,11 @@ async def _ensure_cluster(
         "--name",
         environment.cluster,
         "--config=-",
-        input_text=_kind_config(shared_directory),
+        input_text=_kind_config(
+            shared_directory,
+            host_port=host_port,
+            node_port=node_port,
+        ),
     )
 
 

@@ -1,0 +1,161 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ex-agent-api
+  labels:
+    app.kubernetes.io/name: ex-agent-api
+    app.kubernetes.io/part-of: ex-agent-cutover-e2e
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ex-agent-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ex-agent-api
+        app.kubernetes.io/part-of: ex-agent-cutover-e2e
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 40
+      hostAliases:
+        - ip: "10.250.110.99"
+          hostnames: ["model.frodo.com"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: api
+          image: ex-agent:cutover-target
+          imagePullPolicy: Never
+          args: ["ex-agent-api"]
+          envFrom:
+            - configMapRef:
+                name: ex-agent-runtime
+            - secretRef:
+                name: ex-agent-runtime
+          ports:
+            - name: http
+              containerPort: 8010
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 2
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: executor-shared
+              mountPath: /workspace/shared
+      volumes:
+        - name: executor-shared
+          hostPath:
+            path: /workspace/shared
+            type: Directory
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ex-agent-api
+  labels:
+    app.kubernetes.io/name: ex-agent-api
+    app.kubernetes.io/part-of: ex-agent-cutover-e2e
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: ex-agent-api
+  ports:
+    - name: http
+      port: 8010
+      targetPort: http
+      nodePort: 30011
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ex-agent-worker
+  labels:
+    app.kubernetes.io/name: ex-agent-worker
+    app.kubernetes.io/part-of: ex-agent-cutover-e2e
+spec:
+  replicas: 0
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ex-agent-worker
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ex-agent-worker
+        app.kubernetes.io/part-of: ex-agent-cutover-e2e
+    spec:
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 40
+      hostAliases:
+        - ip: "10.250.110.99"
+          hostnames: ["model.frodo.com"]
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: worker
+          image: ex-agent:cutover-target
+          imagePullPolicy: Never
+          args: ["ex-agent-worker"]
+          envFrom:
+            - configMapRef:
+                name: ex-agent-runtime
+            - secretRef:
+                name: ex-agent-runtime
+          env:
+            - name: WORKER_INSTANCE_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          ports:
+            - name: health
+              containerPort: 8011
+          startupProbe:
+            httpGet:
+              path: /health/live
+              port: health
+            periodSeconds: 2
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: health
+            periodSeconds: 10
+            timeoutSeconds: 3
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: health
+            periodSeconds: 2
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: executor-shared
+              mountPath: /workspace/shared
+      volumes:
+        - name: executor-shared
+          hostPath:
+            path: /workspace/shared
+            type: Directory

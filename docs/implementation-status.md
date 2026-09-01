@@ -153,6 +153,12 @@
   제품 event·Session lock·두 Redis group pending/lag를 두 번 읽어 drain이
   안정적으로 끝났을 때만 성공한다. 전환 runbook과 Kubernetes Job 예시는
   `deploy/worker-cutover/`에 둔다.
+- 실제 Git snapshot `391a818` 레거시 이미지와 현재 통합 이미지를 별도 kind
+  cluster에서 전환했다. 레거시 smoke 성공과 두 번의 안정 drain 후 API/Worker
+  Pod 0개를 확인한 다음에만 새 migration과 통합 Pod를 기동했다. 통합 Executor
+  smoke는 Task/Execution 성공, Session checkpoint 25개, Agent/Worker binding
+  단일성, 완료 event 1개, Redis pending·미완료 command·outbox·Session lock
+  0건으로 수렴했다. 재현 스크립트와 기록은 `deploy/cutover-e2e/`에 있다.
 - API는 liveness `/healthz`와 dependency-aware `/readyz`, 통합 Worker는
   `/health/live`와 `/health/ready`를 분리한다.
   API PostgreSQL·Redis probe와 Worker의 Redis·DB·Agent runtime 확인은 timeout을
