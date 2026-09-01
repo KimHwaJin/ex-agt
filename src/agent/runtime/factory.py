@@ -23,6 +23,8 @@ from agent.failure.service import FailureService
 from agent.failure.store import FailureStore
 from agent.graph import build_session_graph
 from agent.integrations.langgraph_adapter import SessionGraphAdapter
+from agent.projections import TaskStateProjector
+from agent.runtime.delivery import ProductEventRecovery
 from agent.runtime.lifecycle import AgentRuntime
 from agent.services import SessionWorkflowServices
 from ex_agent.config import Settings
@@ -34,7 +36,7 @@ from ex_agent.persistence.database import (
 )
 from ex_agent.persistence.repository import AgentRepository
 from ex_agent.tools.registry import ToolRegistry
-from worker.runtime import ExecutorWorker
+from ex_agent.transport.streams import ProductEventPublisher
 
 
 @dataclass(frozen=True)
@@ -47,12 +49,14 @@ class AgentRuntimeResources:
     lifecycle: AgentRuntime
     repository: AgentRepository
     executor: ExecutorClient
+    engine: Any
+    registry: ToolRegistry
 
 
 @asynccontextmanager
 async def open_agent_runtime(
     settings: Settings,
-    worker: ExecutorWorker,
+    worker: Any,
     checkpointer: Any,
     *,
     model: BaseChatModel | None = None,
@@ -75,14 +79,16 @@ async def open_agent_runtime(
     try:
         if verify_schema:
             await _verify_schema(sessions, worker, checkpointer)
+        resolved_model = model or build_chat_model(settings)
+        resolved_embeddings = embeddings or build_embeddings(settings)
         services = SessionWorkflowServices(
             settings,
             repository,
             executor_client,
             registry,
             sessions=sessions,
-            model=model or build_chat_model(settings),
-            embeddings=embeddings or build_embeddings(settings),
+            model=resolved_model,
+            embeddings=resolved_embeddings,
         )
         graph = build_session_graph(
             services,
@@ -90,7 +96,13 @@ async def open_agent_runtime(
             checkpointer=checkpointer,
         )
         requests = RequestStore(sessions)
-        admission = AdmissionService(graph, worker.guard, requests)
+        projector = TaskStateProjector(sessions)
+        admission = AdmissionService(
+            graph,
+            worker.guard,
+            requests,
+            snapshot_projector=projector,
+        )
         effects = EffectStore(sessions)
         sender = ExecutorEffectSender(settings, executor_client)
         failure = FailureService(
@@ -119,8 +131,19 @@ async def open_agent_runtime(
                 batch_size=settings.agent_recovery_batch_size,
                 poll_seconds=(settings.agent_failure_recovery_poll_seconds),
             ),
+            ProductEventRecovery(
+                ProductEventPublisher(
+                    settings,
+                    repository,
+                    worker.redis,
+                ),
+                poll_seconds=settings.outbox_poll_milliseconds / 1000,
+                idle_seconds=settings.outbox_idle_max_milliseconds / 1000,
+            ),
         )
-        adapter = failure.protect(SessionGraphAdapter(graph))
+        adapter = failure.protect(
+            SessionGraphAdapter(graph, snapshot_projector=projector)
+        )
         resources = AgentRuntimeResources(
             graph=graph,
             admission=admission,
@@ -128,6 +151,8 @@ async def open_agent_runtime(
             lifecycle=lifecycle,
             repository=repository,
             executor=executor_client,
+            engine=engine,
+            registry=registry,
         )
         yield resources
     finally:

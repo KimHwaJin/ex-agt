@@ -2,7 +2,7 @@
 
 `build_session_graph()`는 기존 분석 업무 노드와 `src/worker`를 연결하는
 실제 LangGraph 정의다. `session_id = thread_id`이며, 한 세션에서 여러 Task를
-순차 수행한다. **아직 운영 진입점으로 전환한 단계는 아니다.**
+순차 수행한다. FastAPI와 Worker의 운영 진입점도 이 공통 runtime을 사용한다.
 
 ## 소스 역할
 
@@ -17,6 +17,8 @@
 | `services.py` | 요청 복구를 적용한 세션 그래프 업무 서비스 |
 | `effects/` | Executor 요청·응답 기록과 멱등 DB 반영 |
 | `runtime/` | API/Worker 공통 factory, 설정 변환, 복구 supervision |
+| `api_host.py` | FastAPI용 checkpointer·guard·runtime lifespan 조립 |
+| `projections.py` | checkpoint의 상태·interrupt ID 멱등 projection |
 | `integrations/langgraph_adapter.py` | Worker 이벤트를 실행 대기 지점에 전달 |
 | `integrations/worker_hooks.py` | Executor 이벤트 타입 registry |
 | `worker_main.py` | 실제 runtime factory를 사용하는 Worker 진입점 |
@@ -99,18 +101,14 @@ START의 Task와 접수 기록을 함께 저장하므로 기존 create_task를 �
 구체적인 자원 수명과 Worker 실행은 [runtime 안내](runtime/README.md)를 참고한다.
 `agent.worker_main`은 같은 factory와 실패 보호 handler를 실제로 사용한다.
 
-## 배포 전 남은 필수 작업
+## 남은 전환 작업
 
-1. 구현한 runtime을 FastAPI lifespan과 실제 Task/승인/취소 라우터에 연결한다.
-   기존 API는 아직 구 durable command 경로를 사용하므로 새 Worker와 동시에
-   활성화하지 않는다.
-2. 비최종 Task 상태·`current_interrupt`를 화면용 DB projection에 반영한다.
-3. 인증된 `BLOCKED` 조회·재시도/수동 종료 운영 API를 추가한다.
-4. 장기 세션 채팅 금지는 업무 DB에서, 짧은 호출 상호배제는 SessionGuard에서
+1. 인증된 `BLOCKED` 조회·재시도/수동 종료 운영 API를 추가한다.
+2. 장기 세션 채팅 금지는 업무 DB에서, 짧은 호출 상호배제는 SessionGuard에서
    담당한다. API·Worker 양쪽에서 이 정책을 유지하고 성공 리포트 저장까지 잠근다.
-5. FastAPI/Agent Chat UI·배포 진입점을 전환하고 실제 Executor·모델을 검증한 뒤
-   구 Worker와 임시 import를 제거한다. 그 전에 새 그래프의 비최종 상태와
-   current_interrupt를 화면용 Task DB에 반영하는 호스트 연결도 필요하다.
+3. 실제 Executor·모델 종단 시나리오와 K8s 롤링 전환을 검증한 뒤 구 Worker,
+   WorkflowCommand 처리 경로와 임시 `ex_agent` 업무 import를 제거한다.
+4. 장기 세션 대화 컨텍스트·영수증 보존 기간과 압축 정책을 정한다.
 
 2A는 대체 업무 서비스를, 2B/2C/2D/2E는 실제 외부 요청·업무 DB·접수·실패·
 runtime 복구를 검증한다.

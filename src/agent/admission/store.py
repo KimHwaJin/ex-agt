@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from agent.admission.contracts import ApiRequest, RequestRecord
 from agent.admission.models import ApiRequestRow
 from agent.failure.models import FailureCleanup
-from agent.session import SessionConflictError
+from agent.session import SessionBusyError, SessionConflictError
 from ex_agent.domain.enums import TaskStatus
 from ex_agent.persistence.database import transaction
 from ex_agent.persistence.models import Message, SessionLock, Task, TaskEvent
@@ -66,14 +66,14 @@ class RequestStore:
                     validate_command(_record(existing), command)
                     return _record(existing)
                 active = await session.scalar(
-                    select(ApiRequestRow.request_id).where(
+                    select(ApiRequestRow.task_id).where(
                         ApiRequestRow.session_id == command.turn.session_id,
                         ApiRequestRow.state.in_(ACTIVE),
                     )
                 )
                 if active is not None:
-                    raise SessionConflictError(
-                        "Session has a pending API request"
+                    raise SessionBusyError(
+                        str(active), "Session has a pending API request"
                     )
                 await _admit_task(session, command)
                 row = ApiRequestRow(
@@ -228,7 +228,8 @@ async def _admit_task(session: AsyncSession, command: ApiRequest) -> None:
         .limit(1)
     )
     if (lock and lock.locked) or unfinished is not None:
-        raise SessionConflictError("Session has unfinished work")
+        active_task_id = lock.active_task_id if lock and lock.locked else None
+        raise SessionBusyError(str(active_task_id or unfinished))
     session.add(
         Task(
             id=task_id,

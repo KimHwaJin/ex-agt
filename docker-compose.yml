@@ -65,7 +65,7 @@ services:
 
   migrate:
     build: .
-    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+    command: ["ex-agent-migrate"]
     environment: &agent-environment
       AGENT_DATABASE_URL: >-
         ${AGENT_DATABASE_URL:-postgresql+psycopg://agent:agent@host.docker.internal:5432/agent}
@@ -215,7 +215,8 @@ services:
         - -c
         - >-
           import urllib.request;
-          urllib.request.urlopen('http://127.0.0.1:8011/readyz', timeout=3)
+          urllib.request.urlopen('http://127.0.0.1:8011/health/ready',
+          timeout=3)
       interval: 10s
       timeout: 5s
       retries: 3
@@ -229,7 +230,7 @@ services:
   test-migrate:
     build: .
     profiles: ["test"]
-    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+    command: ["ex-agent-migrate"]
     environment:
       <<: *agent-environment
       AGENT_DATABASE_URL: >-

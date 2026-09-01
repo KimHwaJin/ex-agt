@@ -4,9 +4,9 @@
 소비·Inbox/Outbox 구현을 이동했으며 별도 소스 복사본은 유지하지 않는다.
 이 README가 문서 진입점이며 기능·연결·DB 초기화·과거 검증 문서는 docs/에 있다.
 
-공통 Worker 편입은 완료됐고 2E에서 `agent.worker_main`의 실제 Agent runtime
-연결까지 구현했다. 기존 ex_agent API/Worker 배포 명령은 아직 구 경로를 유지한다.
-FastAPI 라우터 전환 전 새 Worker를 동시에 활성화하면 안 된다.
+공통 Worker 편입과 `agent.worker_main`의 실제 Agent runtime 연결을 완료했다.
+`ex-agent-worker`는 이 진입점을 실행하고 FastAPI도 같은 runtime factory로 직접
+admission한다. 이전 `ex_agent.worker_main`과 동시에 실행하지 않는다.
 
 ## 위치와 책임
 
@@ -32,7 +32,8 @@ worker는 agent/api/ex_agent/LangGraph/FastAPI를 import하지 않는다.
 사용하지 않는다. 기존 langgraph dev 환경을 함께 쓰면 --group chat-ui도 추가한다.
 
 ```bash
-uv sync --frozen --no-editable --group chat-ui
+uv sync --frozen --no-editable --group chat-ui \
+  --reinstall-package ex-agent
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
 uv run --no-sync ty check
@@ -51,8 +52,7 @@ ex-agent-worker-foundation-test라는 별도 프로젝트의 임시 PostgreSQL·
 배포 전 한 번씩 필요한 migration을 Job으로 수행한다. 시작 시 자동 DDL은 없다.
 
 ```bash
-uv run --no-sync --env-file .env \
-  alembic -c worker_migrations/alembic.ini upgrade head
+uv run --no-sync --env-file .env ex-agent-migrate
 ```
 
 EW_DATABASE_URL은 psycopg PostgreSQL URL, EW_REDIS_URL은 Redis URL이다.
@@ -65,10 +65,9 @@ Agent runtime Worker를 시작하는 명령:
 uv run --no-sync --env-file .env python -m agent.worker_main
 ```
 
-factory는 구현됐지만 아직 이 명령을 기존 ex-agent-worker의 배포 대체로 사용하지
-않는다. 먼저 API 라우터를 같은 admission/runtime 경로로 전환해야 한다.
+루트 `ex-agent-worker` console script도 같은 entrypoint를 가리킨다.
 [연결 가이드](docs/agent-integration.md)와 [전환 계획](../../docs/worker-centered-refactor.md)의
-완료 조건을 확인한다. root Docker runtime의 기본 CMD도 아직 기존 API다.
+완료 조건을 확인한다. root Docker runtime의 기본 CMD는 직접 admission API다.
 
 ## 전달과 복구 계약
 

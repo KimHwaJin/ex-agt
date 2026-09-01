@@ -32,6 +32,7 @@ class AdmissionService:
         max_attempts: int = 5,
         retry_seconds: float = 5,
         invocation_timeout: float = 360,
+        snapshot_projector: Any | None = None,
     ) -> None:
         if max_attempts < 1 or retry_seconds <= 0 or invocation_timeout <= 0:
             raise ValueError("Recovery budgets must be positive")
@@ -41,6 +42,7 @@ class AdmissionService:
         self.max_attempts = max_attempts
         self.retry_seconds = retry_seconds
         self.invocation_timeout = invocation_timeout
+        self.snapshot_projector = snapshot_projector
 
     async def handle(self, command: ApiRequest) -> RequestRecord:
         """Normal router path: persist admission, then directly invoke."""
@@ -112,6 +114,7 @@ class AdmissionService:
                     except UnsafeRecoveryError:
                         complete = False
                     if complete:
+                        await self._project(before)
                         return await self.store.finish(
                             existing, state="APPLIED"
                         )
@@ -158,6 +161,7 @@ class AdmissionService:
                 raise UnsafeRecoveryError(
                     "Graph returned with unfinished API work"
                 )
+            await self._project(after)
             return await self.store.finish(record, state="APPLIED")
         except UnsafeRecoveryError as error:
             return await self.store.finish(
@@ -176,6 +180,10 @@ class AdmissionService:
                     300, self.retry_seconds * 2 ** min(record.attempts - 1, 6)
                 ),
             )
+
+    async def _project(self, snapshot: Any) -> None:
+        if self.snapshot_projector is not None:
+            await self.snapshot_projector(snapshot)
 
 
 def checkpoint_id(snapshot: Any) -> str | None:

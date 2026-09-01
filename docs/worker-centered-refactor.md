@@ -26,10 +26,10 @@
 | 4 | Docker/Compose/K8s 실행 경로 전환 | 실제 구성에서 전체 업무 시나리오 통과 |
 | 5 | 구형 워커·중복 저장 경로·임시 호환 코드 제거 | 역의존·구 import·미사용 배포 참조 없음 |
 
-1단계에서는 ex_agent의 실행 동작, API 응답 계약, 기존 DB migration을 바꾸지 않았다.
-이후 2E에서 `src/agent/worker_main.py`를 실제 runtime factory에 연결했다.
-`ex-agent-api`, `ex-agent-worker`, langgraph dev의 기존 실행 경로는 API 전환
-시점까지 그대로 유지한다.
+1단계에서는 ex_agent의 실행 동작과 기존 배포를 유지했다. 2E에서
+`src/agent/worker_main.py`를 실제 runtime factory에 연결했고, 3단계에서 FastAPI
+START/RESUME/CANCEL을 직접 admission으로 전환했다. `ex-agent-worker`도 새
+entrypoint를 사용한다. 구·신 워커의 동시 실행은 허용하지 않는다.
 
 ## 저장과 실행 계약 — 단계별 구현 기준
 
@@ -93,6 +93,15 @@ DLQ 발행·ACK·재시도 테스트 및 기존 서비스 운영 도구 테스�
 
 ## 진행 기록
 
+- 3단계: FastAPI lifespan에 공통 runtime/checkpointer/SessionGuard를 연결했다.
+  요청은 `agent_api_requests`에 먼저 기록하고 세션 그래프를 직접 invoke한다.
+- checkpoint의 비최종 Task 상태와 interrupt ID를 멱등 projection하며, API와
+  Worker 어느 쪽에서 다음 interrupt에 도달해도 화면 조회가 복원된다.
+- 구 WorkflowCommand를 발행하지 않는 제품 이벤트 전용 outbox relay를 runtime에
+  추가해 SSE Redis wake-up 계약을 보존했다.
+- `ex-agent-migrate`가 Agent·Worker Alembic과 LangGraph checkpoint schema를
+  배포 시점에 초기화한다. API/Worker 시작 시 DDL은 수행하지 않는다.
+
 - 준비: 기존 서비스 로컬 기준 261 passed, 52 skipped.
 - 준비: 현재 소스와 인수인계 자료를 391a818에 보존. 개인 .env·캐시 및
   별도 복사 문서 `worker-handoff-guide 2.md`는 포함하거나 변경하지 않았다.
@@ -115,7 +124,8 @@ DLQ 발행·ACK·재시도 테스트 및 기존 서비스 운영 도구 테스�
 저장소 루트에서 실행한다. 운영 Compose 프로젝트 이름을 사용하지 않는다.
 
 ```bash
-uv sync --frozen --no-editable --group chat-ui
+uv sync --frozen --no-editable --group chat-ui \
+  --reinstall-package ex-agent
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
 uv run --no-sync ty check
@@ -298,9 +308,8 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
   없으면 Worker의 UUID 기본값을 사용한다.
 - 공통 Worker readiness에 범용 host check 등록 지점을 추가했다. 새 Agent Worker는
   DB·Redis·consumer뿐 아니라 복구 loop가 모두 살아 있어야 ready다.
-- `agent.worker_main`은 더 이상 demo나 미구현 graph hook을 사용하지 않는다. 실제
-  factory와 실패 보호 handler를 연결하되 기존 `ex-agent-worker` 배포 명령은 API
-  라우터 전환까지 유지한다.
+- `agent.worker_main`은 더 이상 demo나 미구현 graph hook을 사용하지 않는다. 당시
+  factory와 실패 보호 handler를 연결하고 API 전환 전까지 구 배포 명령을 유지했다.
 - runtime은 시작 시 schema를 읽기 검증하지만 migration이나 checkpoint setup을
   실행하지 않는다. 초기화는 계속 배포 Job 책임이다.
 
@@ -315,15 +324,13 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
 - 실제 PostgreSQL/Redis/checkpointer 테스트는 공통 factory 조립과 runtime을 포함한
   Worker readiness를 확인한다. 모델은 결정적 대역이며 실제 Executor는 호출하지 않는다.
 
-### 다음 단계 — API와 화면 전환
+### 3단계 이후 남은 작업
 
-1. 비최종 Task 상태·current_interrupt의 DB 반영을 새 호스트에 붙인다.
-   현재 이 부분은 구 runner에 남아 있으므로 새 그래프 모듈만으로 기존 Task 조회
-   API의 진행/취소/승인 대기 표시가 자동 완성되는 것은 아니다.
-2. 인증된 BLOCKED 조회·재시도/수동 종료 API를 설계한다. 실행 증거 없이 잠금을
+1. 인증된 BLOCKED 조회·재시도/수동 종료 API를 설계한다. 실행 증거 없이 잠금을
    강제로 지우는 기능은 제공하지 않는다.
-3. FastAPI/Chat UI·Docker/Compose/K8s 진입점을 전환하고 실제 Executor·모델을
-   검증한 뒤 구 Worker/임시 import를 제거한다. 활성 작업 전환 정책을 먼저 정한다.
+2. 실제 Executor·모델과 K8s 롤링 전환을 검증한 뒤 구 Worker/WorkflowCommand와
+   임시 import를 제거한다. 활성 작업 drain 또는 명시적 중단 정책을 먼저 정한다.
+3. 장기 세션의 대화 컨텍스트와 checkpoint·영수증 보존/압축 정책을 정한다.
 
-기존 운영 배포 경로는 아직 유지한다. 2E 검증 통과만으로 운영 전환하거나
-`ex_agent`를 삭제하지 않는다.
+API와 Worker 진입점은 새 경로로 전환했지만 실제 운영 클러스터에는 아직 배포하지
+않았다. 종단 검증과 활성 작업 전환 없이 `ex_agent`를 삭제하지 않는다.

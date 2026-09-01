@@ -66,7 +66,7 @@ def test_api_readiness_returns_dependency_status(
         return _result(ready=True)
 
     monkeypatch.setattr(health_module, "probe_dependencies", probe)
-    with TestClient(create_app(Settings())) as client:
+    with TestClient(create_app(Settings(), start_runtime=False)) as client:
         response = client.get("/readyz")
 
     assert response.status_code == 200
@@ -81,7 +81,7 @@ def test_api_readiness_returns_503_when_dependency_is_unavailable(
         return _result(ready=False)
 
     monkeypatch.setattr(health_module, "probe_dependencies", probe)
-    with TestClient(create_app(Settings())) as client:
+    with TestClient(create_app(Settings(), start_runtime=False)) as client:
         response = client.get("/readyz")
 
     assert response.status_code == 503

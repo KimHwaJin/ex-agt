@@ -21,8 +21,9 @@ class SessionGraphAdapter:
     This is not a universal adapter for arbitrary Agent state schemas.
     """
 
-    def __init__(self, graph: Any) -> None:
+    def __init__(self, graph: Any, snapshot_projector: Any = None) -> None:
         self.graph = graph
+        self.snapshot_projector = snapshot_projector
 
     async def __call__(self, context: EventContext) -> None:
         config = {
@@ -41,6 +42,7 @@ class SessionGraphAdapter:
         receipt = receipts.get(command_id)
         expected_owner = {"source": "EXECUTOR", "id": command_id}
         owner = values.get("invocation_owner")
+        await self._project(snapshot)
         if receipt is not None:
             if receipt != str(context.event.event_id):
                 raise RejectEvent("Command receipt identity mismatch")
@@ -56,6 +58,8 @@ class SessionGraphAdapter:
                 and values.get("execution_id") == str(context.execution_id)
             ):
                 await self.graph.ainvoke(None, config, durability="sync")
+                snapshot = await self.graph.aget_state(config)
+                await self._project(snapshot)
             return
         if not values:
             raise DeferEvent("API has not checkpointed the execution yet")
@@ -106,7 +110,12 @@ class SessionGraphAdapter:
         else:
             raise DeferEvent("Expected exactly one Executor wait")
         after = await self.graph.aget_state(config)
+        await self._project(after)
         if after.values.get("ew_receipts", {}).get(command_id) != (
             str(context.event.event_id)
         ):
             raise DeferEvent("Handler has not recorded its receipt yet")
+
+    async def _project(self, snapshot: Any) -> None:
+        if self.snapshot_projector is not None:
+            await self.snapshot_projector(snapshot)

@@ -5,7 +5,7 @@ from ex_agent.config import Settings
 
 
 def test_api_exposes_prometheus_metrics() -> None:
-    with TestClient(create_app(Settings())) as client:
+    with TestClient(create_app(Settings(), start_runtime=False)) as client:
         response = client.get("/metrics")
 
     assert response.status_code == 200

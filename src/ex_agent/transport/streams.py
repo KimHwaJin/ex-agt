@@ -22,10 +22,11 @@ class CommandPublisher:
         self._settings = settings
         self._repository = repository
         self._redis = redis
+        self.events = ProductEventPublisher(settings, repository, redis)
 
     async def publish_pending(self) -> int:
         command_count = await self._publish_pending_commands()
-        event_count = await self._publish_pending_task_events()
+        event_count = await self.events.publish_pending()
         return command_count + event_count
 
     async def _publish_pending_commands(self) -> int:
@@ -79,7 +80,21 @@ class CommandPublisher:
         )
         return len(published_ids)
 
-    async def _publish_pending_task_events(self) -> int:
+
+class ProductEventPublisher:
+    """Relay only UI-facing Task events, never legacy graph commands."""
+
+    def __init__(
+        self,
+        settings: Settings,
+        repository: AgentRepository,
+        redis: Redis,
+    ) -> None:
+        self._settings = settings
+        self._repository = repository
+        self._redis = redis
+
+    async def publish_pending(self) -> int:
         events = await self._repository.claim_pending_task_events(
             limit=self._settings.outbox_batch_size,
             claim_timeout_seconds=(
