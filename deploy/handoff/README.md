@@ -1,9 +1,9 @@
 # Kubernetes: API+Agent와 Worker를 같은 Pod에 배포
 
-[api-agent-worker.yaml.example](api-agent-worker.yaml.example)은
-**인수 서비스의 어댑터/entrypoint를 구현한 뒤 치환하는 배포 템플릿**이다.
-현재 ex-agent 서비스를 그대로 배포하거나 예제 Agent 서버를 즉시 실행하는
-manifest가 아니다. 클러스터에는 적용하지 않았다.
+[api-agent-worker.yaml.example](api-agent-worker.yaml.example)은 동일 이미지에서
+API+Agent와 Worker를 별도 컨테이너로 실행하는 배포 템플릿이다. 이미지·Secret,
+Executor Service와 PVC 이름은 환경에 맞게 치환해야 하며 클러스터에는 적용하지
+않았다.
 
 ```text
 Deployment: handoff-agent
@@ -46,10 +46,9 @@ Kubernetes `command`를 지정하면 이미지 ENTRYPOINT를 대체하므로 tin
 각 컨테이너에 실행 프로세스 하나를 두어 로그·종료·resource limit을 나눈다.
 Worker용 HTTP 서버가 있다면 상태/지표 확인용이며 Agent resume API가 아니다.
 
-현재 루트 Dockerfile의 runtime에는 `examples/`가 복사되지 않는다.
-`ex-agent-api`는 여전히 START를 Worker에 맡기는 구현이다.
-따라서 원본 이미지의 명령만 바꾸면 이번 대상 구조가 완성되는 것은 아니다.
-`your_agent.api:app` / `your_agent.worker_main`은 **인수자가 구현할 모듈명**이다.
+현재 루트 이미지의 `ex-agent-api`와 `ex-agent-worker`가 각각 직접 admission API와
+Executor resume Worker를 실행한다. 인수 서비스는 템플릿의 모듈명을 자신의
+패키지명으로 바꾸고 동일한 runtime/checkpoint 계약을 유지한다.
 
 ## 2. 배포 전 연결할 항목
 

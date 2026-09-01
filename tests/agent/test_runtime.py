@@ -89,6 +89,24 @@ async def test_runtime_supervises_worker_and_both_recovery_loops():
     assert not await runtime.ready()
 
 
+async def test_runtime_supervises_product_event_relay():
+    request, failure, delivery = Recovery(), Recovery(), Recovery()
+    runtime = AgentRuntime(request, failure, delivery)
+
+    task = asyncio.create_task(runtime.run_recovery())
+    await asyncio.gather(
+        request.started.wait(),
+        failure.started.wait(),
+        delivery.started.wait(),
+    )
+    assert await runtime.ready()
+
+    runtime.request_stop()
+    await task
+
+    assert delivery.stopped.is_set()
+
+
 async def test_api_recovery_lifespan_starts_and_joins_both_loops():
     request, failure = Recovery(), Recovery()
     runtime = AgentRuntime(request, failure)

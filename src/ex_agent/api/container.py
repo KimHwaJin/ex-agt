@@ -1,3 +1,5 @@
+from typing import Any
+
 from fastapi import Depends, Request
 from redis.asyncio import Redis
 
@@ -21,12 +23,27 @@ from ex_agent.tools.registry import ToolRegistry
 
 
 class ApiContainer:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        engine: Any | None = None,
+        repository: AgentRepository | None = None,
+        redis: Redis | None = None,
+        registry: ToolRegistry | None = None,
+        admission: Any | None = None,
+        runtime_lifecycle: Any | None = None,
+    ) -> None:
         self.settings = settings
-        self.engine = create_engine(settings.agent_database_url)
-        self.repository = AgentRepository(create_session_factory(self.engine))
-        registry = ToolRegistry(settings.agent_skill_root)
-        registry.load()
+        self._owns_engine = engine is None
+        self._owns_redis = redis is None
+        self.engine = engine or create_engine(settings.agent_database_url)
+        self.repository = repository or AgentRepository(
+            create_session_factory(self.engine)
+        )
+        if registry is None:
+            registry = ToolRegistry(settings.agent_skill_root)
+            registry.load()
         self.promotions = WorkflowPromotionService(
             settings,
             self.repository,
@@ -38,16 +55,37 @@ class ApiContainer:
             self.repository,
             self.promotions,
         )
-        self.redis = Redis.from_url(
-            settings.agent_redis_url,
-            decode_responses=True,
+        self.redis = redis or Redis.from_url(
+            settings.agent_redis_url, decode_responses=True
         )
+        self.admission = admission
+        self.runtime_lifecycle = runtime_lifecycle
         self.identity: IdentityProvider = TrustedHeaderIdentityProvider()
         record_readiness("api", ReadinessResult.starting())
 
     async def close(self) -> None:
-        await self.redis.aclose()
-        await self.engine.dispose()
+        if self._owns_redis:
+            await self.redis.aclose()
+        if self._owns_engine:
+            await self.engine.dispose()
+
+    @classmethod
+    def from_runtime(
+        cls,
+        settings: Settings,
+        *,
+        runtime: Any,
+        redis: Redis,
+    ) -> "ApiContainer":
+        return cls(
+            settings,
+            engine=runtime.engine,
+            repository=runtime.repository,
+            redis=redis,
+            registry=runtime.registry,
+            admission=runtime.admission,
+            runtime_lifecycle=runtime.lifecycle,
+        )
 
 
 def api_container(request: Request) -> ApiContainer:

@@ -31,6 +31,20 @@ class SessionConflictError(ValueError):
     """Reject a stale or conflicting request before writing a checkpoint."""
 
 
+class SessionBusyError(SessionConflictError):
+    """The session already has one unfinished Task or admitted request."""
+
+    def __init__(
+        self,
+        active_task_id: str,
+        message: str | None = None,
+    ) -> None:
+        super().__init__(
+            message or f"Session is busy with task {active_task_id}"
+        )
+        self.active_task_id = active_task_id
+
+
 def validate_user_decision(boundary: dict, signal: ResumeSignal) -> None:
     if isinstance(signal, PlanReviewDecision):
         values = signal.model_dump(mode="json")

@@ -15,9 +15,11 @@ class AgentRuntime:
         self,
         request_recovery: Any,
         failure_recovery: Any,
+        product_event_recovery: Any | None = None,
     ) -> None:
         self.request_recovery = request_recovery
         self.failure_recovery = failure_recovery
+        self.product_event_recovery = product_event_recovery
         self._stop = asyncio.Event()
         self._started = asyncio.Event()
         self._stopped = asyncio.Event()
@@ -98,6 +100,13 @@ class AgentRuntime:
                         )
                     ),
                 }
+                if self.product_event_recovery is not None:
+                    self._tasks["product-event-recovery"] = group.create_task(
+                        self._supervise(
+                            "product event recovery",
+                            self.product_event_recovery.run(self._stop),
+                        )
+                    )
                 if worker is not None:
                     self._tasks["worker"] = group.create_task(
                         self._run_worker(worker)

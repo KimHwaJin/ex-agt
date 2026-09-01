@@ -4,24 +4,24 @@ LangGraph 상태 머신과 LangChain `create_agent()` middleware를 사용하는
 데이터 분석/코드 실행 Agent BFF다. 승인된 코드는 Executor REST API로 제출하고
 Executor Redis event에서 workflow를 재개한다.
 
-## 워커 중심 구조 전환 진행 중
+## API+Agent / Worker 구조
 
 공통 워커는 [src/worker](src/worker)로 편입했고, 그래프 연결·시작 코드는
 src/agent로 이동했다. [현재 워커 안내](src/worker/README.md)와
 [전환 계획·검증 상태](docs/worker-centered-refactor.md)를 참고한다.
-현재는 [공통 runtime 연결 2E](src/agent/README.md)까지 구현했으며,
-기존 API/Worker/Agent Chat UI 실행 경로는 유지한다. 새 `agent.worker_main`은 실제
-factory를 사용하지만 FastAPI 라우터 전환 전에는 기존 Worker와 함께 배포하지 않는다.
+FastAPI는 요청을 세션 그래프에 직접 접수·invoke하고, Worker는 Executor 이벤트를
+Inbox/Outbox로 내구성 있게 전달해 같은 그래프를 resume한다. 두 프로세스는
+`session_id = thread_id`인 PostgreSQL checkpoint와 Redis SessionGuard를 공유한다.
 
 ## 개발 명령
 
-기존 API/Worker 컨테이너를 그대로 두고 **Agent Chat UI에서 테스트**하려면
+API/Worker 컨테이너와 **Agent Chat UI를 함께 테스트**하려면
 [Agent Chat UI Testing](docs/agent-chat-ui-testing.md)을 참고한다.
-로컬 `langgraph dev`에 UI 연결 그래프만 추가하며 업무 그래프 실행은
-기존 Redis Worker에서 유지한다.
+로컬 `langgraph dev`는 UI 연결 그래프를 제공하고, 업무 START/RESUME은 API가,
+Executor 이벤트 resume은 Worker가 처리한다.
 
 ```bash
-uv sync --no-editable
+uv sync --frozen --group dev --no-editable --reinstall-package ex-agent
 uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
 uv run --no-sync ty check
@@ -59,8 +59,8 @@ Liveness/readiness 계약과 Prometheus 경보 기준은
 [Worker 인수인계 가이드](docs/worker-handoff-guide.md)에 보존했다.
 이전 Task 기반 [연결 예제](examples/api_agent_worker/README.md)와
 [동일 Pod 배포 템플릿](deploy/handoff/README.md)도 참조용으로 보존한다.
-현재 서비스 실행 구조를 바꾼 것은 아니며, 기존 Worker 중심 구현은
-[현재 서비스 참조](docs/worker-reference-implementation.md)에 별도 정리했다.
+이전 Worker 중심 구현은
+[과거 서비스 참조](docs/worker-reference-implementation.md)에 별도 보존했다.
 현재 모듈 경계와 허용 import 방향은
 [Project Structure](docs/project-structure.md)를 참고한다.
 공통 audit 필드, cursor pagination과 OpenAPI 규칙은
@@ -117,13 +117,15 @@ Executor의 `executor.events`를 같은 Redis에서 소비하는 배치라면
 - `POST /api/v1/workflows/{workflow_id}/status`
 
 BFF는 모든 요청에 신뢰된 `X-User-ID`를 전달한다. Task 생성 시 BFF가
-채번한 `task_id`와 `input_message_id`를 body에 넣는다. API는 작업을
-PostgreSQL durable outbox에 먼저 저장하고 즉시 `202`를 반환한다. Worker의
-outbox relay가 Redis Stream에 배치 발행하며 Graph는 worker에서만
-invoke/resume한다.
+채번한 `task_id`와 `input_message_id`를 body에 넣는다. API는 Task와 요청 원장을
+한 트랜잭션으로 저장한 뒤 같은 세션 guard에서 Graph를 직접 invoke한다. 승인·수정·
+취소도 현재 interrupt ID와 함께 접수하며, 응답 유실이나 API 종료 시 요청 복구
+loop가 checkpoint 증거를 확인해 이어 간다. Worker는 Executor 이벤트만 받아
+Graph를 resume한다.
 
-SSE의 재연결·누락 복구 원본은 PostgreSQL event history다. 실시간 wake-up은
-Task별 Redis Pub/Sub을 사용하므로 연결마다 주기적으로 DB를 polling하지 않는다.
+Task의 비최종 상태와 interrupt ID는 checkpoint에서 멱등 projection한다. SSE의
+재연결·누락 복구 원본은 PostgreSQL event history이며, 공통 runtime의 제품 이벤트
+outbox relay가 Task별 Redis Pub/Sub을 깨운다.
 
 기본 LLM은 내부 vLLM OpenAI 호환 endpoint
 `http://model.frodo.com/v1`의 `qwen38-27b-fp8`이다. Compose는

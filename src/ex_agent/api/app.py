@@ -15,17 +15,28 @@ from ex_agent.api.routers.workflows import workflow_router
 from ex_agent.config import Settings, get_settings
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    *,
+    start_runtime: bool = True,
+) -> FastAPI:
     resolved = settings or get_settings()
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        container = ApiContainer(resolved)
-        app.state.container = container
-        try:
-            yield
-        finally:
-            await container.close()
+        if start_runtime:
+            from agent.api_host import open_api_container
+
+            async with open_api_container(resolved) as container:
+                app.state.container = container
+                yield
+        else:
+            container = ApiContainer(resolved)
+            app.state.container = container
+            try:
+                yield
+            finally:
+                await container.close()
 
     app = FastAPI(
         title="Execution Agent API",
