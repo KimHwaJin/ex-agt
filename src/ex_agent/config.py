@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     executor_event_stream: str = "executor.events"
     executor_event_consumer_group: str = "agent-executor-events-v1"
     executor_event_dead_letter_stream: str = "executor.events.agent-dlq"
+    executor_worker_namespace: str = Field(
+        default="agent-executor-worker",
+        min_length=1,
+    )
 
     executor_base_url: str = "http://127.0.0.1:8000/api/v1"
     executor_shared_storage_root: Path = Path("./shared_dir")
@@ -63,6 +67,12 @@ class Settings(BaseSettings):
         default=0.5,
         gt=0,
     )
+    agent_recovery_concurrency: int = Field(default=4, ge=1, le=32)
+    agent_recovery_batch_size: int = Field(default=32, ge=1, le=100)
+    agent_request_recovery_poll_seconds: float = Field(default=2, gt=0)
+    agent_failure_recovery_poll_seconds: float = Field(default=5, gt=0)
+    agent_failure_max_attempts: int = Field(default=20, ge=1)
+    agent_failure_retry_seconds: float = Field(default=5, gt=0)
 
     agent_model: str = "qwen38-27b-fp8"
     agent_model_provider: str = "openai"

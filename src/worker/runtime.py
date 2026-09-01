@@ -65,7 +65,7 @@ class ExecutorWorker:
             self.http,
             set(handlers),
             batch_size=settings.batch_size,
-            concurrency=settings.concurrency,
+            concurrency=settings.ingress_workers,
         )
         self.outbox = Outbox(
             self.store,
@@ -87,19 +87,22 @@ class ExecutorWorker:
                 settings.executor_event_stream,
                 settings.event_group,
                 lambda _: self.ingress,
+                settings.ingress_workers,
             ),
             self._consumer(
                 "dispatch",
                 settings.command_stream,
                 settings.command_group,
                 lambda _: self.dispatcher,
+                settings.dispatch_workers,
             ),
         ]
+        self._readiness_checks: dict[str, Callable[[], Awaitable[bool]]] = {}
         self._stop = asyncio.Event()
         self._running = False
         self._stack = AsyncExitStack()
 
-    def _consumer(self, kind, stream, group, factory):
+    def _consumer(self, kind, stream, group, factory, concurrency):
         settings = self.settings
         return RedisStreamConsumer(
             self.redis,
@@ -107,7 +110,7 @@ class ExecutorWorker:
                 stream=stream,
                 group=group,
                 consumer_prefix=f"{settings.instance_id}-{kind}",
-                concurrency=settings.concurrency,
+                concurrency=concurrency,
                 block_milliseconds=1000,
                 claim_idle_milliseconds=settings.claim_idle_milliseconds,
                 claim_batch_size=settings.batch_size,
@@ -140,6 +143,19 @@ class ExecutorWorker:
         self._stop.set()
         for consumer in self.consumers:
             consumer.request_stop()
+
+    def add_readiness_check(
+        self,
+        name: str,
+        check: Callable[[], Awaitable[bool]],
+    ) -> None:
+        if not name.strip() or not callable(check):
+            raise ValueError("Readiness check must have a name and callable")
+        if self._running:
+            raise RuntimeError("Readiness checks must be added before run")
+        if name in self._readiness_checks:
+            raise ValueError(f"Duplicate readiness check: {name}")
+        self._readiness_checks[name] = check
 
     async def run(self) -> None:
         if self._running:
@@ -245,6 +261,16 @@ class ExecutorWorker:
                 await self.redis.ping()
                 async with self.pool.connection() as conn:
                     await conn.execute("SELECT 1 FROM ew_bindings LIMIT 0")
+                if self._readiness_checks:
+                    results = await asyncio.gather(
+                        *(
+                            check()
+                            for check in self._readiness_checks.values()
+                        ),
+                        return_exceptions=True,
+                    )
+                    if not all(result is True for result in results):
+                        return False
             return True
         except Exception:
             return False

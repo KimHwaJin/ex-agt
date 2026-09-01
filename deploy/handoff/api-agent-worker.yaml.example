@@ -11,11 +11,14 @@ data:
   EXECUTOR_SHARED_STORAGE_ROOT: /workspace/shared
   EXECUTOR_EVENT_STREAM: executor.events
   EXECUTOR_EVENT_CONSUMER_GROUP: handoff-agent-executor-events
+  EXECUTOR_WORKER_NAMESPACE: handoff-agent-worker
   AGENT_COMMAND_STREAM: handoff-agent.commands
   AGENT_COMMAND_CONSUMER_GROUP: handoff-agent-command-workers
   AGENT_COMMAND_DEAD_LETTER_STREAM: handoff-agent.commands.dlq
   EXECUTOR_EVENT_DEAD_LETTER_STREAM: executor.events.handoff-agent-dlq
   WORKER_SHUTDOWN_GRACE_SECONDS: "25"
+  AGENT_RECOVERY_CONCURRENCY: "4"
+  AGENT_RECOVERY_BATCH_SIZE: "32"
   WORKER_METRICS_HOST: "0.0.0.0"
   WORKER_METRICS_PORT: "8011"
 ---

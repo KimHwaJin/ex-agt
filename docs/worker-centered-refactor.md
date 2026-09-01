@@ -26,10 +26,10 @@
 | 4 | Docker/Compose/K8s 실행 경로 전환 | 실제 구성에서 전체 업무 시나리오 통과 |
 | 5 | 구형 워커·중복 저장 경로·임시 호환 코드 제거 | 역의존·구 import·미사용 배포 참조 없음 |
 
-1단계에서는 ex_agent의 실행 동작, API 응답 계약, 기존 DB migration을 바꾸지 않는다.
-`src/agent/worker_main.py`는 인수용 시작 코드를 옮긴 것으로 아직 기존 Agent에
-연결되지 않았다. 미구현 factory가 소비 전에 실패하는 보호를 유지한다.
-`ex-agent-api`, `ex-agent-worker`, langgraph dev의 기존 실행 경로는 그대로다.
+1단계에서는 ex_agent의 실행 동작, API 응답 계약, 기존 DB migration을 바꾸지 않았다.
+이후 2E에서 `src/agent/worker_main.py`를 실제 runtime factory에 연결했다.
+`ex-agent-api`, `ex-agent-worker`, langgraph dev의 기존 실행 경로는 API 전환
+시점까지 그대로 유지한다.
 
 ## 저장과 실행 계약 — 단계별 구현 기준
 
@@ -283,17 +283,47 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
 - 모델과 Executor HTTP는 결정적 대역이다. 실제 Executor/Jupyter/K8s 강제 종료
   종단 검증은 아직 수행하지 않았다.
 
-### 다음 단계 — 운영 호스트 전환
+### 2E — 공통 runtime factory와 lifecycle
+
+- 2D는 main `d20cb68`로 머지·푸시했다. 후속 브랜치는
+  `codex/agent-runtime-lifecycle`이다.
+- `agent.runtime.open_agent_runtime()`이 SessionWorkflowServices, 영속 효과,
+  AdmissionService, FailureService와 세션 그래프를 한 번 조립한다. API와 Worker는
+  동일 factory, DB, checkpoint serializer와 Redis guard를 사용한다.
+- `AgentRuntime`이 RequestRecovery, FailureRecovery와 선택적 Worker를 하나의
+  TaskGroup으로 감독한다. 한 루프가 예기치 않게 끝나면 Worker도 종료하며, API는
+  `recovery_lifespan()`으로 같은 시작·graceful shutdown 계약을 쓴다.
+- Agent 설정을 공통 Worker 설정으로 명시적으로 변환한다. Stream/group 이름을
+  namespace에서 추측하지 않고 ingress/dispatch 동시성을 따로 유지한다. replica ID가
+  없으면 Worker의 UUID 기본값을 사용한다.
+- 공통 Worker readiness에 범용 host check 등록 지점을 추가했다. 새 Agent Worker는
+  DB·Redis·consumer뿐 아니라 복구 loop가 모두 살아 있어야 ready다.
+- `agent.worker_main`은 더 이상 demo나 미구현 graph hook을 사용하지 않는다. 실제
+  factory와 실패 보호 handler를 연결하되 기존 `ex-agent-worker` 배포 명령은 API
+  라우터 전환까지 유지한다.
+- runtime은 시작 시 schema를 읽기 검증하지만 migration이나 checkpoint setup을
+  실행하지 않는다. 초기화는 계속 배포 Job 책임이다.
+
+#### 2E 검증 기록
+
+- uv `--no-editable` 파일 기반 설치, 전체 Ruff lint/format·ty 통과.
+- 전체 로컬: **366 passed, 136 skipped**. DB/Redis와 opt-in 실서비스 항목 제외.
+- 전체 격리 Compose: **473 passed, 29 skipped**. 실제 모델/API 항목 제외.
+- 최종 Docker 테스트 이미지 안의 Ruff lint/format·ty도 통과했다.
+- factory 단위 테스트는 설정 변환, 두 복구 loop supervision, API lifespan join,
+  예기치 않은 loop 종료와 restart 금지를 포함한다.
+- 실제 PostgreSQL/Redis/checkpointer 테스트는 공통 factory 조립과 runtime을 포함한
+  Worker readiness를 확인한다. 모델은 결정적 대역이며 실제 Executor는 호출하지 않는다.
+
+### 다음 단계 — API와 화면 전환
 
 1. 비최종 Task 상태·current_interrupt의 DB 반영을 새 호스트에 붙인다.
    현재 이 부분은 구 runner에 남아 있으므로 새 그래프 모듈만으로 기존 Task 조회
    API의 진행/취소/승인 대기 표시가 자동 완성되는 것은 아니다.
-2. API와 Worker의 공통 factory·자원 lifecycle·RequestRecovery·FailureRecovery·
-   readiness를 연결한다. API+Agent / Worker 두 프로세스를 유지할 수 있다.
-3. 인증된 BLOCKED 조회·재시도/수동 종료 API를 설계한다. 실행 증거 없이 잠금을
+2. 인증된 BLOCKED 조회·재시도/수동 종료 API를 설계한다. 실행 증거 없이 잠금을
    강제로 지우는 기능은 제공하지 않는다.
-4. FastAPI/Chat UI·Docker/Compose/K8s 진입점을 전환하고 실제 Executor·모델을
+3. FastAPI/Chat UI·Docker/Compose/K8s 진입점을 전환하고 실제 Executor·모델을
    검증한 뒤 구 Worker/임시 import를 제거한다. 활성 작업 전환 정책을 먼저 정한다.
 
-`worker_hooks.create_graph`의 미연결 보호와 기존 운영 배포 경로는 아직 유지한다.
-2C 검증 통과만으로 운영 전환하거나 `ex_agent`를 삭제하지 않는다.
+기존 운영 배포 경로는 아직 유지한다. 2E 검증 통과만으로 운영 전환하거나
+`ex_agent`를 삭제하지 않는다.

@@ -69,29 +69,63 @@ async def runtime(monkeypatch):
             await self.handlers[ctx.event.event_type](ctx)
             state.stop_callback()
 
+        def add_readiness_check(self, name, check):
+            assert name == "agent-runtime"
+            assert check == state.lifecycle.ready
+            events.append("readiness.add")
+
     @asynccontextmanager
-    async def connection(url):
-        assert url == "test-url"
+    async def connection(url, **kwargs):
+        assert url == "checkpoint-url"
+        assert kwargs["serde"] is not None
         events.append("saver.open")
         try:
             yield saver
         finally:
             events.append("saver.close")
 
-    async def create_graph(checkpointer, store):
+    class Lifecycle:
+        async def ready(self):
+            return True
+
+        def request_stop(self):
+            events.append("runtime.stop")
+
+        async def run_worker(self, worker):
+            events.append("runtime.run")
+            try:
+                await worker.run()
+            finally:
+                worker.request_stop()
+
+    state.lifecycle = Lifecycle()
+
+    async def handle(context):
+        assert context is ctx
+        events.append("runtime.handle")
+
+    @asynccontextmanager
+    async def runtime_context(settings, worker, checkpointer):
+        assert settings is state.agent_settings
+        assert worker.bindings is bindings
         assert checkpointer is saver
-        assert store is bindings
-        events.append("graph.create")
-        return state.graph
+        events.append("runtime.open")
+        try:
+            yield SimpleNamespace(
+                graph=state.graph,
+                event_handler=handle,
+                lifecycle=state.lifecycle,
+            )
+        finally:
+            events.append("runtime.close")
 
-    class Adapter:
-        def __init__(self, compiled):
-            assert compiled is graph
-            events.append("adapter.create")
+    def worker_settings(settings):
+        assert settings is state.agent_settings
+        return SimpleNamespace(database_url="worker-url")
 
-        async def __call__(self, context):
-            assert context is ctx
-            events.append("adapter.handle")
+    state.agent_settings = SimpleNamespace(
+        agent_checkpoint_database_url="checkpoint-url"
+    )
 
     def add_signal(signum, callback):
         if state.fail_signal and signum == signal.SIGINT:
@@ -105,16 +139,16 @@ async def runtime(monkeypatch):
     monkeypatch.setattr(entrypoint, "ExecutorWorker", Worker)
     monkeypatch.setattr(
         entrypoint,
-        "Settings",
-        lambda: SimpleNamespace(database_url="test-url"),
+        "AgentSettings",
+        lambda: state.agent_settings,
     )
+    monkeypatch.setattr(entrypoint, "build_worker_settings", worker_settings)
     monkeypatch.setattr(
         entrypoint,
         "AsyncPostgresSaver",
         SimpleNamespace(from_conn_string=connection),
     )
-    monkeypatch.setattr(agent_app, "create_graph", create_graph)
-    monkeypatch.setattr(entrypoint, "SessionGraphAdapter", Adapter)
+    monkeypatch.setattr(entrypoint, "open_agent_runtime", runtime_context)
     loop = asyncio.get_running_loop()
     monkeypatch.setattr(loop, "add_signal_handler", add_signal)
     monkeypatch.setattr(loop, "remove_signal_handler", remove_signal)
@@ -126,24 +160,30 @@ async def test_main_injects_live_resources_and_drains_before_close(runtime):
     assert runtime.events == [
         "worker.open",
         "saver.open",
-        "graph.create",
-        "adapter.create",
+        "runtime.open",
+        "readiness.add",
         "signal.add.SIGTERM",
         "signal.add.SIGINT",
+        "runtime.run",
         "worker.run",
-        "adapter.handle",
+        "runtime.handle",
+        "runtime.stop",
         "worker.stop",
         "signal.remove.SIGTERM",
         "signal.remove.SIGINT",
+        "runtime.close",
         "saver.close",
         "worker.close",
     ]
 
 
 async def test_factory_failure_never_consumes_and_closes(runtime, monkeypatch):
-    monkeypatch.setattr(
-        agent_app, "create_graph", AsyncMock(side_effect=RuntimeError("build"))
-    )
+    @asynccontextmanager
+    async def fail(*args):
+        raise RuntimeError("build")
+        yield
+
+    monkeypatch.setattr(entrypoint, "open_agent_runtime", fail)
     with pytest.raises(RuntimeError, match="build"):
         await entrypoint.main()
     assert runtime.events == [
@@ -185,8 +225,8 @@ async def test_run_failure_cleans_signals_and_resources(runtime):
     with pytest.raises(RuntimeError, match="run failed"):
         await entrypoint.main()
     assert runtime.events[-4:] == [
-        "signal.remove.SIGTERM",
         "signal.remove.SIGINT",
+        "runtime.close",
         "saver.close",
         "worker.close",
     ]
@@ -198,7 +238,7 @@ async def test_partial_signal_installation_is_cleaned(runtime):
         await entrypoint.main()
     assert "worker.run" not in runtime.events
     assert runtime.events[-3:] == [
-        "signal.remove.SIGTERM",
+        "runtime.close",
         "saver.close",
         "worker.close",
     ]
@@ -224,6 +264,7 @@ async def test_progress_requires_explicit_implementation_and_registration():
 async def test_main_real_stream_to_session_checkpoint(worker, monkeypatch):
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 
+    from agent.integrations.langgraph_adapter import SessionGraphAdapter
     from examples.worker.api_integration import attach_execution
     from examples.worker.session_graph import build_graph
 
@@ -237,12 +278,32 @@ async def test_main_real_stream_to_session_checkpoint(worker, monkeypatch):
         captured["worker"] = instance
         return instance
 
-    async def create_graph(saver, bindings):
-        assert bindings is captured["worker"].bindings
+    @asynccontextmanager
+    async def runtime_context(settings, bridge, saver):
+        assert bridge.bindings is captured["worker"].bindings
         graph = build_graph(saver)
         captured["graph"] = graph
+        lifecycle = SimpleNamespace()
+
+        async def ready_check():
+            return True
+
+        def request_stop():
+            bridge.request_stop()
+
+        async def run_worker(instance):
+            await instance.run()
+
+        lifecycle.ready = ready_check
+        lifecycle.request_stop = request_stop
+        lifecycle.run_worker = run_worker
+        captured["runtime"] = lifecycle
         ready.set()
-        return graph
+        yield SimpleNamespace(
+            graph=graph,
+            event_handler=SessionGraphAdapter(graph),
+            lifecycle=lifecycle,
+        )
 
     # Deployment responsibility; main must never do this itself.
     async with AsyncPostgresSaver.from_conn_string(
@@ -250,9 +311,15 @@ async def test_main_real_stream_to_session_checkpoint(worker, monkeypatch):
     ) as saver:
         await saver.setup()
 
-    monkeypatch.setattr(entrypoint, "Settings", lambda: worker.settings)
+    agent_settings = SimpleNamespace(
+        agent_checkpoint_database_url=worker.settings.database_url
+    )
+    monkeypatch.setattr(entrypoint, "AgentSettings", lambda: agent_settings)
+    monkeypatch.setattr(
+        entrypoint, "build_worker_settings", lambda _: worker.settings
+    )
     monkeypatch.setattr(entrypoint, "ExecutorWorker", create_worker)
-    monkeypatch.setattr(agent_app, "create_graph", create_graph)
+    monkeypatch.setattr(entrypoint, "open_agent_runtime", runtime_context)
     loop = asyncio.get_running_loop()
     monkeypatch.setattr(loop, "add_signal_handler", lambda *args: None)
     monkeypatch.setattr(loop, "remove_signal_handler", lambda *args: None)
@@ -292,8 +359,8 @@ async def test_main_real_stream_to_session_checkpoint(worker, monkeypatch):
         assert len(values["results"]) == 1
         assert values["active_task_id"] == ctx.task_id
     finally:
-        if "worker" in captured:
-            captured["worker"].request_stop()
+        if "runtime" in captured:
+            captured["runtime"].request_stop()
         await asyncio.wait_for(task, 10)
 
     assert not captured["worker"]._running

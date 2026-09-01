@@ -1,5 +1,5 @@
-# FUTURE deployment template. Complete agent.integrations.worker_hooks and
-# migrate the API before enabling; current ex-agent-worker stays unchanged.
+# FUTURE deployment template. Migrate the API to agent.runtime admission
+# before enabling; current ex-agent-worker stays unchanged.
 # Host image contains worker and agent; no standalone_worker source copy.
 apiVersion: apps/v1
 kind: Deployment
@@ -36,7 +36,7 @@ spec:
             - secretRef:
                 name: agent-runtime
           env:
-            - name: EW_INSTANCE_ID
+            - name: WORKER_INSTANCE_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid

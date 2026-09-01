@@ -85,7 +85,8 @@ API와 Worker는 같은 session checkpoint DB와 SessionGuard를 사용한다.
 ## 이번 단계가 해결하지 않는 것
 
 - 이 모듈 자체는 스케줄러가 아니다. API 장애 시 최초 제출을 재개하는 접수 기록과
-  복구 루프는 2C의 [admission 모듈](../admission/README.md)에 있으며 호스트 연결은 남아 있다.
+  복구 루프는 2C의 [admission 모듈](../admission/README.md)에 있으며 2E의
+  [runtime factory](../runtime/README.md)가 함께 조립한다.
 - HTTP 실패/409 등을 새 계획이나 새 키로 자동 변환하지 않는다. 확정 실패 시
   Executor 취소 확인·사용자 안내·장기 세션 잠금 정리는
   [실패 보상 모듈](../failure/README.md)이 담당한다.
@@ -94,8 +95,8 @@ API와 Worker는 같은 session checkpoint DB와 SessionGuard를 사용한다.
 - 보고서는 성공 Execution에 대해서만 생성한다. 실패/취소 보고서를 만들지 않는다.
 - 2C에서 Q&A 최종 답변도 멱등 반영한다. 중간 상태 이벤트 등 모든 업무 쓰기를
   멱등화한 것은 아니다.
-- 기존 `DefaultWorkflowServices` 진입점은 아직 이 서비스를 사용하지 않는다.
-  `worker_hooks.create_graph`의 미연결 보호와 기존 운영 배포를 유지한다.
+- 새 `agent.worker_main`은 `SessionWorkflowServices`를 사용한다. 기존
+  `ex-agent-worker` 운영 배포는 FastAPI 라우터 전환 전까지 유지한다.
 
 ## 회귀 테스트
 

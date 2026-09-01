@@ -14,8 +14,13 @@ class Settings(BaseSettings):
     namespace: str = Field(default="executor-worker", min_length=1)
     executor_base_url: str = "http://localhost:8000/api/v1"
     executor_event_stream: str = "executor.events"
+    command_stream_name: str | None = None
+    event_group_name: str | None = None
+    command_group_name: str | None = None
     instance_id: str = Field(default_factory=lambda: str(uuid4()))
     concurrency: int = Field(default=4, ge=1)
+    ingress_concurrency: int | None = Field(default=None, ge=1)
+    dispatch_concurrency: int | None = Field(default=None, ge=1)
     pool_size: int = Field(default=8, ge=2)
     batch_size: int = Field(default=100, ge=1, le=500)
     poll_seconds: float = Field(default=0.2, gt=0)
@@ -31,12 +36,20 @@ class Settings(BaseSettings):
 
     @property
     def command_stream(self) -> str:
-        return f"{self.namespace}:commands"
+        return self.command_stream_name or f"{self.namespace}:commands"
 
     @property
     def event_group(self) -> str:
-        return f"{self.namespace}:ingress"
+        return self.event_group_name or f"{self.namespace}:ingress"
 
     @property
     def command_group(self) -> str:
-        return f"{self.namespace}:dispatch"
+        return self.command_group_name or f"{self.namespace}:dispatch"
+
+    @property
+    def ingress_workers(self) -> int:
+        return self.ingress_concurrency or self.concurrency
+
+    @property
+    def dispatch_workers(self) -> int:
+        return self.dispatch_concurrency or self.concurrency

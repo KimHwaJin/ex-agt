@@ -1,15 +1,17 @@
 # Agent와 공통 Worker 연결
 
 공통 코드는 src/worker, 호스트에 종속된 연결은 src/agent/integrations에 있다.
-현재는 전환 1단계다. 기존 분석 Agent는 아직 새 진입점에 연결되지 않았다.
-아래 TODO와 그래프 계약 연결을 완료한 뒤 배포해야 한다.
+2E에서 이 저장소의 실제 분석 Agent runtime을 연결했다. 공통 Worker만 이식하는
+서비스는 handler 계약을 그대로 구현할 수 있고, 이 Agent는 `agent.runtime` factory를
+사용한다. 기존 FastAPI 라우터 전환 전에는 구 Worker와 새 Worker를 함께 띄우지 않는다.
 
 ## 1. 실행과 작성 지점
 
 | 파일 | 역할 | 개발자가 작성할 부분 |
 |---|---|---|
-| src/agent/worker_main.py | 자원 수명, 시작·종료, 어댑터 조립 | 추가 자원 연결이 필요한 경우 |
-| integrations/worker_hooks.py | 그래프·핸들러 구성 | factory·registry·진행 처리 |
+| src/agent/worker_main.py | 자원 수명, 시작·종료, runtime supervision | 운영 진입점 |
+| agent/runtime | API/Worker 공통 그래프·복구 조립 | 호스트 설정과 lifespan |
+| integrations/worker_hooks.py | 이벤트 타입 registry | 진행 이벤트를 추가할 때 |
 | integrations/langgraph_adapter.py | 이벤트와 checkpoint 연결 | State 계약이 다를 때 |
 | 호스트 그래프 | 실행 제출, 대기, 반영, 업무 분기 | 아래 State·receipt 계약 |
 | 호스트 API | 사용자 입력과 승인·취소 | 공통 guard와 요청 복구 계약 |
@@ -17,27 +19,23 @@
 실제 main은 [worker_main.py](../../agent/worker_main.py)이고 실행 명령은
 저장소 루트에서 python -m agent.worker_main이다. examples는 자동 로드하지 않는다.
 
-## 2. create_graph — API와 같은 그래프를 연결
+## 2. 공통 runtime factory
 
-[worker_hooks.py](../../agent/integrations/worker_hooks.py)의
-create_graph(checkpointer, bindings)에 있는 NotImplementedError를 실제 factory
-호출로 바꾼다. 아래 my_agent는 인수자의 실제 패키지명으로 교체해야 한다.
+이 저장소는 [factory.py](../../agent/runtime/factory.py)의
+`open_agent_runtime(settings, worker, checkpointer)`를 API와 Worker가 함께 쓴다.
+아래처럼 업무 서비스, binding, guard와 복구 루프가 같은 경계에서 만들어진다.
 
 ```python
-async def create_graph(checkpointer, bindings):
-    from my_agent.graph import build_graph
-
-    return build_graph(checkpointer=checkpointer, bindings=bindings)
+async with open_agent_runtime(settings, bridge, saver) as runtime:
+    graph = runtime.graph
+    api_calls = runtime.admission
+    event_handler = runtime.event_handler
 ```
 
-async factory면 await한다. builder나 invoke 결과가 아닌, 공급된 checkpointer로
-compile한 그래프를 반환한다. API와 Worker에서 같은 그래프 정의를 사용한다.
-bindings는 현재 Worker의 Store이고 실행 제출 노드에 주입한다.
-재개 후 다음 Execution을 만드는 노드도 동일하게 연결을 등록해야 한다.
-
-main이 연결 자원을 닫으므로 factory에서 닫지 않는다. setup도 호출하지 않는다.
-추가 HTTP client 등은 실행 종료까지 열린 상태로 유지하도록 main에 조립한다.
-미구현 factory는 연결 자원을 열 수 있지만 소비·ACK 전에 실패한다.
+factory는 `SessionWorkflowServices`, Executor effect journal, AdmissionService,
+FailureService를 구성하고 실패 보호가 적용된 handler를 반환한다. 시작 시 테이블과
+checkpoint를 읽기 검증하지만 DDL은 수행하지 않는다. `worker_hooks.create_graph()`는
+외부 이식 코드의 호환성을 위해 예외를 내는 deprecated symbol로만 남아 있다.
 
 ## 3. build_handlers — 이벤트 타입별 처리
 
@@ -110,17 +108,17 @@ execution.completed는 성공·실패·취소 모두 가능하므로 최종 결�
 
 ## 5. API 연결
 
-API는 lifespan에서 ExecutorWorker(settings, {})를 자원용으로 열되 run하지 않는다.
-별도 checkpoint 연결과 bridge.bindings로 같은 그래프를 만든다.
-동일한 DB·Redis·EW_NAMESPACE를 사용하고 session_id 충돌을 방지한다.
+API는 lifespan에서 `ExecutorWorker(worker_settings, {})`를 bridge 자원으로만 열고
+run하지 않는다. 별도 checkpoint 연결과 `open_agent_runtime()`으로 같은 그래프를
+만들고 `recovery_lifespan()`을 실행한다. 동일한 DB·Redis·namespace를 사용한다.
 
 ```python
-async with bridge.guard.hold(session_id):
-    await graph.ainvoke(
-        graph_input,
-        {"configurable": {"thread_id": session_id}},
-        durability="sync",
-    )
+async with open_agent_runtime(settings, bridge, saver) as runtime:
+    async with recovery_lifespan(
+        runtime.lifecycle,
+        shutdown_timeout_seconds=settings.worker_shutdown_grace_seconds,
+    ):
+        yield runtime.admission
 ```
 
 호스트의 멱등 실행 제출 노드에서 Executor 응답 ID로 등록한다.
@@ -144,10 +142,12 @@ API가 중간에 종료되면 같은 제출 키로 실행을 복원하고 bindin
 
 ## 6. 환경과 배포
 
-EW_DATABASE_URL/EW_REDIS_URL/EW_NAMESPACE는 API와 Worker에서 일치시킨다.
-기본 main은 Worker DB를 checkpoint에도 사용하므로 별도 checkpoint DB를 쓰는
-호스트는 saver 설정을 변경한다. EW_INSTANCE_ID는 replica마다 고유해야 한다.
-EW_NAMESPACE는 DB 행·Redis group/key 범위이지 K8s namespace나 권한 경계가 아니다.
+현재 Agent main은 `AGENT_DATABASE_URL`, `AGENT_CHECKPOINT_DATABASE_URL`,
+`AGENT_REDIS_URL`을 원본으로 사용하고 `build_worker_settings()`가 공통 Worker 설정을
+만든다. Stream/group 이름도 Agent 설정을 명시적으로 전달하므로 namespace 문자열을
+추측하지 않는다. `WORKER_INSTANCE_ID`는 replica마다 고유해야 하며 미설정 로컬 실행은
+Worker의 UUID 기본값을 사용한다. namespace는 DB 행·Redis key 범위이지 K8s
+namespace나 권한 경계가 아니다.
 
 초기화는 worker_migrations/alembic.ini로 Alembic을 실행하고 checkpoint setup은
 호스트 배포 단계에서 별도 수행한다. Worker 시작에서 자동 DDL을 하지 않는다.
