@@ -44,5 +44,6 @@ COPY docker-compose.yml ./
 COPY langgraph.json ./
 COPY docs/worker-centered-refactor.md ./docs/worker-centered-refactor.md
 COPY deploy/worker ./deploy/worker
+COPY deploy/worker-cutover ./deploy/worker-cutover
 RUN uv sync --frozen --no-editable
 USER agent

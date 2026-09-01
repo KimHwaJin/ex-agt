@@ -1,0 +1,22 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ex-agent-worker-cutover-preflight
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: preflight
+          image: ex-agent:target-version
+          args:
+            - ex-agent-cutover-check
+            - --admissions-frozen
+            - --stable-seconds
+            - "10"
+          envFrom:
+            - configMapRef:
+                name: ex-agent-runtime
+            - secretRef:
+                name: ex-agent-runtime

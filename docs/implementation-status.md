@@ -147,6 +147,12 @@
   교체된 뒤 같은 Task/Execution이 성공했고, Session checkpoint 32개, Agent
   binding·완료 event 각 1개, Worker sequence 6, Redis pending·미완료
   command·미전송 outbox·Session lock 0건을 확인했다.
+- 레거시 Worker와 통합 Worker는 command envelope, 전달 DB, checkpoint
+  `thread_id`가 달라 같은 consumer group의 혼합 rolling 배포를 금지한다.
+  `ex-agent-cutover-check`는 신규 접수 차단 assertion과 비종료 Task·구 command·
+  제품 event·Session lock·두 Redis group pending/lag를 두 번 읽어 drain이
+  안정적으로 끝났을 때만 성공한다. 전환 runbook과 Kubernetes Job 예시는
+  `deploy/worker-cutover/`에 둔다.
 - API는 liveness `/healthz`와 dependency-aware `/readyz`, 통합 Worker는
   `/health/live`와 `/health/ready`를 분리한다.
   API PostgreSQL·Redis probe와 Worker의 Redis·DB·Agent runtime 확인은 timeout을
