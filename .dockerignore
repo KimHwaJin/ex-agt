@@ -11,3 +11,6 @@ __pycache__
 **/.pytest_cache
 **/.ruff_cache
 shared_dir
+# Finder/editor numbered copies can duplicate Python modules and Alembic
+# revision identifiers inside an otherwise clean image build.
+**/* [0-9].*

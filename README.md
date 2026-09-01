@@ -17,6 +17,8 @@ Inbox/Outbox로 내구성 있게 전달해 같은 그래프를 resume한다. 두
 
 API/Worker 컨테이너와 **Agent Chat UI를 함께 테스트**하려면
 [Agent Chat UI Testing](docs/agent-chat-ui-testing.md)을 참고한다.
+실제 API → Agent → Executor → Jupyter → Worker 경로는
+[Live Executor E2E](docs/live-executor-e2e.md)를 참고한다.
 로컬 `langgraph dev`는 UI 연결 그래프를 제공하고, 업무 START/RESUME은 API가,
 Executor 이벤트 resume은 Worker가 처리한다.
 
