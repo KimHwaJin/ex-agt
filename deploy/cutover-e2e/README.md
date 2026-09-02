@@ -37,10 +37,11 @@ host port `18011`, NodePort `30011`을 사용한다. 테스트 환경은 장애 
 
 ## 한계
 
-`--admissions-frozen`은 실제 BFF 설정을 바꾸지 않는다. 리허설 중 신규 요청을 만들지
-않음으로써 차단된 상태를 재현한다. 운영에서는 BFF 차단 상태와 지표를 별도 승인
-증거로 남겨야 한다. 이 테스트는 활성 레거시 Task의 checkpoint를 새 graph로
-변환하지 않는다. 모든 레거시 Task가 terminal 상태가 된 뒤에만 전환한다.
+이 리허설은 `--unsafe-accept-operator-freeze-assertion`으로 실제 BFF 조회를
+의도적으로 생략한다. 리허설 중 신규 요청을 만들지 않음으로써 차단된 상태를
+재현한다. 운영에서는 BFF의 상관된 freeze receipt를 preflight가 직접 확인해야
+한다. 이 테스트는 활성 레거시 Task의 checkpoint를 새 graph로 변환하지 않는다.
+모든 레거시 Task가 terminal 상태가 된 뒤에만 전환한다.
 
 ## 실제 검증 기록
 

@@ -159,6 +159,11 @@
   smoke는 Task/Execution 성공, Session checkpoint 25개, Agent/Worker binding
   단일성, 완료 event 1개, Redis pending·미완료 command·outbox·Session lock
   0건으로 수렴했다. 재현 스크립트와 기록은 `deploy/cutover-e2e/`에 있다.
+- 운영 preflight는 더 이상 운영자의 freeze assertion만으로 통과하지 않는다.
+  인증된 BFF 증거 API에서 `freeze_id`, revision, scope, 만료 시각을 두 번 직접
+  확인한다. 격리 리허설 escape hatch는 이름에 `unsafe`를 명시하고 운영 Job에서는
+  사용하지 않는다. `TARGET_STARTED` 이후 레거시 재기동을 금지하는 단계별 롤백
+  판정 CLI와 배포 증거 계약은 `deploy/worker-cutover/`에 있다.
 - API는 liveness `/healthz`와 dependency-aware `/readyz`, 통합 Worker는
   `/health/live`와 `/health/ready`를 분리한다.
   API PostgreSQL·Redis probe와 Worker의 Redis·DB·Agent runtime 확인은 timeout을

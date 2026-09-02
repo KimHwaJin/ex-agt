@@ -3,12 +3,168 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
-from typing import Any
+from datetime import UTC, datetime
+from typing import Any, Protocol
 
+import httpx
 from psycopg import AsyncConnection
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
+
+ADMISSION_SCOPE = "NEW_TASK_START"
+ADMISSION_STATE = "FROZEN"
+
+
+@dataclass(frozen=True)
+class AdmissionFreezeState:
+    """One observable BFF admission-freeze state."""
+
+    source: str
+    verified: bool
+    schema_version: int | None = None
+    state: str | None = None
+    scope: str | None = None
+    freeze_id: str | None = None
+    revision: str | None = None
+    frozen_at: str | None = None
+    expires_at: str | None = None
+    error: str | None = None
+
+    def blockers(self) -> tuple[str, ...]:
+        blockers: list[str] = []
+        if not self.verified:
+            detail = self.error or "unknown verification failure"
+            blockers.append(f"admission freeze is not verified: {detail}")
+        if self.state != ADMISSION_STATE:
+            blockers.append(
+                f"admission state must be {ADMISSION_STATE}: {self.state}"
+            )
+        if self.scope != ADMISSION_SCOPE:
+            blockers.append(
+                f"admission scope must be {ADMISSION_SCOPE}: {self.scope}"
+            )
+        return tuple(blockers)
+
+
+class AdmissionFreezeProbe(Protocol):
+    async def snapshot(self) -> AdmissionFreezeState: ...
+
+    async def close(self) -> None: ...
+
+
+class HttpAdmissionFreezeProbe:
+    """Verify a correlated freeze receipt from the trusted BFF boundary."""
+
+    def __init__(
+        self,
+        *,
+        url: str,
+        expected_freeze_id: str,
+        bearer_token: str,
+        timeout_seconds: float = 5,
+        client: httpx.AsyncClient | None = None,
+        now: Callable[[], datetime] | None = None,
+    ) -> None:
+        parsed_url = httpx.URL(url)
+        if parsed_url.query or parsed_url.fragment or parsed_url.userinfo:
+            raise ValueError(
+                "admission evidence URL cannot contain credentials, query, "
+                "or fragment"
+            )
+        if parsed_url.scheme not in {"http", "https"}:
+            raise ValueError("admission evidence URL must use HTTP or HTTPS")
+        if not expected_freeze_id.strip():
+            raise ValueError("expected_freeze_id cannot be empty")
+        if not bearer_token.strip():
+            raise ValueError("admission bearer token cannot be empty")
+        self._url = str(parsed_url)
+        self._expected_freeze_id = expected_freeze_id
+        self._bearer_token = bearer_token
+        self._now = now or (lambda: datetime.now(UTC))
+        self._owns_client = client is None
+        self._client = client or httpx.AsyncClient(
+            timeout=timeout_seconds,
+            follow_redirects=False,
+        )
+
+    async def snapshot(self) -> AdmissionFreezeState:
+        try:
+            response = await self._client.get(
+                self._url,
+                headers={
+                    "Accept": "application/json",
+                    "Authorization": f"Bearer {self._bearer_token}",
+                },
+            )
+            response.raise_for_status()
+            payload = response.json()
+            if not isinstance(payload, Mapping):
+                raise ValueError("response body must be a JSON object")
+            return self._validate(payload)
+        except (httpx.HTTPError, ValueError, TypeError) as error:
+            return AdmissionFreezeState(
+                source=self._url,
+                verified=False,
+                error=f"{type(error).__name__}: {error}",
+            )
+
+    async def close(self) -> None:
+        if self._owns_client:
+            await self._client.aclose()
+
+    def _validate(self, payload: Mapping[str, Any]) -> AdmissionFreezeState:
+        schema_version = payload.get("schema_version")
+        state = _required_text(payload, "state")
+        scope = _required_text(payload, "scope")
+        freeze_id = _required_text(payload, "freeze_id")
+        revision = _required_text(payload, "revision")
+        frozen_at = _timestamp(payload, "frozen_at", required=True)
+        expires_at = _timestamp(payload, "expires_at", required=False)
+        assert frozen_at is not None
+        if schema_version != 1:
+            raise ValueError("schema_version must be 1")
+        if state != ADMISSION_STATE:
+            raise ValueError(f"state must be {ADMISSION_STATE}")
+        if scope != ADMISSION_SCOPE:
+            raise ValueError(f"scope must be {ADMISSION_SCOPE}")
+        if freeze_id != self._expected_freeze_id:
+            raise ValueError("freeze_id does not match this deployment")
+        if expires_at is not None and expires_at <= self._now():
+            raise ValueError("freeze receipt has expired")
+        return AdmissionFreezeState(
+            source=self._url,
+            verified=True,
+            schema_version=1,
+            state=state,
+            scope=scope,
+            freeze_id=freeze_id,
+            revision=revision,
+            frozen_at=frozen_at.isoformat(),
+            expires_at=(
+                None if expires_at is None else expires_at.isoformat()
+            ),
+        )
+
+
+class UnsafeStaticAdmissionFreezeProbe:
+    """Local rehearsal escape hatch; never use as production evidence."""
+
+    async def snapshot(self) -> AdmissionFreezeState:
+        return AdmissionFreezeState(
+            source="unsafe-operator-assertion",
+            verified=True,
+            schema_version=1,
+            state=ADMISSION_STATE,
+            scope=ADMISSION_SCOPE,
+            freeze_id="unsafe-local-rehearsal",
+            revision="unsafe-local-rehearsal",
+            frozen_at="not-observed",
+        )
+
+    async def close(self) -> None:
+        return None
 
 
 @dataclass(frozen=True)
@@ -23,7 +179,7 @@ class StreamGroupState:
 
 @dataclass(frozen=True)
 class CutoverSnapshot:
-    admissions_frozen: bool
+    admission: AdmissionFreezeState
     active_tasks: int
     unfinished_commands: int
     unpublished_product_events: int
@@ -32,9 +188,7 @@ class CutoverSnapshot:
     executor_event_group: StreamGroupState
 
     def blockers(self) -> tuple[str, ...]:
-        blockers: list[str] = []
-        if not self.admissions_frozen:
-            blockers.append("new task admission is not confirmed frozen")
+        blockers = list(self.admission.blockers())
         for label, count in (
             ("active legacy tasks", self.active_tasks),
             ("unfinished legacy commands", self.unfinished_commands),
@@ -87,6 +241,7 @@ class CutoverProbe:
         command_group: str,
         executor_event_stream: str,
         executor_event_group: str,
+        admission_probe: AdmissionFreezeProbe,
     ) -> None:
         self.database_url = _psycopg_url(database_url)
         self.redis = Redis.from_url(redis_url, decode_responses=True)
@@ -94,17 +249,22 @@ class CutoverProbe:
         self.command_group = command_group
         self.executor_event_stream = executor_event_stream
         self.executor_event_group = executor_event_group
+        self.admission_probe = admission_probe
 
     async def close(self) -> None:
-        await self.redis.aclose()
+        await asyncio.gather(
+            self.redis.aclose(),
+            self.admission_probe.close(),
+        )
 
-    async def snapshot(self, *, admissions_frozen: bool) -> CutoverSnapshot:
-        database, groups = await asyncio.gather(
+    async def snapshot(self) -> CutoverSnapshot:
+        database, groups, admission = await asyncio.gather(
             self._database_counts(),
             self._group_states(),
+            self.admission_probe.snapshot(),
         )
         return CutoverSnapshot(
-            admissions_frozen=admissions_frozen,
+            admission=admission,
             active_tasks=database[0],
             unfinished_commands=database[1],
             unpublished_product_events=database[2],
@@ -116,12 +276,11 @@ class CutoverProbe:
     async def stable_report(
         self,
         *,
-        admissions_frozen: bool,
         stable_seconds: float,
     ) -> CutoverReport:
         if stable_seconds < 0:
             raise ValueError("stable_seconds cannot be negative")
-        first = await self.snapshot(admissions_frozen=admissions_frozen)
+        first = await self.snapshot()
         first_blockers = first.blockers()
         if first_blockers:
             return CutoverReport(
@@ -131,7 +290,7 @@ class CutoverProbe:
                 first=first,
             )
         await asyncio.sleep(stable_seconds)
-        second = await self.snapshot(admissions_frozen=admissions_frozen)
+        second = await self.snapshot()
         second_blockers = second.blockers()
         if second_blockers:
             return CutoverReport(
@@ -221,9 +380,42 @@ def _psycopg_url(url: str) -> str:
     return url.replace("postgresql+psycopg://", "postgresql://", 1)
 
 
+def _required_text(payload: Mapping[str, Any], key: str) -> str:
+    value = payload.get(key)
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError(f"{key} must be a non-empty string")
+    return value
+
+
+def _timestamp(
+    payload: Mapping[str, Any],
+    key: str,
+    *,
+    required: bool,
+) -> datetime | None:
+    value = payload.get(key)
+    if value is None and not required:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be an RFC 3339 timestamp")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError(f"{key} must be an RFC 3339 timestamp") from error
+    if parsed.tzinfo is None:
+        raise ValueError(f"{key} must include a timezone")
+    return parsed
+
+
 __all__ = [
+    "ADMISSION_SCOPE",
+    "ADMISSION_STATE",
+    "AdmissionFreezeProbe",
+    "AdmissionFreezeState",
     "CutoverProbe",
     "CutoverReport",
     "CutoverSnapshot",
+    "HttpAdmissionFreezeProbe",
     "StreamGroupState",
+    "UnsafeStaticAdmissionFreezeProbe",
 ]

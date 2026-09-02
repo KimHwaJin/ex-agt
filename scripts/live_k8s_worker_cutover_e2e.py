@@ -420,7 +420,7 @@ async def _preflight(
         TARGET_IMAGE,
         [
             "ex-agent-cutover-check",
-            "--admissions-frozen",
+            "--unsafe-accept-operator-freeze-assertion",
             "--stable-seconds",
             str(stable_seconds),
         ],

@@ -1,18 +1,26 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: ex-agent-worker-cutover-preflight
+  generateName: ex-agent-worker-cutover-preflight-
 spec:
   backoffLimit: 0
+  activeDeadlineSeconds: 300
   template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ex-agent-worker-cutover-preflight
     spec:
       restartPolicy: Never
+      automountServiceAccountToken: false
       containers:
         - name: preflight
           image: ex-agent:target-version
           args:
             - ex-agent-cutover-check
-            - --admissions-frozen
+            - --admission-evidence-url
+            - $(BFF_CUTOVER_EVIDENCE_URL)
+            - --expected-freeze-id
+            - $(CUTOVER_FREEZE_ID)
             - --stable-seconds
             - "10"
           envFrom:
@@ -20,3 +28,5 @@ spec:
                 name: ex-agent-runtime
             - secretRef:
                 name: ex-agent-runtime
+            - secretRef:
+                name: ex-agent-cutover

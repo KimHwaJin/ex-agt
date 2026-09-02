@@ -4,7 +4,7 @@ from uuid import uuid4
 import pytest
 from psycopg import AsyncConnection
 
-from agent.cutover import CutoverProbe
+from agent.cutover import CutoverProbe, UnsafeStaticAdmissionFreezeProbe
 
 pytestmark = [pytest.mark.postgres, pytest.mark.redis]
 
@@ -33,6 +33,7 @@ async def test_probe_reads_real_legacy_tables_and_stream_groups() -> None:
         command_group=command_group,
         executor_event_stream=event_stream,
         executor_event_group=event_group,
+        admission_probe=UnsafeStaticAdmissionFreezeProbe(),
     )
     try:
         baseline = await probe._database_counts()
@@ -79,7 +80,7 @@ async def test_probe_reads_real_legacy_tables_and_stream_groups() -> None:
                 VALUES (%s,%s,true)""",
                 (session_id, task_id),
             )
-        observed = await probe.snapshot(admissions_frozen=True)
+        observed = await probe.snapshot()
 
         assert (
             observed.active_tasks,
