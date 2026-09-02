@@ -1,4 +1,8 @@
-# Kubernetes: API+Agent와 Worker를 같은 Pod에 배포
+# 과거 인수용 Kubernetes 참조 템플릿
+
+현재 ex-agent 자체의 정식 실행 계약은
+[deploy/k8s](../k8s/README.md)에서 관리한다. 이 디렉터리는 다른 Agent 서비스에
+Worker를 인수인계할 때 사용한 `your_agent` placeholder 예제로만 보존한다.
 
 [api-agent-worker.yaml.example](api-agent-worker.yaml.example)은 동일 이미지에서
 API+Agent와 Worker를 별도 컨테이너로 실행하는 배포 템플릿이다. 이미지·Secret,

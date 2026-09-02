@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  # Jobs are immutable. Use a new release-specific name for every rollout.
+  name: ex-agent-migrate-replace-with-release
+  labels:
+    app.kubernetes.io/name: ex-agent-migrate
+    app.kubernetes.io/part-of: ex-agent
+spec:
+  backoffLimit: 3
+  activeDeadlineSeconds: 600
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: ex-agent-migrate
+        app.kubernetes.io/part-of: ex-agent
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+      containers:
+        - name: migrate
+          image: registry.example.com/ex-agent:replace-with-version
+          imagePullPolicy: IfNotPresent
+          # Runs Agent, reusable Worker and LangGraph checkpoint migrations.
+          args: ["ex-agent-migrate"]
+          envFrom:
+            - configMapRef:
+                name: ex-agent-runtime
+            - secretRef:
+                name: ex-agent-runtime
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 1Gi

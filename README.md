@@ -84,6 +84,11 @@ cp .env.example .env
 docker compose up --build
 ```
 
+Kubernetes 운영 배포는 루트 Dockerfile로 이미지 하나를 만든 뒤 같은 Pod에서
+`ex-agent-api`와 `ex-agent-worker`를 별도 컨테이너로 실행한다. 배포 전에 같은
+이미지의 `ex-agent-migrate` Job을 완료해야 한다. 정식 manifest와 환경별 치환
+항목은 [Kubernetes 배포](deploy/k8s/README.md)를 따른다.
+
 기본 Compose는 `migrate`, `api`, `worker`만 실행하고 Executor 쪽
 PostgreSQL(`5432`)과 Redis(`6379`)에 연결한다. PostgreSQL 서버는 공유하되
 Agent의 DB/role은 `agent`로 분리하며 Executor DB에 Agent migration을
@@ -120,7 +125,9 @@ Executor의 `executor.events`를 같은 Redis에서 소비하는 배치라면
 - `POST /api/v1/workflows/{workflow_id}/versions/{version_id}/activate`
 - `POST /api/v1/workflows/{workflow_id}/status`
 
-BFF는 모든 요청에 신뢰된 `X-User-ID`를 전달한다. Task 생성 시 BFF가
+BFF는 인증한 사용자의 `X-User-ID`를 전달한다. production에서는 method,
+path/query, user ID, timestamp, nonce와 body hash를 HMAC으로 함께 서명하며 상세
+계약은 [BFF 요청 서명](docs/bff-request-signing.md)을 따른다. Task 생성 시 BFF가
 채번한 `task_id`와 `input_message_id`를 body에 넣는다. API는 Task와 요청 원장을
 한 트랜잭션으로 저장한 뒤 같은 세션 guard에서 Graph를 직접 invoke한다. 승인·수정·
 취소도 현재 interrupt ID와 함께 접수하며, 응답 유실이나 API 종료 시 요청 복구

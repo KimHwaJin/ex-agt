@@ -40,6 +40,7 @@ USER root
 COPY tests ./tests
 COPY examples ./examples
 COPY scripts ./scripts
+COPY Dockerfile ./
 COPY docker-compose.yml ./
 COPY langgraph.json ./
 COPY docs/worker-centered-refactor.md ./docs/worker-centered-refactor.md
@@ -47,5 +48,6 @@ COPY deploy/worker ./deploy/worker
 COPY deploy/worker-cutover ./deploy/worker-cutover
 COPY deploy/cutover-e2e ./deploy/cutover-e2e
 COPY deploy/rolling-e2e ./deploy/rolling-e2e
+COPY deploy/k8s ./deploy/k8s
 RUN uv sync --frozen --no-editable
 USER agent

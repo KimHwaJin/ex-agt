@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: ex-agent-api
+  labels:
+    app.kubernetes.io/name: ex-agent
+    app.kubernetes.io/part-of: ex-agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: ex-agent
+  ports:
+    - name: http
+      port: 8010
+      targetPort: http
