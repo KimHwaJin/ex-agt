@@ -2,7 +2,16 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
@@ -33,6 +42,7 @@ class FailureCleanup(FailureBase, TimestampMixin):
     source: Mapped[dict[str, Any]] = mapped_column(JSONB)
     reason: Mapped[str] = mapped_column(Text)
     state: Mapped[str] = mapped_column(String(32), default="PENDING")
+    version: Mapped[int] = mapped_column(Integer, default=1)
     attempts: Mapped[int] = mapped_column(default=0)
     next_attempt_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     last_error: Mapped[str | None] = mapped_column(Text)
@@ -41,5 +51,13 @@ class FailureCleanup(FailureBase, TimestampMixin):
     preserve_terminal: Mapped[bool] = mapped_column(Boolean)
     final_status: Mapped[str] = mapped_column(String(64))
     message: Mapped[str | None] = mapped_column(Text)
+    last_operation_id: Mapped[UUID | None]
+    last_operation_action: Mapped[str | None] = mapped_column(String(32))
+    last_operation_hash: Mapped[str | None] = mapped_column(String(64))
+    last_operation_reason: Mapped[str | None] = mapped_column(Text)
+    last_operation_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    last_operation_by: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[str] = mapped_column(String(255), default="AGENT")
     updated_by: Mapped[str] = mapped_column(String(255), default="AGENT")

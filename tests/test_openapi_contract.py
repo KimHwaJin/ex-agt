@@ -14,6 +14,22 @@ _OPERATIONS = {
     ("get", "/api/v1/tasks/{task_id}/events"): "streamTaskEvents",
     (
         "get",
+        "/api/v1/operations/failure-cleanups",
+    ): "listBlockedFailureCleanups",
+    (
+        "get",
+        "/api/v1/operations/failure-cleanups/{task_id}",
+    ): "getFailureCleanup",
+    (
+        "post",
+        "/api/v1/operations/failure-cleanups/{task_id}/retry",
+    ): "retryFailureCleanup",
+    (
+        "post",
+        "/api/v1/operations/failure-cleanups/{task_id}/finalize",
+    ): "finalizeFailureCleanup",
+    (
+        "get",
         "/api/v1/tasks/{task_id}/workflow-promotion-draft",
     ): "getWorkflowPromotionDraft",
     ("post", "/api/v1/tasks/{task_id}/workflow-promotions"): "promoteWorkflow",
@@ -80,6 +96,7 @@ def test_resource_and_cursor_page_schemas_follow_api_conventions() -> None:
     for name in (
         "TaskAcceptedResponse",
         "TaskResponse",
+        "FailureCleanupView",
         "WorkflowOperationsView",
         "WorkflowVersionSummary",
         "WorkflowLifecycleActionView",
@@ -87,7 +104,11 @@ def test_resource_and_cursor_page_schemas_follow_api_conventions() -> None:
         assert audit_fields.issubset(schemas[name]["properties"])
         assert audit_fields.issubset(schemas[name]["required"])
 
-    for name in ("WorkflowVersionPage", "WorkflowLifecycleActionPage"):
+    for name in (
+        "FailureCleanupPage",
+        "WorkflowVersionPage",
+        "WorkflowLifecycleActionPage",
+    ):
         assert {"items", "next_cursor", "has_more"}.issubset(
             schemas[name]["properties"]
         )
@@ -112,6 +133,7 @@ def test_mutation_request_schemas_include_bff_examples() -> None:
     for name in (
         "TaskCreateRequest",
         "CancelRequest",
+        "FailureOperationInput",
         "WorkflowPromotionRequest",
         "WorkflowVersionCreateRequest",
         "WorkflowVersionReviewRequest",

@@ -326,11 +326,9 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
 
 ### 3단계 이후 남은 작업
 
-1. 인증된 BLOCKED 조회·재시도/수동 종료 API를 설계한다. 실행 증거 없이 잠금을
-   강제로 지우는 기능은 제공하지 않는다.
-2. 실제 Executor·모델과 K8s 롤링 전환을 검증한 뒤 구 Worker/WorkflowCommand와
+1. 실제 Executor·모델과 K8s 롤링 전환을 검증한 뒤 구 Worker/WorkflowCommand와
    임시 import를 제거한다. 활성 작업 drain 또는 명시적 중단 정책을 먼저 정한다.
-3. 장기 세션의 대화 컨텍스트와 checkpoint·영수증 보존/압축 정책을 정한다.
+2. 장기 세션의 대화 컨텍스트와 checkpoint·영수증 보존/압축 정책을 정한다.
 
 API와 Worker 진입점은 새 경로로 전환했지만 실제 운영 클러스터에는 아직 배포하지
 않았다. 종단 검증과 활성 작업 전환 없이 `ex_agent`를 삭제하지 않는다.

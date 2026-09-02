@@ -33,6 +33,7 @@ class ApiContainer:
         registry: ToolRegistry | None = None,
         admission: Any | None = None,
         runtime_lifecycle: Any | None = None,
+        failure_operations: Any | None = None,
     ) -> None:
         self.settings = settings
         self._owns_engine = engine is None
@@ -60,6 +61,7 @@ class ApiContainer:
         )
         self.admission = admission
         self.runtime_lifecycle = runtime_lifecycle
+        self.failure_operations = failure_operations
         self.identity: IdentityProvider = TrustedHeaderIdentityProvider()
         record_readiness("api", ReadinessResult.starting())
 
@@ -85,6 +87,7 @@ class ApiContainer:
             registry=runtime.registry,
             admission=runtime.admission,
             runtime_lifecycle=runtime.lifecycle,
+            failure_operations=runtime.failure_operations,
         )
 
 

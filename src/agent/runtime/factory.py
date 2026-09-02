@@ -18,6 +18,10 @@ from agent.admission.store import RequestStore
 from agent.effects.runner import ExecutorEffectSender
 from agent.effects.store import EffectStore
 from agent.failure.executor import FailureExecutor
+from agent.failure.operations import (
+    FailureOperations,
+    FailureOperatorPolicy,
+)
 from agent.failure.recovery import FailureRecovery
 from agent.failure.service import FailureService
 from agent.failure.store import FailureStore
@@ -51,6 +55,7 @@ class AgentRuntimeResources:
     executor: ExecutorClient
     engine: Any
     registry: ToolRegistry
+    failure_operations: FailureOperations
 
 
 @asynccontextmanager
@@ -105,10 +110,11 @@ async def open_agent_runtime(
         )
         effects = EffectStore(sessions)
         sender = ExecutorEffectSender(settings, executor_client)
+        failure_store = FailureStore(sessions)
         failure = FailureService(
             graph,
             worker.guard,
-            FailureStore(sessions),
+            failure_store,
             requests,
             FailureExecutor(effects, sender, executor_client),
             max_attempts=settings.agent_failure_max_attempts,
@@ -144,6 +150,11 @@ async def open_agent_runtime(
         adapter = failure.protect(
             SessionGraphAdapter(graph, snapshot_projector=projector)
         )
+        failure_operations = FailureOperations(
+            failure,
+            failure_store,
+            FailureOperatorPolicy(settings.agent_failure_operator_user_ids),
+        )
         resources = AgentRuntimeResources(
             graph=graph,
             admission=admission,
@@ -153,6 +164,7 @@ async def open_agent_runtime(
             executor=executor_client,
             engine=engine,
             registry=registry,
+            failure_operations=failure_operations,
         )
         yield resources
     finally:
@@ -167,13 +179,14 @@ async def _verify_schema(sessions, worker, checkpointer) -> None:
     """Fail before consuming when deployment initialization is incomplete."""
 
     async with sessions() as session:
-        for table in (
-            "agent_tasks",
-            "agent_api_requests",
-            "agent_executor_effects",
-            "agent_failure_cleanups",
+        for statement in (
+            "SELECT 1 FROM agent_tasks LIMIT 0",
+            "SELECT 1 FROM agent_api_requests LIMIT 0",
+            "SELECT 1 FROM agent_executor_effects LIMIT 0",
+            """SELECT version,last_operation_id,last_operation_hash
+            FROM agent_failure_cleanups LIMIT 0""",
         ):
-            await session.execute(text(f"SELECT 1 FROM {table} LIMIT 0"))
+            await session.execute(text(statement))
     await worker.store.counts()
     if not callable(getattr(checkpointer, "aget_tuple", None)):
         raise ValueError("Agent runtime requires an async checkpointer")

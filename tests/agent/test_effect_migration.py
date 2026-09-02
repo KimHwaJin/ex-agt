@@ -92,11 +92,20 @@ async def test_upgrade_from_previous_head_preserves_task_data():
             cursor = await conn.execute(
                 "SELECT version_num FROM alembic_version"
             )
-            assert await cursor.fetchone() == ("0009_failure_cleanups",)
+            assert await cursor.fetchone() == ("0010_failure_operations",)
             cursor = await conn.execute(
                 "SELECT count(*) FROM agent_api_requests"
             )
             assert await cursor.fetchone() == (0,)
+            cursor = await conn.execute(
+                """SELECT count(*) FROM information_schema.columns
+                WHERE table_name='agent_failure_cleanups'
+                AND column_name IN
+                ('version','last_operation_id','last_operation_action',
+                 'last_operation_hash','last_operation_reason',
+                 'last_operation_at','last_operation_by')"""
+            )
+            assert await cursor.fetchone() == (7,)
             cursor = await conn.execute(
                 "SELECT count(*) FROM agent_failure_cleanups"
             )

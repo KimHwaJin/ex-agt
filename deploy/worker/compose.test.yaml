@@ -30,7 +30,7 @@ services:
     command: [python, -m, pytest, -q, -p, no:cacheprovider, tests/worker]
     environment:
       TEST_DATABASE_URL: >-
-        postgresql://worker:worker-test-only@postgres:5432/worker_test
+        postgresql+psycopg://worker:worker-test-only@postgres:5432/worker_test
       TEST_REDIS_URL: redis://redis:6379/0
     depends_on:
       postgres:

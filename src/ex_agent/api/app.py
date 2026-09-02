@@ -5,6 +5,7 @@ from typing import Any
 from fastapi import FastAPI
 
 from ex_agent.api.container import ApiContainer
+from ex_agent.api.routers.failures import failure_router
 from ex_agent.api.routers.health import health_router
 from ex_agent.api.routers.promotions import promotion_router
 from ex_agent.api.routers.tasks import (
@@ -45,6 +46,7 @@ def create_app(
     )
     app.include_router(health_router(resolved))
     app.include_router(task_router(resolved))
+    app.include_router(failure_router())
     app.include_router(promotion_router())
     app.include_router(workflow_router())
     return app

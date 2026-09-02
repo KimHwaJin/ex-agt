@@ -38,6 +38,8 @@ checkpoint 정리에는 실패했던 업무 노드를 다시 실행하는 `ainvo
 | `graph.py` | 대상 checkpoint 검증, 업무 노드 재실행 없는 실패 종료 |
 | `service.py` | API/Worker 실패 포착, 세션 guard 아래 단일 보상 수행 |
 | `recovery.py` | 제한된 동시성과 keyset cursor를 쓰는 DB 복구 루프 |
+| `operations.py` | 운영자 allowlist, BLOCKED cursor 조회, 멱등 재시도·즉시 검증 |
+| `contracts.py` | 감사 필드를 포함한 운영 조회·명령 API 계약 |
 
 ## 상태
 
@@ -79,12 +81,36 @@ event_handler = failure.protect(session_graph_adapter)
 `recovery.run(stop_event)`의 lifecycle은 `RequestRecovery`와 같은 호스트가
 관리한다. 일반 Worker 패키지는 Agent 실패 모듈을 import하지 않는다. Worker 쪽
 추가는 기존 command 테이블을 읽는 `failed_page()`뿐이며 별도 Worker migration은
-없다. Agent DB에는 Alembic `0009_failure_cleanups`가 필요하다.
+없다. Agent DB에는 Alembic `0010_failure_operations`까지 필요하다.
+
+## BLOCKED 운영 API
+
+`AGENT_FAILURE_OPERATOR_USER_IDS`에 쉼표로 구분한 운영자 user ID를 설정해야
+접근할 수 있다. 기본값은 빈 allowlist이므로 인증된 일반 사용자도 `403`을 받는다.
+초기 allowlist는 향후 BFF role/permission policy로 교체 가능한 application
+경계다.
+
+```text
+GET  /api/v1/operations/failure-cleanups
+GET  /api/v1/operations/failure-cleanups/{task_id}
+POST /api/v1/operations/failure-cleanups/{task_id}/retry
+POST /api/v1/operations/failure-cleanups/{task_id}/finalize
+```
+
+목록은 `updated_at, task_id` keyset cursor를 사용한다. 명령은 Task 범위의
+`idempotency_key`, 조회한 `expected_version`, 필수 운영 사유를 받는다. 요청자,
+사유, 이전 오류, operation ID는 `task.failure_cleanup_operator_requested` 이벤트와
+failure row의 마지막 operation 필드에 기록된다.
+
+`retry`는 시도 횟수를 초기화하고 기존 복구 루프에 다시 넣을 뿐 Task나 잠금을
+직접 변경하지 않는다. `finalize`도 같은 복구 로직을 즉시 한 번 실행한다. Executor
+터미널 상태와 LangGraph failure receipt가 모두 확인되어 기존 `finish()`가 성공한
+경우에만 `DONE`과 Session unlock이 발생한다. 증거가 여전히 모호하면 `409`를
+반환하고 다시 `BLOCKED`로 남긴다. 동일 멱등 키는 재실행하지 않으며 다른 조건으로
+다시 시도하려면 새 키와 최신 version을 사용한다.
 
 ## 운영 제한
 
-- `BLOCKED` 레코드의 근거를 조회하고 재시도/수동 종료할 인증된 운영 API는 아직
-  없다. 잠금을 강제로 삭제하거나 상태만 `DONE`으로 바꾸면 안 된다.
 - Task의 모든 비최종 상태와 `current_interrupt` 화면 projection은 아직 공통 운영
   factory에 연결하지 않았다.
 - 실제 Executor/Jupyter, K8s 프로세스 종료, 장기 실행 종단 검증은 수행하지 않았다.

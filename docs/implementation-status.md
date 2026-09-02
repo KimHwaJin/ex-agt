@@ -149,7 +149,7 @@
   command·미전송 outbox·Session lock 0건을 확인했다.
 - 레거시 Worker와 통합 Worker는 command envelope, 전달 DB, checkpoint
   `thread_id`가 달라 같은 consumer group의 혼합 rolling 배포를 금지한다.
-  `ex-agent-cutover-check`는 신규 접수 차단 assertion과 비종료 Task·구 command·
+  `ex-agent-cutover-check`는 인증된 BFF 접수 차단 증거와 비종료 Task·구 command·
   제품 event·Session lock·두 Redis group pending/lag를 두 번 읽어 drain이
   안정적으로 끝났을 때만 성공한다. 전환 runbook과 Kubernetes Job 예시는
   `deploy/worker-cutover/`에 둔다.
@@ -164,6 +164,10 @@
   확인한다. 격리 리허설 escape hatch는 이름에 `unsafe`를 명시하고 운영 Job에서는
   사용하지 않는다. `TARGET_STARTED` 이후 레거시 재기동을 금지하는 단계별 롤백
   판정 CLI와 배포 증거 계약은 `deploy/worker-cutover/`에 있다.
+- allowlist로 제한된 BLOCKED failure cleanup 운영 API는 상세·cursor 목록,
+  멱등 재시도와 즉시 검증 종료를 제공한다. 즉시 종료도 기존 Executor 터미널
+  증거와 LangGraph failure receipt를 통과해야만 잠금을 해제하며 요청자·사유를
+  Task event와 cleanup operation 필드에 감사한다.
 - API는 liveness `/healthz`와 dependency-aware `/readyz`, 통합 Worker는
   `/health/live`와 `/health/ready`를 분리한다.
   API PostgreSQL·Redis probe와 Worker의 Redis·DB·Agent runtime 확인은 timeout을

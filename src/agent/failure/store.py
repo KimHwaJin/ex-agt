@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from agent.admission.models import ApiRequestRow
@@ -29,7 +29,97 @@ class FailureStore:
                 row.next_attempt_at = datetime.now(UTC) + timedelta(
                     seconds=delay
                 )
-                row.updated_by = "AGENT"
+                touch(row)
+
+    async def blocked_page(
+        self,
+        *,
+        before: tuple[datetime, UUID] | None,
+        limit: int,
+    ) -> list[FailureCleanup]:
+        if not 1 <= limit <= 100:
+            raise ValueError("Page size must be between 1 and 100")
+        async with self.sessions() as session:
+            query = select(FailureCleanup).where(
+                FailureCleanup.state == "BLOCKED"
+            )
+            if before is not None:
+                updated_at, task_id = before
+                query = query.where(
+                    or_(
+                        FailureCleanup.updated_at < updated_at,
+                        and_(
+                            FailureCleanup.updated_at == updated_at,
+                            FailureCleanup.task_id < task_id,
+                        ),
+                    )
+                )
+            return list(
+                await session.scalars(
+                    query.order_by(
+                        FailureCleanup.updated_at.desc(),
+                        FailureCleanup.task_id.desc(),
+                    ).limit(limit + 1)
+                )
+            )
+
+    async def retry_blocked(
+        self,
+        task_id: UUID,
+        *,
+        operation_id: UUID,
+        operation_hash: str,
+        action: str,
+        actor: str,
+        reason: str,
+        expected_version: int,
+    ) -> tuple[FailureCleanup, bool]:
+        if action not in {"RETRY", "FINALIZE"}:
+            raise ValueError("Unsupported failure operation")
+        async with transaction(self.sessions) as session:
+            row = await required(session, task_id)
+            if row.last_operation_id == operation_id:
+                if row.last_operation_hash != operation_hash:
+                    raise FailureOperationConflict(
+                        "Idempotency key was reused with another request"
+                    )
+                return row, True
+            if row.state != "BLOCKED":
+                raise FailureOperationConflict(
+                    f"Failure cleanup is not BLOCKED: {row.state}"
+                )
+            if row.version != expected_version:
+                raise FailureOperationConflict(
+                    "Failure cleanup version changed; refresh before retry"
+                )
+            previous_error = row.last_error
+            row.state = "PENDING"
+            row.attempts = 0
+            row.next_attempt_at = datetime.now(UTC)
+            row.last_error = None
+            row.last_operation_id = operation_id
+            row.last_operation_action = action
+            row.last_operation_hash = operation_hash
+            row.last_operation_reason = reason[:2000]
+            row.last_operation_at = datetime.now(UTC)
+            row.last_operation_by = actor
+            touch(row, actor)
+            session.add(
+                TaskEvent(
+                    task_id=task_id,
+                    event_type="task.failure_cleanup_operator_requested",
+                    payload={
+                        "operation_id": str(operation_id),
+                        "action": action,
+                        "actor": actor,
+                        "reason": row.last_operation_reason,
+                        "previous_error": previous_error,
+                        "version": row.version,
+                    },
+                )
+            )
+            await session.flush()
+            return row, False
 
     async def ensure(
         self,
@@ -142,7 +232,7 @@ class FailureStore:
             row.execution_id = execution_id
             task.execution_id = execution_id
             lock.execution_id = execution_id
-            row.updated_by = "AGENT"
+            touch(row)
             task.updated_by = "AGENT"
             task.version += 1
             await session.flush()
@@ -165,7 +255,7 @@ class FailureStore:
                 row.next_attempt_at = datetime.now(UTC) + timedelta(
                     seconds=delay
                 )
-            row.updated_by = "AGENT"
+            touch(row)
             await session.flush()
             return row
 
@@ -183,7 +273,7 @@ class FailureStore:
             row = await fenced(session, record)
             row.execution_id, row.executor_status = execution_id, status
             row.message = message
-            row.updated_by = "AGENT"
+            touch(row)
             await session.flush()
             return row
 
@@ -200,7 +290,7 @@ class FailureStore:
             row.state = "BLOCKED" if blocked else "PENDING"
             row.last_error = error[:2000]
             row.next_attempt_at = datetime.now(UTC) + timedelta(seconds=delay)
-            row.updated_by = "AGENT"
+            touch(row)
 
     async def due(self, limit: int) -> list[UUID]:
         if not 1 <= limit <= 100:
@@ -281,7 +371,7 @@ class FailureStore:
                 )
             )
             row.state, row.last_error = "DONE", None
-            row.updated_by = "AGENT"
+            touch(row)
 
 
 async def required(session: AsyncSession, task_id: UUID) -> FailureCleanup:
@@ -298,3 +388,12 @@ async def fenced(
     if row.state != "PENDING" or row.attempts != record.attempts:
         raise ValueError("Cleanup attempt was superseded")
     return row
+
+
+class FailureOperationConflict(RuntimeError):
+    pass
+
+
+def touch(row: FailureCleanup, actor: str = "AGENT") -> None:
+    row.version += 1
+    row.updated_by = actor

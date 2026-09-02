@@ -9,10 +9,16 @@ import pytest
 from sqlalchemy import select
 
 from agent.admission.contracts import ApiRequest
+from agent.failure.contracts import FailureOperationInput
+from agent.failure.operations import (
+    FailureOperationConflict,
+    FailureOperations,
+    FailureOperatorPolicy,
+)
 from agent.failure.recovery import FailureRecovery
 from agent.session import SessionConflictError
 from ex_agent.domain.enums import ExecutionMode, Intent
-from ex_agent.persistence.models import Message, SessionLock, Task
+from ex_agent.persistence.models import Message, SessionLock, Task, TaskEvent
 from tests.agent.admission_support import (
     admission_harness,
     decision_request,
@@ -153,6 +159,23 @@ async def test_unresolved_submission_keeps_lock_and_never_claims_no_execution(
         assert not await messages(h)
         assert len(h.remote.calls) == 3
         assert (await snapshot(h)).next  # Not silently retired.
+        operations = FailureOperations(
+            service,
+            service.store,
+            FailureOperatorPolicy("operator-1"),
+        )
+        with pytest.raises(FailureOperationConflict):
+            await operations.finalize(
+                UUID(h.task.active_task_id),
+                actor="operator-1",
+                request=FailureOperationInput(
+                    idempotency_key=f"unsafe-finalize-{ambiguous}",
+                    expected_version=record.version,
+                    reason="Operator checked unresolved submission",
+                ),
+            )
+        await assert_locked(h)
+        assert not await messages(h)
 
 
 async def test_cancel_acceptance_waits_for_terminal_and_survives_recovery(
@@ -192,6 +215,67 @@ async def test_cancel_acceptance_waits_for_terminal_and_survives_recovery(
         ).state == "DONE"
         assert len(h.remote.calls) == 2  # No second cancel, no report.
         async with h.sessions() as session:
+            assert await session.get(SessionLock, h.task.session_id) is None
+
+
+async def test_operator_finalize_is_audited_idempotent_and_proof_based(
+    tmp_path, monkeypatch
+):
+    async with admission_harness(tmp_path, monkeypatch) as h:
+        h.host.max_attempts = 1
+        h.service.classify_intent.side_effect = RuntimeError("model down")
+        await h.host.handle(h.command)
+        service = cleanup(h)
+        task_id = UUID(h.task.active_task_id)
+        await service.capture_api(h.command.request_id)
+        record = await service.store.get(task_id)
+        assert record is not None
+        await service.store.defer(
+            record,
+            "Operator review required",
+            delay=0,
+            blocked=True,
+        )
+        blocked = await service.store.get(task_id)
+        assert blocked is not None and blocked.state == "BLOCKED"
+        operations = FailureOperations(
+            service,
+            service.store,
+            FailureOperatorPolicy("operator-1"),
+        )
+        request = FailureOperationInput(
+            idempotency_key="finalize-safe-1",
+            expected_version=blocked.version,
+            reason="No Executor submission exists; finalize safely",
+        )
+
+        result = await operations.finalize(
+            task_id,
+            actor="operator-1",
+            request=request,
+        )
+        replay = await operations.finalize(
+            task_id,
+            actor="operator-1",
+            request=request,
+        )
+
+        assert result.cleanup.state == "DONE"
+        assert result.cleanup.executor_status == "NOT_REQUIRED"
+        assert replay.operation_replayed is True
+        assert replay.cleanup.last_operation_by == "operator-1"
+        async with h.sessions() as session:
+            events = list(
+                await session.scalars(
+                    select(TaskEvent).where(
+                        TaskEvent.task_id == task_id,
+                        TaskEvent.event_type
+                        == "task.failure_cleanup_operator_requested",
+                    )
+                )
+            )
+            assert len(events) == 1
+            assert events[0].payload["actor"] == "operator-1"
             assert await session.get(SessionLock, h.task.session_id) is None
 
 

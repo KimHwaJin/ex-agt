@@ -73,6 +73,7 @@ class Settings(BaseSettings):
     agent_failure_recovery_poll_seconds: float = Field(default=5, gt=0)
     agent_failure_max_attempts: int = Field(default=20, ge=1)
     agent_failure_retry_seconds: float = Field(default=5, gt=0)
+    agent_failure_operator_user_ids: str = ""
 
     agent_model: str = "qwen38-27b-fp8"
     agent_model_provider: str = "openai"
