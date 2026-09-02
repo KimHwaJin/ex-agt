@@ -10,8 +10,8 @@
 - `product_events`
 
 `STREAM_MAINTENANCE_OPERATOR_USER_IDS`에 등록된 BFF user ID만 요청할 수 있다.
-빈 값은 전체 거부다. 현재 인증 경계는 신뢰된 BFF의 `X-User-ID`이며, 외부에 API를
-직접 공개하려면 별도 service-to-service 인증을 먼저 적용해야 한다.
+빈 값은 전체 거부다. 운영에서는 BFF HMAC으로 `X-User-ID`, method, path/query와
+body를 함께 검증한다. Agent API를 외부에 직접 공개하지 않는다.
 
 ## API
 

@@ -159,3 +159,20 @@ def test_mutation_request_schemas_include_bff_examples() -> None:
         "WorkflowStatusRequest",
     ):
         assert "example" in schemas[name]
+
+
+def test_authenticated_operations_document_bff_signature_headers() -> None:
+    schema = _schema()
+    parameters = schema["paths"]["/api/v1/tasks/{task_id}"]["get"][
+        "parameters"
+    ]
+    names = {parameter["name"] for parameter in parameters}
+
+    assert {
+        "X-User-ID",
+        "X-BFF-Signature-Version",
+        "X-BFF-Key-ID",
+        "X-BFF-Timestamp",
+        "X-BFF-Nonce",
+        "X-BFF-Signature",
+    }.issubset(names)

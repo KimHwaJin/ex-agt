@@ -4,8 +4,15 @@ from fastapi import Depends, Request
 from redis.asyncio import Redis
 
 from ex_agent.api.identity import (
+    BffKeyId,
+    BffNonce,
+    BffSignature,
+    BffSignatureVersion,
+    BffTimestamp,
     ForwardedUserId,
+    IdentityHeaders,
     IdentityProvider,
+    SignedBffIdentityProvider,
     TrustedHeaderIdentityProvider,
 )
 from ex_agent.application.promotions import WorkflowPromotionService
@@ -64,7 +71,18 @@ class ApiContainer:
         self.runtime_lifecycle = runtime_lifecycle
         self.failure_operations = failure_operations
         self.stream_maintenance_operations = stream_maintenance_operations
-        self.identity: IdentityProvider = TrustedHeaderIdentityProvider()
+        self.identity: IdentityProvider = (
+            SignedBffIdentityProvider(
+                self.redis,
+                settings.bff_auth_hmac_keys_json.get_secret_value(),
+                max_clock_skew_seconds=(
+                    settings.bff_auth_max_clock_skew_seconds
+                ),
+                nonce_prefix=settings.bff_auth_nonce_prefix,
+            )
+            if settings.bff_auth_mode == "hmac"
+            else TrustedHeaderIdentityProvider()
+        )
         record_readiness("api", ReadinessResult.starting())
 
     async def close(self) -> None:
@@ -101,10 +119,26 @@ def api_container(request: Request) -> ApiContainer:
 
 
 async def current_user(
+    request: Request,
     forwarded_user_id: ForwardedUserId = None,
+    signature_version: BffSignatureVersion = None,
+    key_id: BffKeyId = None,
+    timestamp: BffTimestamp = None,
+    nonce: BffNonce = None,
+    signature: BffSignature = None,
     container: ApiContainer = Depends(api_container),
 ) -> str:
-    return await container.identity.user_id(forwarded_user_id)
+    return await container.identity.user_id(
+        request,
+        IdentityHeaders(
+            user_id=forwarded_user_id,
+            signature_version=signature_version,
+            key_id=key_id,
+            timestamp=timestamp,
+            nonce=nonce,
+            signature=signature,
+        ),
+    )
 
 
 __all__ = ["ApiContainer", "api_container", "current_user"]

@@ -9,10 +9,11 @@
 - `created_by`: 생성 actor
 - `updated_by`: 마지막 변경 actor
 
-사용자 작업은 BFF의 `X-User-ID`, Agent 내부 상태 전이는 `AGENT`, Executor event에
-의한 상태 전이는 `EXECUTOR`, 기존 lineage로 actor를 복원할 수 없는 데이터는
-`SYSTEM`을 사용한다. Task 생성·resume·cancel 접수 응답도 대상 Task의 현재 audit
-snapshot을 함께 반환한다.
+사용자 작업은 BFF가 서명한 `X-User-ID`, Agent 내부 상태 전이는 `AGENT`, Executor
+event에 의한 상태 전이는 `EXECUTOR`, 기존 lineage로 actor를 복원할 수 없는
+데이터는 `SYSTEM`을 사용한다. 운영 서명 계약은
+[BFF 요청 서명](bff-request-signing.md)을 따른다. Task 생성·resume·cancel 접수
+응답도 대상 Task의 현재 audit snapshot을 함께 반환한다.
 
 ## Cursor pagination
 

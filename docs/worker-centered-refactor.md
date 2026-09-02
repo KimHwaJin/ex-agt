@@ -339,3 +339,10 @@ API와 Worker 진입점은 새 경로로 전환했지만 실제 운영 클러스
 작업을 DB에 접수하고 실제 trim은 Worker lifecycle만 수행한다. Stream별 활성 작업
 잠금, 멱등 요청, stale claim 복구, 정책 하한과 감사 필드를 적용했으며 정기
 CronJob/스케줄 연계는 배포 정책 확정 후 진행한다.
+
+### 후속 운영 기능 — BFF 요청 인증
+
+개발환경의 단순 `X-User-ID` provider는 유지하되 production은 HMAC provider를
+강제한다. 서명은 method, raw path/query, user ID, timestamp, nonce와 정확한 body
+bytes를 결속한다. Redis nonce replay 방지, fail-closed 장애 처리와 key ID 기반
+회전을 적용했다.

@@ -73,6 +73,12 @@ services:
         ${AGENT_CHECKPOINT_DATABASE_URL:-postgresql://agent:agent@host.docker.internal:5432/agent}
       AGENT_REDIS_URL: >-
         ${AGENT_REDIS_URL:-redis://host.docker.internal:6379/0}
+      BFF_AUTH_MODE: ${BFF_AUTH_MODE:-trusted_header}
+      BFF_AUTH_HMAC_KEYS_JSON: ${BFF_AUTH_HMAC_KEYS_JSON:-}
+      BFF_AUTH_MAX_CLOCK_SKEW_SECONDS: >-
+        ${BFF_AUTH_MAX_CLOCK_SKEW_SECONDS:-300}
+      BFF_AUTH_NONCE_PREFIX: >-
+        ${BFF_AUTH_NONCE_PREFIX:-agent:bff-auth:nonce}
       EXECUTOR_BASE_URL: >-
         ${EXECUTOR_BASE_URL:-http://host.docker.internal:8000/api/v1}
       EXECUTOR_SHARED_STORAGE_ROOT: /workspace/shared

@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +19,14 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     host: str = "0.0.0.0"
     port: int = 8010
+    bff_auth_mode: Literal["trusted_header", "hmac"] = "trusted_header"
+    bff_auth_hmac_keys_json: SecretStr = SecretStr("")
+    bff_auth_max_clock_skew_seconds: int = Field(default=300, ge=1, le=3600)
+    bff_auth_nonce_prefix: str = Field(
+        default="agent:bff-auth:nonce",
+        min_length=1,
+        max_length=200,
+    )
 
     agent_database_url: str = (
         "postgresql+psycopg://agent:agent@127.0.0.1:55432/agent"
@@ -162,6 +170,10 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_concurrency_settings(self) -> "Settings":
+        if self.app_env.lower() in {"prod", "production"} and (
+            self.bff_auth_mode != "hmac"
+        ):
+            raise ValueError("production requires bff_auth_mode=hmac")
         if self.checkpoint_pool_min_size > self.checkpoint_pool_max_size:
             raise ValueError(
                 "checkpoint_pool_min_size cannot exceed "

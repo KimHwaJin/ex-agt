@@ -6,6 +6,9 @@ kind: ConfigMap
 metadata:
   name: handoff-agent-config
 data:
+  BFF_AUTH_MODE: hmac
+  BFF_AUTH_MAX_CLOCK_SKEW_SECONDS: "300"
+  BFF_AUTH_NONCE_PREFIX: handoff-agent:bff-auth:nonce
   EXECUTOR_BASE_URL: http://executor-api:8000/api/v1
   EXECUTOR_SOURCE_MODE: PATH
   EXECUTOR_SHARED_STORAGE_ROOT: /workspace/shared
@@ -73,6 +76,12 @@ spec:
                 name: handoff-agent-config
             - secretRef:
                 name: handoff-agent-secrets
+          env:
+            - name: BFF_AUTH_HMAC_KEYS_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: handoff-agent-bff-auth
+                  key: keys-json
           ports:
             - name: http
               containerPort: 8010
@@ -161,3 +170,7 @@ spec:
       port: 8010
       targetPort: http
   type: ClusterIP
+
+# Only the api-agent container receives this dedicated Secret:
+# handoff-agent-bff-auth / keys-json =
+# BFF_AUTH_HMAC_KEYS_JSON={"active-key-id":"<base64url-32+-byte-secret>"}

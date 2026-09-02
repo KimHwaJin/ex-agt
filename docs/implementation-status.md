@@ -171,6 +171,10 @@
 - 등록된 논리 Redis Stream만 대상으로 dry-run과 비동기 trim 작업 API를 제공한다.
   trim은 API가 아니라 통합 Worker lifecycle에서 실행하며, 실제 Stream별 활성 작업
   unique lock, 멱등 키, stale claim 복구, 보존정책 하한과 at/by 감사를 적용한다.
+- 운영 BFF 요청은 method, raw path/query, user ID, timestamp, nonce와 body hash를
+  HMAC으로 결속한다. Redis nonce를 원자적으로 한 번만 수락하고 장애 시 fail
+  closed하며 key ID 복수 등록으로 무중단 회전을 지원한다. production은 단순
+  `X-User-ID` 신뢰 모드로 시작할 수 없다.
 - API는 liveness `/healthz`와 dependency-aware `/readyz`, 통합 Worker는
   `/health/live`와 `/health/ready`를 분리한다.
   API PostgreSQL·Redis probe와 Worker의 Redis·DB·Agent runtime 확인은 timeout을
@@ -181,7 +185,6 @@
 
 - Stream maintenance API를 호출할 운영 CronJob/스케줄과 관리자 인증 체계 확정
 - 실제 embedding 모델 확보 후 Workflow 의미 검색 품질 검증 및 재인덱싱
-- BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel
 - pgvector ANN index와 Workflow risk 사전 계산은
   `docs/performance-backlog.md`의 benchmark 선행 작업으로 관리
