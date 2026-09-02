@@ -107,6 +107,36 @@ async def test_runtime_supervises_product_event_relay():
     assert delivery.stopped.is_set()
 
 
+async def test_stream_maintenance_runs_only_with_background_worker():
+    request, failure, maintenance = Recovery(), Recovery(), Recovery()
+    runtime = AgentRuntime(
+        request,
+        failure,
+        stream_maintenance_recovery=maintenance,
+    )
+
+    api_task = asyncio.create_task(runtime.run_recovery())
+    await asyncio.gather(request.started.wait(), failure.started.wait())
+    await asyncio.sleep(0)
+    assert not maintenance.started.is_set()
+    runtime.request_stop()
+    await api_task
+
+    request, failure, maintenance = Recovery(), Recovery(), Recovery()
+    runtime = AgentRuntime(
+        request,
+        failure,
+        stream_maintenance_recovery=maintenance,
+    )
+    worker = Worker()
+    worker_task = asyncio.create_task(runtime.run_worker(worker))
+    await asyncio.gather(maintenance.started.wait(), worker.started.wait())
+    runtime.request_stop()
+    await worker_task
+
+    assert maintenance.stopped.is_set()
+
+
 async def test_api_recovery_lifespan_starts_and_joins_both_loops():
     request, failure = Recovery(), Recovery()
     runtime = AgentRuntime(request, failure)

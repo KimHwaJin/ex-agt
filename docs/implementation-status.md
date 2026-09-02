@@ -168,6 +168,9 @@
   멱등 재시도와 즉시 검증 종료를 제공한다. 즉시 종료도 기존 Executor 터미널
   증거와 LangGraph failure receipt를 통과해야만 잠금을 해제하며 요청자·사유를
   Task event와 cleanup operation 필드에 감사한다.
+- 등록된 논리 Redis Stream만 대상으로 dry-run과 비동기 trim 작업 API를 제공한다.
+  trim은 API가 아니라 통합 Worker lifecycle에서 실행하며, 실제 Stream별 활성 작업
+  unique lock, 멱등 키, stale claim 복구, 보존정책 하한과 at/by 감사를 적용한다.
 - API는 liveness `/healthz`와 dependency-aware `/readyz`, 통합 Worker는
   `/health/live`와 `/health/ready`를 분리한다.
   API PostgreSQL·Redis probe와 Worker의 Redis·DB·Agent runtime 확인은 timeout을
@@ -176,11 +179,7 @@
 
 ## 다음 구현 범위
 
-- Redis Stream maintenance API: 등록된 Stream만 대상으로 dry-run plan과
-  비동기 trim job/status 조회를 제공한다. 요청자·사유·정책·결과를 감사하고,
-  멱등성·동시 실행 lock·향후 관리자 권한을 적용한다. 실제 trim은 기존
-  `SafeStreamTrimmer`를 재사용하며 CronJob 등 스케줄러 연계는 배포 단계에서
-  별도로 결정한다.
+- Stream maintenance API를 호출할 운영 CronJob/스케줄과 관리자 인증 체계 확정
 - 실제 embedding 모델 확보 후 Workflow 의미 검색 품질 검증 및 재인덱싱
 - BFF 서명 또는 service-to-service 인증으로 `X-User-ID` 신뢰 경계 강화
 - transient token delta를 위한 별도 ephemeral streaming channel

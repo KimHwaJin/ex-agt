@@ -28,6 +28,7 @@ services:
       context: ../..
       target: test
     command: [python, -m, pytest, -q, -p, no:cacheprovider, tests/worker]
+    entrypoint: [python, /app/scripts/test_entrypoint.py]
     environment:
       TEST_DATABASE_URL: >-
         postgresql+psycopg://worker:worker-test-only@postgres:5432/worker_test

@@ -74,6 +74,18 @@ class Settings(BaseSettings):
     agent_failure_max_attempts: int = Field(default=20, ge=1)
     agent_failure_retry_seconds: float = Field(default=5, gt=0)
     agent_failure_operator_user_ids: str = ""
+    stream_retention_seconds: int = Field(default=604800, ge=60)
+    stream_minimum_retained_entries: int = Field(default=1000, ge=0)
+    stream_maintenance_operator_user_ids: str = ""
+    stream_maintenance_concurrency: int = Field(default=2, ge=1, le=16)
+    stream_maintenance_batch_size: int = Field(default=10, ge=1, le=100)
+    stream_maintenance_poll_seconds: float = Field(default=2, gt=0)
+    stream_maintenance_claim_timeout_seconds: float = Field(
+        default=60,
+        ge=5,
+    )
+    stream_maintenance_max_attempts: int = Field(default=5, ge=1, le=100)
+    stream_maintenance_retry_seconds: float = Field(default=5, gt=0)
 
     agent_model: str = "qwen38-27b-fp8"
     agent_model_provider: str = "openai"

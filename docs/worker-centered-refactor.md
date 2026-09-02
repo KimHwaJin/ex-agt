@@ -332,3 +332,10 @@ Worker만 검증하는 격리 Compose 명령은 [워커 안내](../src/worker/RE
 
 API와 Worker 진입점은 새 경로로 전환했지만 실제 운영 클러스터에는 아직 배포하지
 않았다. 종단 검증과 활성 작업 전환 없이 `ex_agent`를 삭제하지 않는다.
+
+### 후속 운영 기능 — Stream maintenance API
+
+등록된 논리 Stream의 dry-run과 비동기 trim 작업을 Agent API에 추가했다. API는
+작업을 DB에 접수하고 실제 trim은 Worker lifecycle만 수행한다. Stream별 활성 작업
+잠금, 멱등 요청, stale claim 복구, 정책 하한과 감사 필드를 적용했으며 정기
+CronJob/스케줄 연계는 배포 정책 확정 후 진행한다.

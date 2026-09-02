@@ -243,3 +243,7 @@ trim을 차단한다. group 제거는 pending 0건, 해당 소비자의 폐기 �
 현재 구현은 standalone Redis를 대상으로 검증했다. 한 번의 trim script는 한
 Stream key만 사용하므로 Redis Cluster에서도 key 간 transaction은 필요 없지만,
 운영 전 대상 Redis의 Lua/XINFO/XPENDING 정책과 Redis 7.4 호환성을 확인한다.
+
+서비스 운영에서는 CLI 대신
+[Stream maintenance API](stream-maintenance-api.md)를 사용할 수 있다. API는
+등록된 Stream과 보존정책 하한만 허용하고 실제 trim은 background Worker가 수행한다.

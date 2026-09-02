@@ -34,6 +34,7 @@ class ApiContainer:
         admission: Any | None = None,
         runtime_lifecycle: Any | None = None,
         failure_operations: Any | None = None,
+        stream_maintenance_operations: Any | None = None,
     ) -> None:
         self.settings = settings
         self._owns_engine = engine is None
@@ -62,6 +63,7 @@ class ApiContainer:
         self.admission = admission
         self.runtime_lifecycle = runtime_lifecycle
         self.failure_operations = failure_operations
+        self.stream_maintenance_operations = stream_maintenance_operations
         self.identity: IdentityProvider = TrustedHeaderIdentityProvider()
         record_readiness("api", ReadinessResult.starting())
 
@@ -88,6 +90,9 @@ class ApiContainer:
             admission=runtime.admission,
             runtime_lifecycle=runtime.lifecycle,
             failure_operations=runtime.failure_operations,
+            stream_maintenance_operations=(
+                runtime.stream_maintenance_operations
+            ),
         )
 
 

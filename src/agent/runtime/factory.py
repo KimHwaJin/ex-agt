@@ -34,6 +34,9 @@ from agent.services import SessionWorkflowServices
 from ex_agent.config import Settings
 from ex_agent.executor.client import ExecutorClient
 from ex_agent.llm.factory import build_chat_model, build_embeddings
+from ex_agent.maintenance.operations import StreamMaintenanceOperations
+from ex_agent.maintenance.recovery import StreamMaintenanceRecovery
+from ex_agent.maintenance.store import StreamMaintenanceStore
 from ex_agent.persistence.database import (
     create_engine,
     create_session_factory,
@@ -56,6 +59,7 @@ class AgentRuntimeResources:
     engine: Any
     registry: ToolRegistry
     failure_operations: FailureOperations
+    stream_maintenance_operations: StreamMaintenanceOperations
 
 
 @asynccontextmanager
@@ -123,6 +127,19 @@ async def open_agent_runtime(
                 settings.executor_failure_cleanup_timeout_seconds
             ),
         )
+        stream_maintenance_store = StreamMaintenanceStore(sessions)
+        stream_maintenance_recovery = StreamMaintenanceRecovery(
+            stream_maintenance_store,
+            worker.redis,
+            concurrency=settings.stream_maintenance_concurrency,
+            batch_size=settings.stream_maintenance_batch_size,
+            poll_seconds=settings.stream_maintenance_poll_seconds,
+            claim_timeout_seconds=(
+                settings.stream_maintenance_claim_timeout_seconds
+            ),
+            max_attempts=settings.stream_maintenance_max_attempts,
+            retry_seconds=settings.stream_maintenance_retry_seconds,
+        )
         lifecycle = AgentRuntime(
             RequestRecovery(
                 admission,
@@ -146,6 +163,7 @@ async def open_agent_runtime(
                 poll_seconds=settings.outbox_poll_milliseconds / 1000,
                 idle_seconds=settings.outbox_idle_max_milliseconds / 1000,
             ),
+            stream_maintenance_recovery,
         )
         adapter = failure.protect(
             SessionGraphAdapter(graph, snapshot_projector=projector)
@@ -154,6 +172,11 @@ async def open_agent_runtime(
             failure,
             failure_store,
             FailureOperatorPolicy(settings.agent_failure_operator_user_ids),
+        )
+        stream_maintenance_operations = StreamMaintenanceOperations(
+            settings,
+            stream_maintenance_store,
+            stream_maintenance_recovery,
         )
         resources = AgentRuntimeResources(
             graph=graph,
@@ -165,6 +188,7 @@ async def open_agent_runtime(
             engine=engine,
             registry=registry,
             failure_operations=failure_operations,
+            stream_maintenance_operations=stream_maintenance_operations,
         )
         yield resources
     finally:
@@ -185,6 +209,8 @@ async def _verify_schema(sessions, worker, checkpointer) -> None:
             "SELECT 1 FROM agent_executor_effects LIMIT 0",
             """SELECT version,last_operation_id,last_operation_hash
             FROM agent_failure_cleanups LIMIT 0""",
+            """SELECT id,state,request_hash
+            FROM agent_stream_maintenance_jobs LIMIT 0""",
         ):
             await session.execute(text(statement))
     await worker.store.counts()

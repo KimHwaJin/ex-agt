@@ -29,6 +29,22 @@ _OPERATIONS = {
         "/api/v1/operations/failure-cleanups/{task_id}/finalize",
     ): "finalizeFailureCleanup",
     (
+        "post",
+        "/api/v1/operations/stream-maintenance/plans",
+    ): "planStreamMaintenance",
+    (
+        "post",
+        "/api/v1/operations/stream-maintenance/jobs",
+    ): "createStreamMaintenanceJob",
+    (
+        "get",
+        "/api/v1/operations/stream-maintenance/jobs",
+    ): "listStreamMaintenanceJobs",
+    (
+        "get",
+        "/api/v1/operations/stream-maintenance/jobs/{job_id}",
+    ): "getStreamMaintenanceJob",
+    (
         "get",
         "/api/v1/tasks/{task_id}/workflow-promotion-draft",
     ): "getWorkflowPromotionDraft",
@@ -97,6 +113,7 @@ def test_resource_and_cursor_page_schemas_follow_api_conventions() -> None:
         "TaskAcceptedResponse",
         "TaskResponse",
         "FailureCleanupView",
+        "StreamMaintenanceJobView",
         "WorkflowOperationsView",
         "WorkflowVersionSummary",
         "WorkflowLifecycleActionView",
@@ -106,6 +123,7 @@ def test_resource_and_cursor_page_schemas_follow_api_conventions() -> None:
 
     for name in (
         "FailureCleanupPage",
+        "StreamMaintenancePage",
         "WorkflowVersionPage",
         "WorkflowLifecycleActionPage",
     ):
@@ -134,6 +152,7 @@ def test_mutation_request_schemas_include_bff_examples() -> None:
         "TaskCreateRequest",
         "CancelRequest",
         "FailureOperationInput",
+        "StreamMaintenanceRequest",
         "WorkflowPromotionRequest",
         "WorkflowVersionCreateRequest",
         "WorkflowVersionReviewRequest",

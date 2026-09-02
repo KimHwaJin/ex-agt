@@ -95,7 +95,9 @@ Worker 종료는 Executor 실행 취소가 아니다.
 
 사용자가 삭제한 DLQ replay/discard·trim CLI는 복원하지 않았다.
 소비기의 DLQ 발행과 Store의 Command retry/skip·audit는 유지한다.
-관리 API 및 Stream 정리는 별도 후속 작업이다.
+공통 worker 패키지에는 관리 API를 넣지 않는다. 통합 ex-agent 서비스는 별도
+Agent DB 작업과 기존 SafeStreamTrimmer를 조합한 Stream maintenance API를
+제공한다. worker 모듈만 이식하는 서비스는 자체 운영 경계에서 선택적으로 구현한다.
 
 - [기능별 설명](docs/features.md)
 - [Agent 개발자 연결 지점](docs/agent-integration.md)

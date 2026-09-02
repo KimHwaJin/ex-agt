@@ -16,10 +16,12 @@ class AgentRuntime:
         request_recovery: Any,
         failure_recovery: Any,
         product_event_recovery: Any | None = None,
+        stream_maintenance_recovery: Any | None = None,
     ) -> None:
         self.request_recovery = request_recovery
         self.failure_recovery = failure_recovery
         self.product_event_recovery = product_event_recovery
+        self.stream_maintenance_recovery = stream_maintenance_recovery
         self._stop = asyncio.Event()
         self._started = asyncio.Event()
         self._stopped = asyncio.Event()
@@ -108,6 +110,15 @@ class AgentRuntime:
                         )
                     )
                 if worker is not None:
+                    if self.stream_maintenance_recovery is not None:
+                        self._tasks["stream-maintenance"] = group.create_task(
+                            self._supervise(
+                                "stream maintenance recovery",
+                                self.stream_maintenance_recovery.run(
+                                    self._stop
+                                ),
+                            )
+                        )
                     self._tasks["worker"] = group.create_task(
                         self._run_worker(worker)
                     )
