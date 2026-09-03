@@ -1,6 +1,6 @@
-# FUTURE deployment template. Migrate the API to agent.runtime admission
-# before enabling; current ex-agent-worker stays unchanged.
-# Host image contains worker and agent; no standalone_worker source copy.
+# Portable API+Agent / Worker handoff template.
+# Replace image, entrypoints, Secret and probes for the recipient service.
+# The image contains worker core and the host Agent integration.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -31,12 +31,12 @@ spec:
           # API probes must match the recipient's existing application.
         - name: worker
           image: your-registry/your-agent:replace-me
-          command: [python, -m, agent.worker_main]
+          command: [python, -m, your_agent.worker_main]
           envFrom:
             - secretRef:
                 name: agent-runtime
           env:
-            - name: WORKER_INSTANCE_ID
+            - name: EW_INSTANCE_ID
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid

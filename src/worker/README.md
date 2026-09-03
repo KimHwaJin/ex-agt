@@ -4,6 +4,11 @@
 소비·Inbox/Outbox 구현을 이동했으며 별도 소스 복사본은 유지하지 않는다.
 이 README가 문서 진입점이며 기능·연결·DB 초기화·과거 검증 문서는 docs/에 있다.
 
+오늘 다른 Agent 서비스로 이관한다면 먼저
+[실전 인수인계 가이드](docs/handoff-guide.md)를 전달한다. 복사할 디렉터리,
+설치 의존성, 개발자가 채울 파일, 전체 `EW_*` 설정과 완료 검증 순서를 한 문서에
+정리했다.
+
 공통 Worker 편입과 `agent.worker_main`의 실제 Agent runtime 연결을 완료했다.
 `ex-agent-worker`는 이 진입점을 실행하고 FastAPI도 같은 runtime factory로 직접
 admission한다. 이전 `ex_agent.worker_main`과 동시에 실행하지 않는다.
@@ -100,6 +105,7 @@ Agent DB 작업과 기존 SafeStreamTrimmer를 조합한 Stream maintenance API�
 제공한다. worker 모듈만 이식하는 서비스는 자체 운영 경계에서 선택적으로 구현한다.
 
 - [기능별 설명](docs/features.md)
+- [실전 인수인계 가이드](docs/handoff-guide.md)
 - [Agent 개발자 연결 지점](docs/agent-integration.md)
 - [DB 초기화와 전환 주의사항](docs/migrations.md)
 - [통합 전환·검증 상태](../../docs/worker-centered-refactor.md)

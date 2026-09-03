@@ -153,5 +153,6 @@ namespace나 권한 경계가 아니다.
 호스트 배포 단계에서 별도 수행한다. Worker 시작에서 자동 DDL을 하지 않는다.
 
 [설치·실행 안내](../README.md)와
-[배포 템플릿](../../../deploy/worker/deployment.yaml.example)을 참고한다.
-현재 배포 템플릿은 실제 Agent 연결 후 적용할 자료이며 자동 전환되지 않는다.
+[현재 서비스 배포 템플릿](../../../deploy/k8s/deployment.yaml.example)을 참고한다.
+다른 서비스는 image, entrypoint, Secret, Stream/group과 PVC 이름을 자신의 환경에
+맞춘다. 복사 범위와 전체 설정은 [실전 인수인계 가이드](handoff-guide.md)에 있다.

@@ -84,7 +84,7 @@ def test_worker_documentation_ships_with_module_and_links_resolve():
     module = root / "src/worker"
     installed = Path(worker.__file__).parent
     paths = [module / "README.md", *sorted((module / "docs").glob("*.md"))]
-    assert len(paths) == 5
+    assert len(paths) == 6
     for path in paths:
         assert (installed / path.relative_to(module)).is_file()
         for target in re.findall(r"\]\(([^()\s]+)\)", path.read_text()):
@@ -92,3 +92,23 @@ def test_worker_documentation_ships_with_module_and_links_resolve():
                 continue
             target_path = target.split("#", 1)[0]
             assert (path.parent / target_path).exists(), (path, target)
+
+
+def test_handoff_guide_lists_every_portable_worker_setting():
+    from worker.config import Settings
+
+    root = Path(__file__).resolve().parents[2]
+    guide = (root / "src/worker/docs/handoff-guide.md").read_text()
+    environment = (root / "deploy/worker/.env.example").read_text()
+    example_keys = {
+        line.split("=", 1)[0]
+        for line in environment.splitlines()
+        if line and not line.startswith("#")
+    }
+    expected_keys = {
+        f"EW_{field_name.upper()}" for field_name in Settings.model_fields
+    }
+
+    for variable in expected_keys:
+        assert f"`{variable}`" in guide
+    assert example_keys == expected_keys

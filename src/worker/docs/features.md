@@ -222,13 +222,14 @@ namespace는 같은 서비스를 처리하는 API·워커가 공유한다. 사�
 | examples/worker/api_integration.py | 기존 Execution 연결과 대기 상태 생성 |
 | examples/worker/failure_cleanup.py | 취소 접수 후 실제 종료 확인 예제 |
 | Dockerfile | 루트의 런타임·테스트 이미지 |
-| deploy/worker/deployment.yaml.example | 향후 API+Agent / Worker 배치 |
+| deploy/k8s/deployment.yaml.example | 현재 API+Agent / Worker 배치 계약 |
 | deploy/worker/migrate-job.yaml.example | ew_* migration Job |
 | deploy/worker/compose.test.yaml, tests/worker | 격리 DB·Redis 회귀 |
 
 취소 예제는 자동 호출하지 않는다. 성공·실패·취소 업무 정책은 Agent가 결정한다.
-실제 Agent factory는 아직 미구현이므로 새로운 main은 소비 전에 실패한다.
-기존 ex-agent-api/ex-agent-worker 배포는 이 단계에서 변경하지 않았다.
+현재 ex-agent는 실제 `agent.runtime.open_agent_runtime`과
+`agent.worker_main`으로 연결되어 있다. 다른 서비스는 자신의 Agent factory와 State
+계약에 맞춰 호스트 접착부를 교체한다.
 
 ## 9. 삭제 후 정리 사항
 
