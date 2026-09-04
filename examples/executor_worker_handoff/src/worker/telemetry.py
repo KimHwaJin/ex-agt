@@ -32,7 +32,7 @@ class Telemetry:
         )
         self.stream = Gauge(
             "ew_stream",
-            "Pending and lag",
+            "Stream progress; lag=-1 means unknown; has_unread is 0 or 1",
             ["kind", "metric"],
             registry=self.registry,
         )

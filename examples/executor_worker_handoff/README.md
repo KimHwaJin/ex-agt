@@ -3,6 +3,11 @@
 이 디렉터리만 복사해 다른 LangGraph Agent 저장소에 전달할 수 있다.
 원본 `ex-agent`, `agent.runtime`, `ex_agent.config`는 import하지 않는다.
 
+이 브랜치의 패키지는 **Redis 6.0.8 호환판**이다. 사용법과 Agent 계약은 유지하며
+Worker core와 Redis 의존성만 보완했다. 재전달 파일, 격리 Compose 테스트,
+지표 변경, 적용 범위는 [Redis 6.0.8 가이드](docs/redis-6.0.8.md)를 확인한다.
+원본 Agent 서비스 및 Executor의 Redis 호환 수정까지 포함한 것은 아니다.
+
 이 패키지가 제공하는 것은 Agent가 아니라 다음 경계다.
 
 ```text
@@ -210,9 +215,9 @@ Executor 제출 결과의 `execution_id`는 graph의 `register_execution` 노드
 ## 설치와 DB 초기화
 
 ```bash
-uv sync --all-groups
+uv sync --frozen --all-groups --no-editable
 export EW_DATABASE_URL='postgresql://...'
-uv run alembic -c alembic.ini upgrade head
+uv run --no-sync alembic -c alembic.ini upgrade head
 ```
 
 위 migration은 `ew_bindings`, `ew_inbox`, `ew_commands`, `ew_outbox`,
@@ -225,20 +230,20 @@ uv run alembic -c alembic.ini upgrade head
 `.env.example`의 값을 Kubernetes Secret/ConfigMap 환경변수로 주입한 후 실행한다.
 
 ```bash
-uv run executor-event-worker
+uv run --no-sync executor-event-worker
 ```
 
 또는 다음 모듈을 직접 실행한다.
 
 ```bash
-uv run python -m agent_worker.worker_main
+uv run --no-sync python -m agent_worker.worker_main
 ```
 
 하나의 image를 API와 Worker 컨테이너가 공유해도 된다. 컨테이너 명령만 다르게 둔다.
 
 ```text
-API container:    uv run uvicorn your_agent.api:app --host 0.0.0.0
-Worker container: uv run executor-event-worker
+API container:    uv run --no-sync uvicorn your_agent.api:app --host 0.0.0.0
+Worker container: executor-event-worker
 ```
 
 Worker health endpoint의 기본 포트는 `8011`이다.
@@ -299,11 +304,15 @@ GET {EW_EXECUTOR_BASE_URL}/executions/{execution_id}/events
 ## 전달 전 확인
 
 ```bash
-uv run ruff check .
-uv run ruff format --check .
-uv run ty check src
-uv run pytest
+uv sync --frozen --all-groups --no-editable
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+uv run --no-sync ty check
+uv run --no-sync pytest
 ```
+
+외부 서비스가 없으면 통합 테스트는 skip된다. 실제 Redis/DB 호환 검증은
+[Compose 테스트](docs/redis-6.0.8.md#검증-실행)로 실행한다.
 
 수령자에게는 이 `executor_worker_handoff` 디렉터리 하나만 전달한다. 기존 저장소의
 `src/agent`, `src/ex_agent`, 루트 `worker_main.py`는 함께 전달하지 않는다.

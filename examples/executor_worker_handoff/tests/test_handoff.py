@@ -37,8 +37,11 @@ def event() -> ExecutorEvent:
 
 
 def test_imports_the_handoff_worker_copy() -> None:
-    assert Path(worker.__file__).is_relative_to(PACKAGE_ROOT)
-    assert Path(agent.__file__).is_relative_to(PACKAGE_ROOT)
+    # Test the installed distribution, not a PYTHONPATH/source mount.
+    assert "site-packages" in Path(worker.__file__).parts
+    assert Path(worker.__file__).parent.parent == (
+        Path(agent.__file__).parent.parent
+    )
 
 
 def test_package_has_no_source_service_imports() -> None:

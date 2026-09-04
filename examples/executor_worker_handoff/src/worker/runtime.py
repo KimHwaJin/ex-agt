@@ -21,6 +21,7 @@ from worker.dispatcher import Dispatcher
 from worker.guard import SessionGuard
 from worker.ingress import EventRouter, Ingress
 from worker.outbox import Outbox
+from worker.redis_streams import group_progress
 from worker.store import Store
 from worker.telemetry import Telemetry
 
@@ -117,7 +118,9 @@ class ExecutorWorker:
                 dead_letter_stream=f"{settings.namespace}:{kind}:dlq",
                 lock_ttl_seconds=settings.lease_ttl_seconds,
                 lock_renew_interval_seconds=settings.lease_renew_seconds,
-                consumer_gc_idle_milliseconds=86400000,
+                # Redis 6.0 idle measures successful work, not liveness.
+                # Do not delete another replica's idle consumer on startup.
+                consumer_gc_idle_milliseconds=None,
                 retry_state_ttl_seconds=604800,
                 retry_key_prefix=f"{settings.namespace}:transport-retries",
             ),
@@ -243,17 +246,19 @@ class ExecutorWorker:
                 self.settings.command_group,
             ),
         ):
-            for entry in await self.redis.xinfo_groups(stream):
-                if entry["name"] == group:
-                    for metric in ("pending", "lag"):
-                        self.telemetry.stream.labels(kind, metric).set(
-                            entry.get(metric) or 0,
-                        )
+            progress = await group_progress(self.redis, stream, group)
+            for metric, value in {
+                "pending": progress.pending,
+                "lag": progress.lag if progress.lag is not None else -1,
+                "lag_known": int(progress.lag is not None),
+                "has_unread": int(progress.has_unread),
+            }.items():
+                self.telemetry.stream.labels(kind, metric).set(value)
         return 0
 
     async def ready(self) -> bool:
         if self._stop.is_set() or not all(
-            c.is_running for c in self.consumers
+            c.is_healthy for c in self.consumers
         ):
             return False
         try:

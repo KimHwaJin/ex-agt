@@ -1,0 +1,38 @@
+name: executor-worker-handoff-compat
+services:
+  redis:
+    image: ${TEST_REDIS_IMAGE:-redis:6.0.8}
+    command: [redis-server, --save, '', --appendonly, 'no']
+    healthcheck:
+      test: [CMD, redis-cli, ping]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    tmpfs:
+      - /data
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: worker_test
+      POSTGRES_USER: worker
+      POSTGRES_PASSWORD: isolated-test-only
+    healthcheck:
+      test: [CMD-SHELL, pg_isready -U worker -d worker_test]
+      interval: 1s
+      timeout: 2s
+      retries: 30
+    tmpfs:
+      - /var/lib/postgresql/data
+  test:
+    build:
+      context: .
+      target: test
+    environment:
+      TEST_REDIS_URL: redis://redis:6379/0
+      TEST_DATABASE_URL: >-
+        postgresql://worker:isolated-test-only@postgres:5432/worker_test
+    depends_on:
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy

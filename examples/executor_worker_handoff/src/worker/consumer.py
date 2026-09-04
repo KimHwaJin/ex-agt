@@ -15,6 +15,8 @@ from uuid import uuid4
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
+from worker.redis_streams import claim_pending_page
+
 logger = logging.getLogger(__name__)
 
 _RENEW_LOCK_SCRIPT = """
@@ -91,8 +93,8 @@ class RedisStreamConsumerConfig:
             raise ValueError("block_milliseconds must be positive")
         if self.claim_idle_milliseconds < 1:
             raise ValueError("claim_idle_milliseconds must be positive")
-        if self.claim_batch_size < 1:
-            raise ValueError("claim_batch_size must be positive")
+        if not 1 <= self.claim_batch_size <= 500:
+            raise ValueError("claim_batch_size must be between 1 and 500")
         if self.lock_ttl_seconds < 1:
             raise ValueError("lock_ttl_seconds must be positive")
         if self.lock_renew_interval_seconds < 1:
@@ -189,10 +191,21 @@ class RedisStreamConsumer:
         self._stopped = asyncio.Event()
         self._stopped.set()
         self._slot_tasks: set[asyncio.Task[None]] = set()
+        self._slot_health: dict[int, bool] = {}
 
     @property
     def is_running(self) -> bool:
         return self._running
+
+    @property
+    def is_healthy(self) -> bool:
+        return (
+            self._running
+            and not self._stop_requested.is_set()
+            and len(self._slot_health) == self._config.concurrency
+            and all(self._slot_health.values())
+            and all(not task.done() for task in self._slot_tasks)
+        )
 
     async def initialize(self) -> None:
         if self._initialized:
@@ -236,6 +249,7 @@ class RedisStreamConsumer:
             if tasks:
                 await asyncio.gather(*tasks, return_exceptions=True)
             self._slot_tasks.clear()
+            self._slot_health.clear()
             self._running = False
             self._stopped.set()
 
@@ -371,6 +385,7 @@ class RedisStreamConsumer:
         handler = self._handler_factory(slot_index)
         retry_delay = self._retry_initial_seconds
         claim_cursor = "0-0"
+        self._slot_health[slot_index] = False
         while True:
             if self._stop_requested.is_set():
                 return
@@ -379,6 +394,7 @@ class RedisStreamConsumer:
                     consumer,
                     claim_cursor,
                 )
+                self._slot_health[slot_index] = True
                 if claimed:
                     for message_id, fields in claimed:
                         if self._stop_requested.is_set():
@@ -393,15 +409,18 @@ class RedisStreamConsumer:
                             ),
                         )
                     retry_delay = self._retry_initial_seconds
-                    continue
-                if claim_cursor != "0-0":
-                    continue
+                # Read new work between bounded recovery pages. A large PEL
+                # must not starve messages which have never been delivered.
                 messages = await self._redis.xreadgroup(
                     self._config.group,
                     consumer,
                     {self._config.stream: ">"},
                     count=1,
-                    block=self._config.block_milliseconds,
+                    block=(
+                        self._config.block_milliseconds
+                        if claim_cursor == "0-0" and not claimed
+                        else None
+                    ),
                 )
                 for _, entries in messages:
                     for message_id, fields in entries:
@@ -415,7 +434,14 @@ class RedisStreamConsumer:
                 retry_delay = self._retry_initial_seconds
             except asyncio.CancelledError:
                 raise
+            except ResponseError:
+                self._slot_health[slot_index] = False
+                # Unsupported commands, ACL errors, bad keys/groups, etc.
+                # must not turn into an indefinitely Ready retry loop.
+                logger.exception("Redis Stream protocol/configuration error")
+                raise
             except Exception:
+                self._slot_health[slot_index] = False
                 logger.exception(
                     "Redis Stream consumer iteration failed",
                     extra={
@@ -436,15 +462,15 @@ class RedisStreamConsumer:
         consumer: str,
         cursor: str,
     ) -> tuple[str, list[tuple[str, dict[str, str]]]]:
-        response: Any = await self._redis.xautoclaim(
+        return await claim_pending_page(
+            self._redis,
             self._config.stream,
             self._config.group,
             consumer,
-            min_idle_time=self._config.claim_idle_milliseconds,
-            start_id=cursor,
+            min_idle_milliseconds=self._config.claim_idle_milliseconds,
+            cursor=cursor,
             count=self._config.claim_batch_size,
         )
-        return _autoclaim_page(response)
 
     async def _run_with_lease(
         self,
@@ -728,18 +754,6 @@ class RedisStreamConsumer:
                     "group": self._config.group,
                 },
             )
-
-
-def _autoclaim_page(
-    response: Any,
-) -> tuple[str, list[tuple[str, dict[str, str]]]]:
-    if not isinstance(response, (list, tuple)) or len(response) < 2:
-        raise TypeError("Redis XAUTOCLAIM returned an invalid response")
-    cursor = _text(response[0])
-    entries = response[1]
-    if not isinstance(entries, list):
-        raise TypeError("Redis XAUTOCLAIM entries must be a list")
-    return cursor, entries
 
 
 def _text(value: Any) -> str:
