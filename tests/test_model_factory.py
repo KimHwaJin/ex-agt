@@ -27,7 +27,7 @@ def test_chat_model_uses_internal_vllm(monkeypatch: Any) -> None:
 
     assert build_chat_model(Settings()) is fake
     assert captured == {
-        "model": "qwen38-27b-fp8",
+        "model": "qwen38-27b-nvfp4",
         "model_provider": "openai",
         "base_url": "http://model.frodo.com/v1",
         "api_key": "EMPTY",

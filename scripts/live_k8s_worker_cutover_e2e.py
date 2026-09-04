@@ -618,7 +618,7 @@ def _parser() -> argparse.ArgumentParser:
         default="http://host.docker.internal:8000/api/v1",
     )
     parser.add_argument("--agent-base-url", default="http://127.0.0.1:18011")
-    parser.add_argument("--agent-model", default="qwen38-27b-fp8")
+    parser.add_argument("--agent-model", default="qwen38-27b-nvfp4")
     parser.add_argument(
         "--agent-model-base-url",
         default="http://model.frodo.com/v1",

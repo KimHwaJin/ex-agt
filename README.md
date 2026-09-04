@@ -139,11 +139,10 @@ Task의 비최종 상태와 interrupt ID는 checkpoint에서 멱등 projection�
 outbox relay가 Task별 Redis Pub/Sub을 깨운다.
 
 기본 LLM은 내부 vLLM OpenAI 호환 endpoint
-`http://model.frodo.com/v1`의 `qwen38-27b-fp8`이다. Compose는
+`http://model.frodo.com/v1`의 `qwen38-27b-nvfp4`이다. Compose는
 `model.frodo.com:10.250.110.99`를 각 Agent 컨테이너의 `/etc/hosts`에
 추가한다. IP가 바뀌면 `MODEL_HOST_IP`, 모델이 바뀌면 `AGENT_MODEL`로
-덮어쓴다. 서버의 `/v1/models`에는 `qwen38-28b-fp8`이 없고
-`qwen38-27b-fp8`이 등록되어 있어 실제 등록 ID를 기본값으로 사용한다.
+덮어쓴다. 기본값은 현재 vLLM에 등록된 모델 ID와 동일하게 유지한다.
 
 현재 Workflow 검색은 외부 모델 없이 `dummy-hash-v1` 결정적 임베딩을 사용한다.
 동일한 1024차원 구현을 인덱싱과 질의에 함께 사용해 pgvector 흐름을 개발할 수

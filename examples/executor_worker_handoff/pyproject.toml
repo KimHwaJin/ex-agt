@@ -1,0 +1,56 @@
+[project]
+name = "executor-worker-handoff"
+version = "0.1.0"
+description = "Portable durable Executor event worker for a LangGraph Agent"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.16,<2",
+    "httpx>=0.28,<1",
+    "langchain-core>=1.1,<2",
+    "langgraph>=1,<2",
+    "langgraph-checkpoint-postgres>=3,<4",
+    "prometheus-client>=0.22,<1",
+    "psycopg[binary,pool]>=3.2,<4",
+    "pydantic-settings>=2.10,<3",
+    "redis>=6.4,<7",
+    "sqlalchemy[asyncio]>=2.0.43,<3",
+]
+
+[project.scripts]
+executor-event-worker = "agent_worker.worker_main:run_worker"
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12"]
+build-backend = "uv_build"
+
+[tool.uv.build-backend]
+module-name = ["worker", "agent_worker", "agent"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.4,<9",
+    "pytest-asyncio>=1.1,<2",
+    "ruff>=0.12,<1",
+    "ty>=0.0.1a17,<1",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 79
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*.py" = ["E501"]
+
+[tool.ty.environment]
+python-version = "3.12"
+
+[tool.ty.src]
+exclude = ["migrations/versions"]

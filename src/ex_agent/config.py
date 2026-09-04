@@ -95,7 +95,7 @@ class Settings(BaseSettings):
     stream_maintenance_max_attempts: int = Field(default=5, ge=1, le=100)
     stream_maintenance_retry_seconds: float = Field(default=5, gt=0)
 
-    agent_model: str = "qwen38-27b-fp8"
+    agent_model: str = "qwen38-27b-nvfp4"
     agent_model_provider: str = "openai"
     agent_model_base_url: str = "http://model.frodo.com/v1"
     agent_model_api_key: str = "EMPTY"
