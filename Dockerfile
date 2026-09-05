@@ -43,7 +43,7 @@ COPY scripts ./scripts
 COPY Dockerfile ./
 COPY docker-compose.yml ./
 COPY langgraph.json ./
-COPY docs/worker-centered-refactor.md ./docs/worker-centered-refactor.md
+COPY docs/worker-centered-refactor.md docs/redis-compatibility.md ./docs/
 COPY deploy/worker ./deploy/worker
 COPY deploy/worker-cutover ./deploy/worker-cutover
 COPY deploy/cutover-e2e ./deploy/cutover-e2e

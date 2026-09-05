@@ -10,6 +10,8 @@ from typing import Any, cast
 
 from redis.asyncio import Redis
 
+from worker.redis_streams import next_stream_id
+
 _REPLAY_SCRIPT = """
 local prior = redis.call('get', KEYS[3])
 if prior then
@@ -199,7 +201,9 @@ class DeadLetterManager:
     ) -> DeadLetterPage:
         if not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
-        minimum = "-" if after is None else f"({after}"
+        minimum = "-" if after is None else next_stream_id(after)
+        if minimum is None:
+            return DeadLetterPage([], None)
         rows: Any = await self._redis.xrange(
             self._dlq_stream,
             min=minimum,

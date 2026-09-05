@@ -40,11 +40,13 @@ class Worker:
         self.stop.set()
 
 
-def test_agent_settings_map_to_explicit_worker_topology(tmp_path):
+@pytest.mark.parametrize("mode", ["compat", "native"])
+def test_agent_settings_map_to_explicit_worker_topology(tmp_path, mode):
     settings = Settings(
         agent_database_url="postgresql+psycopg://db/agent",
         agent_checkpoint_database_url="postgresql://db/checkpoints",
         agent_redis_url="redis://cache/3",
+        agent_redis_stream_mode=mode,
         agent_command_stream="agent-work",
         agent_command_consumer_group="agent-dispatch",
         executor_event_stream="executor-source",
@@ -60,6 +62,7 @@ def test_agent_settings_map_to_explicit_worker_topology(tmp_path):
 
     assert result.database_url == "postgresql://db/checkpoints"
     assert result.redis_url == "redis://cache/3"
+    assert result.redis_stream_mode == mode
     assert result.namespace == "tenant-safe-worker"
     assert result.command_stream == "agent-work"
     assert result.command_group == "agent-dispatch"

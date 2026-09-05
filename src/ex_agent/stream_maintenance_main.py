@@ -41,6 +41,11 @@ def _parser() -> argparse.ArgumentParser:
         default=int(os.environ.get("STREAM_MINIMUM_RETAINED_ENTRIES", "1000")),
     )
     commands = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--redis-stream-mode",
+        choices=("compat", "native"),
+        default=os.environ.get("AGENT_REDIS_STREAM_MODE", "compat"),
+    )
     commands.add_parser(
         "plan", help="Print boundaries without changing Redis."
     )
@@ -64,6 +69,7 @@ async def _run(arguments: argparse.Namespace) -> int:
         redis,
         retention_seconds=arguments.retention_seconds,
         minimum_retained_entries=arguments.minimum_retained_entries,
+        redis_stream_mode=arguments.redis_stream_mode,
     )
     try:
         if arguments.command == "plan":

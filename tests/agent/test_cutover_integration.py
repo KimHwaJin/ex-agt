@@ -89,9 +89,15 @@ async def test_probe_reads_real_legacy_tables_and_stream_groups() -> None:
             observed.locked_sessions,
         ) == tuple(value + 1 for value in baseline)
         assert observed.command_group.pending == 0
-        assert observed.command_group.lag == 0
+        assert observed.command_group.lag == 0 or (
+            observed.command_group.lag is None
+            and observed.command_group.has_unread is False
+        )
         assert observed.executor_event_group.pending == 0
-        assert observed.executor_event_group.lag == 0
+        assert observed.executor_event_group.lag == 0 or (
+            observed.executor_event_group.lag is None
+            and observed.executor_event_group.has_unread is False
+        )
     finally:
         async with await AsyncConnection.connect(
             database_url.replace(

@@ -5,12 +5,16 @@ from uuid import uuid4
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from worker.redis_streams import RedisStreamMode
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="EW_", extra="ignore")
 
     database_url: str
     redis_url: str
+    # compat: Redis 6.0.8+, native: XAUTOCLAIM 지원 서버에서 선택.
+    redis_stream_mode: RedisStreamMode = "compat"
     namespace: str = Field(default="executor-worker", min_length=1)
     executor_base_url: str = "http://localhost:8000/api/v1"
     executor_event_stream: str = "executor.events"

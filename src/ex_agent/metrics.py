@@ -67,7 +67,12 @@ REDIS_STREAM_PENDING = Gauge(
 )
 REDIS_STREAM_LAG = Gauge(
     "ex_agent_redis_stream_lag",
-    "Redis Stream consumer group lag by logical stream.",
+    "Redis Stream consumer group lag; -1 means unavailable.",
+    ["stream"],
+)
+REDIS_STREAM_HAS_UNREAD = Gauge(
+    "ex_agent_redis_stream_has_unread",
+    "Whether the consumer group has undelivered entries.",
     ["stream"],
 )
 REDIS_DEAD_LETTERED = Counter(

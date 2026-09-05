@@ -337,6 +337,7 @@ def _consumer(
     **overrides: Any,
 ) -> RedisStreamConsumer:
     config = RedisStreamConsumerConfig(
+        redis_stream_mode="native",
         stream="source",
         group="group",
         consumer_prefix="instance-command",
@@ -691,6 +692,7 @@ async def test_shutdown_drains_active_handler_within_grace_period() -> None:
     consumer = RedisStreamConsumer(
         cast(Any, redis),
         RedisStreamConsumerConfig(
+            redis_stream_mode="native",
             stream="source",
             group="group",
             consumer_prefix="instance-command",
@@ -719,6 +721,7 @@ async def test_shutdown_timeout_leaves_message_pending_for_recovery() -> None:
     consumer = RedisStreamConsumer(
         cast(Any, redis),
         RedisStreamConsumerConfig(
+            redis_stream_mode="native",
             stream="source",
             group="group",
             consumer_prefix="instance-command",
@@ -754,6 +757,7 @@ def test_autoclaim_page_rejects_invalid_shape() -> None:
 def test_consumer_config_rejects_unsafe_lease_timing() -> None:
     with pytest.raises(ValueError, match="claim idle"):
         RedisStreamConsumerConfig(
+            redis_stream_mode="native",
             stream="source",
             group="group",
             consumer_prefix="consumer",
@@ -765,6 +769,7 @@ def test_consumer_config_rejects_unsafe_lease_timing() -> None:
 def test_consumer_config_rejects_retry_state_expiring_too_early() -> None:
     with pytest.raises(ValueError, match="retry state TTL"):
         RedisStreamConsumerConfig(
+            redis_stream_mode="native",
             stream="source",
             group="group",
             consumer_prefix="consumer",

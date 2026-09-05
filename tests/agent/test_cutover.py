@@ -58,6 +58,21 @@ def test_ready_snapshot_has_no_blockers() -> None:
     assert snapshot().blockers() == ()
 
 
+@pytest.mark.parametrize("has_unread", [True, False, None])
+def test_missing_lag_requires_explicit_unread_evidence(has_unread) -> None:
+    state = StreamGroupState(
+        "agent.commands",
+        "commands-v1",
+        True,
+        pending=0,
+        lag=None,
+        last_delivered_id="10-0",
+        has_unread=has_unread,
+    )
+    blockers = snapshot(command_group=state).blockers()
+    assert bool(blockers) is (has_unread is not False)
+
+
 def test_every_unsafe_boundary_is_reported() -> None:
     missing = StreamGroupState("executor.events", "events-v1", False)
     blockers = snapshot(

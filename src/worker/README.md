@@ -33,6 +33,11 @@ worker는 agent/api/ex_agent/LangGraph/FastAPI를 import하지 않는다.
 
 ## 설치와 검증
 
+기본 `EW_REDIS_STREAM_MODE=compat`는 Redis 6.0.8 호환 경로다.
+Redis 6.2 이상에서 `native`를 선택하면 기존 XAUTOCLAIM을 사용한다.
+우리 서비스 진입점은 `AGENT_REDIS_STREAM_MODE`를 Worker 설정으로 전달한다.
+[버전 전환·복귀 안내](../../docs/redis-compatibility.md)를 참고한다.
+
 모든 명령의 작업 디렉터리는 **저장소 루트**다. 별도 uv.lock이나 하위 .venv를
 사용하지 않는다. 기존 langgraph dev 환경을 함께 쓰면 --group chat-ui도 추가한다.
 

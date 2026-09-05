@@ -39,6 +39,34 @@ def _envelope(source_stream: str, source_message_id: str) -> dict[str, str]:
 
 
 @pytest.mark.redis
+async def test_real_redis_dlq_cursor_pages_are_disjoint() -> None:
+    stream = f"test-dlq-pagination-{uuid4()}"
+    redis = Redis.from_url(
+        os.environ["TEST_REDIS_URL"],
+        decode_responses=True,
+    )
+    manager = DeadLetterManager(redis, stream)
+    try:
+        ids = [
+            await redis.xadd(stream, _envelope("source", f"1-{i}"))
+            for i in range(5)
+        ]
+        seen = []
+        after = None
+        for _ in range(3):
+            page = await manager.list_entries(limit=2, after=after)
+            seen.extend(entry.entry_id for entry in page.entries)
+            after = page.next_cursor
+        assert seen == ids
+        assert after is None
+        last = "18446744073709551615-18446744073709551615"
+        assert not (await manager.list_entries(after=last)).entries
+    finally:
+        await redis.delete(stream)
+        await redis.aclose()
+
+
+@pytest.mark.redis
 @pytest.mark.asyncio
 async def test_real_redis_replay_is_atomic_audited_and_idempotent() -> None:
     suffix = uuid4()

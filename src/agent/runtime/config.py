@@ -12,6 +12,7 @@ def build_worker_settings(settings: AgentSettings) -> WorkerSettings:
     result = WorkerSettings(
         database_url=settings.agent_checkpoint_database_url,
         redis_url=settings.agent_redis_url,
+        redis_stream_mode=settings.agent_redis_stream_mode,
         namespace=settings.executor_worker_namespace,
         executor_base_url=settings.executor_base_url,
         executor_event_stream=settings.executor_event_stream,

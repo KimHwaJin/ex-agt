@@ -13,6 +13,8 @@ from psycopg import AsyncConnection
 from redis.asyncio import Redis
 from redis.exceptions import ResponseError
 
+from worker.redis_streams import next_stream_id
+
 ADMISSION_SCOPE = "NEW_TASK_START"
 ADMISSION_STATE = "FROZEN"
 
@@ -175,6 +177,7 @@ class StreamGroupState:
     pending: int | None = None
     lag: int | None = None
     last_delivered_id: str | None = None
+    has_unread: bool | None = None
 
 
 @dataclass(frozen=True)
@@ -202,7 +205,9 @@ class CutoverSnapshot:
             if not state.exists:
                 blockers.append(f"consumer group is missing: {name}")
                 continue
-            if state.pending is None or state.lag is None:
+            if state.pending is None or (
+                state.lag is None and state.has_unread is None
+            ):
                 blockers.append(f"consumer group progress is unknown: {name}")
                 continue
             if state.pending:
@@ -211,6 +216,8 @@ class CutoverSnapshot:
                 )
             if state.lag:
                 blockers.append(f"consumer group lag {name}: {state.lag}")
+            elif state.has_unread:
+                blockers.append(f"consumer group has unread entries: {name}")
         return tuple(blockers)
 
     def to_dict(self) -> dict[str, Any]:
@@ -366,6 +373,18 @@ class CutoverProbe:
         if entry is None:
             return StreamGroupState(stream, group, exists=False)
         lag = entry.get("lag")
+        has_unread = None
+        if lag is None:
+            after = next_stream_id(str(entry["last-delivered-id"]))
+            has_unread = (
+                bool(
+                    await self.redis.xrange(
+                        stream, min=after, max="+", count=1
+                    )
+                )
+                if after is not None
+                else False
+            )
         return StreamGroupState(
             stream=stream,
             group=group,
@@ -373,6 +392,7 @@ class CutoverProbe:
             pending=int(entry["pending"]),
             lag=None if lag is None else int(lag),
             last_delivered_id=str(entry["last-delivered-id"]),
+            has_unread=has_unread,
         )
 
 

@@ -35,6 +35,7 @@ class Settings(BaseSettings):
         "postgresql://agent:agent@127.0.0.1:55432/agent"
     )
     agent_redis_url: str = "redis://127.0.0.1:56379/0"
+    agent_redis_stream_mode: Literal["compat", "native"] = "compat"
     agent_command_stream: str = "agent.commands"
     agent_command_consumer_group: str = "agent-workflow-workers-v1"
     agent_command_dead_letter_stream: str = "agent.commands.dlq"
@@ -117,7 +118,7 @@ class Settings(BaseSettings):
 
     command_block_milliseconds: int = Field(default=5000, ge=100)
     command_claim_idle_milliseconds: int = Field(default=30000, ge=1000)
-    stream_claim_batch_size: int = Field(default=10, ge=1, le=1000)
+    stream_claim_batch_size: int = Field(default=10, ge=1, le=500)
     command_max_retry_attempts: int = Field(default=5, ge=1, le=10000)
     executor_event_max_retry_attempts: int = Field(
         default=100,

@@ -21,7 +21,7 @@ services:
       - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
 
   redis:
-    image: redis:7.4-alpine
+    image: ${REDIS_IMAGE:-redis:7.4-alpine}
     profiles: ["local-infra"]
     command: ["redis-server", "--appendonly", "yes"]
     ports:
@@ -52,7 +52,7 @@ services:
       - ./deploy/postgres/initdb:/docker-entrypoint-initdb.d:ro
 
   test-redis:
-    image: redis:7.4-alpine
+    image: ${TEST_REDIS_IMAGE:-redis:6.0.8}
     profiles: ["test"]
     command: ["redis-server", "--save", "", "--appendonly", "no"]
     healthcheck:
@@ -73,6 +73,7 @@ services:
         ${AGENT_CHECKPOINT_DATABASE_URL:-postgresql://agent:agent@host.docker.internal:5432/agent}
       AGENT_REDIS_URL: >-
         ${AGENT_REDIS_URL:-redis://host.docker.internal:6379/0}
+      AGENT_REDIS_STREAM_MODE: ${AGENT_REDIS_STREAM_MODE:-compat}
       BFF_AUTH_MODE: ${BFF_AUTH_MODE:-trusted_header}
       BFF_AUTH_HMAC_KEYS_JSON: ${BFF_AUTH_HMAC_KEYS_JSON:-}
       BFF_AUTH_MAX_CLOCK_SKEW_SECONDS: >-

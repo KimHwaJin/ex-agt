@@ -19,7 +19,7 @@ dependencies = [
     "prometheus-client>=0.22,<1",
     "psycopg[binary,pool]>=3.2,<4",
     "pydantic-settings>=2.10,<3",
-    "redis>=6.4,<7",
+    "redis>=5.3,<6",
     "sqlalchemy[asyncio]>=2.0.43,<3",
     "uvicorn[standard]>=0.35,<1",
 ]
@@ -79,4 +79,10 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 python-version = "3.12"
 
 [tool.ty.src]
-exclude = ["migrations/versions", "skills"]
+# The handoff is a separate project with its own agent/worker packages.
+# Run ty in that directory to resolve its independent package namespace.
+exclude = [
+    "migrations/versions",
+    "skills",
+    "examples/executor_worker_handoff",
+]

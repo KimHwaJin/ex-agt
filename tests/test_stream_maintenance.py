@@ -168,7 +168,7 @@ async def test_trim_uses_atomic_script_and_decodes_response() -> None:
     assert result.removed_entries == 3
     assert result.trim_before_id == "4000-0"
     assert result.inspected_groups == 2
-    assert redis.eval_calls[0][1:] == (1, "jobs", "7000-0", "2")
+    assert redis.eval_calls[0][1:] == (1, "jobs", "7000-0", "2", "compat")
 
 
 def test_trimmer_rejects_invalid_configuration() -> None:

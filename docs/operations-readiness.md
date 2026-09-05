@@ -43,6 +43,10 @@ backlog, Redis pending, consumer lag도 readiness에서 제외한다. 과부하 
 Pod를 endpoint에서 제거하면 가용 처리량이 더 줄기 때문에 capacity 경보와
 수평 확장 판단에 사용한다.
 
+Redis 6.0.8 호환 경로에서도 컨슈머 슬롯의 실제 건강 상태를 readiness에 반영한다.
+미지원 명령/ACL 같은 Redis 응답 오류는 컨슈머를 종료시키고, 일시적인 연결
+오류는 unhealthy 상태에서 재시도한다. 단순 프로세스 생존만으로 Ready가 되지 않는다.
+
 ## Kubernetes probe 권장값
 
 API는 다음 시작값을 사용한다.
@@ -128,6 +132,14 @@ replica별 값을 합산하지 않고 `max`를 사용한다. Dependency 장애�
 일시적인 rolling restart로 paging하지 않도록 모든 관측 replica가 실패할 때만
 발생한다. Warning 범위는 critical 기준 이하로 제한해 같은 원인으로 두 severity가
 동시에 발생하지 않는다.
+
+Redis 6.0에서 lag는 알 수 없으므로 `-1`이다. 이 경우 위의 수치 기반 lag 경보는
+발생하지 않는다. 공통 Worker의 `ew_stream{kind="ingress",
+metric="has_unread"}` 및 `metric="pending"`, DB backlog, 처리율을 함께 관측한다.
+`metric="lag_known"`은 0이면 미확인이다. 과거 서비스 지표의 대응값은
+`ex_agent_redis_stream_has_unread{stream="executor_events"}`다.
+has_unread=1은 미읽은 메시지의 **존재**이지 건수나 처리 정체의 증거가 아니다.
+구체적인 전환 및 복귀 절차는 [Redis 호환 안내](redis-compatibility.md)를 따른다.
 
 이 값은 V1 초기 운영 기준이다. 운영 traffic에서 정상 p95와 incident 시점을
 최소 2주 수집한 뒤 경보 정확도와 처리 SLA에 맞춰 조정한다.

@@ -23,6 +23,7 @@ class WorkerConsumers(WorkerContext):
     ) -> RedisStreamConsumer:
         selected_graphs = graphs or self._graphs
         config = RedisStreamConsumerConfig(
+            redis_stream_mode=self._settings.agent_redis_stream_mode,
             stream=stream or self._settings.agent_command_stream,
             group=group or self._settings.agent_command_consumer_group,
             consumer_prefix=f"{self._consumer}-command",
@@ -39,9 +40,7 @@ class WorkerConsumers(WorkerContext):
             lock_renew_interval_seconds=(
                 self._settings.task_lock_renew_interval_seconds
             ),
-            consumer_gc_idle_milliseconds=(
-                self._settings.consumer_gc_idle_milliseconds
-            ),
+            consumer_gc_idle_milliseconds=None,
             max_retry_attempts=(self._settings.command_max_retry_attempts),
             retry_state_ttl_seconds=(
                 self._settings.stream_retry_state_ttl_seconds
@@ -77,6 +76,7 @@ class WorkerConsumers(WorkerContext):
     ) -> RedisStreamConsumer:
         selected_stream = stream or self._settings.executor_event_stream
         config = RedisStreamConsumerConfig(
+            redis_stream_mode=self._settings.agent_redis_stream_mode,
             stream=selected_stream,
             group=group or self._settings.executor_event_consumer_group,
             consumer_prefix=f"{self._consumer}-executor",
@@ -95,9 +95,7 @@ class WorkerConsumers(WorkerContext):
             lock_renew_interval_seconds=(
                 self._settings.executor_event_lock_renew_interval_seconds
             ),
-            consumer_gc_idle_milliseconds=(
-                self._settings.consumer_gc_idle_milliseconds
-            ),
+            consumer_gc_idle_milliseconds=None,
             max_retry_attempts=(
                 self._settings.executor_event_max_retry_attempts
             ),

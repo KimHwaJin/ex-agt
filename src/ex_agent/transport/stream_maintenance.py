@@ -8,6 +8,8 @@ from typing import Any, cast
 
 from redis.asyncio import Redis
 
+from worker.redis_streams import RedisStreamMode
+
 _SAFE_TRIM_SCRIPT = """
 local function decimal_less(left, right)
     left = string.gsub(left, '^0+', '')
@@ -80,7 +82,19 @@ for _, group in ipairs(groups) do
     end
 end
 
-local removed = redis.call('xtrim', KEYS[1], 'minid', '=', boundary)
+local removed = 0
+if ARGV[3] == 'native' then
+    removed = redis.call('xtrim', KEYS[1], 'minid', '=', boundary)
+else
+    -- Bounded deletion with the same atomic pending/group safety checks.
+    -- XRANGE's end is inclusive on 6.0; never delete the boundary itself.
+    local rows = redis.call('xrange', KEYS[1], '-', boundary, 'COUNT', 500)
+    local ids = {}
+    for _, row in ipairs(rows) do
+        if id_less(row[1], boundary) then table.insert(ids, row[1]) end
+    end
+    if #ids > 0 then removed = redis.call('xdel', KEYS[1], unpack(ids)) end
+end
 return {removed, boundary, #groups, length}
 """
 
@@ -126,11 +140,15 @@ class SafeStreamTrimmer:
         *,
         retention_seconds: int = 604800,
         minimum_retained_entries: int = 1000,
+        redis_stream_mode: RedisStreamMode = "compat",
     ) -> None:
         if retention_seconds < 1:
             raise ValueError("retention_seconds must be positive")
         if minimum_retained_entries < 0:
             raise ValueError("minimum_retained_entries cannot be negative")
+        if redis_stream_mode not in {"compat", "native"}:
+            raise ValueError("redis_stream_mode must be compat or native")
+        self._redis_stream_mode = redis_stream_mode
         self._redis = redis
         self._retention_seconds = retention_seconds
         self._minimum_retained_entries = minimum_retained_entries
@@ -199,6 +217,7 @@ class SafeStreamTrimmer:
                 stream,
                 self._retention_boundary(now),
                 str(self._minimum_retained_entries),
+                self._redis_stream_mode,
             )
         )
         if not isinstance(result, (list, tuple)) or len(result) != 4:

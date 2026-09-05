@@ -139,6 +139,7 @@ async def open_agent_runtime(
             ),
             max_attempts=settings.stream_maintenance_max_attempts,
             retry_seconds=settings.stream_maintenance_retry_seconds,
+            redis_stream_mode=settings.agent_redis_stream_mode,
         )
         lifecycle = AgentRuntime(
             RequestRecovery(

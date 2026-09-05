@@ -1,5 +1,11 @@
 # Reusable Redis Stream Consumer
 
+Redis 6.0.8 호환화 이후 기본 회수 방식은 `compat`이며 Lua 기반
+XPENDING/XCLAIM을 사용한다. `redis_stream_mode="native"`일 때 아래의
+XAUTOCLAIM 경로를 사용한다. Stream 정리도 모드에 따라 분기한다.
+적용 및 복귀 절차는 [Redis 버전 호환 안내](redis-compatibility.md)를 따른다.
+서비스에서 idle consumer 자동 삭제는 비활성화했다.
+
 `ex_agent.transport.consumer`는 Agent 도메인, LangGraph, PostgreSQL에 의존하지
 않는 Redis Stream 소비 런타임이다. 별도 Agent 구현에서는 이 모듈만 패키지로
 가져가거나 파일 단위로 복사하고, 메시지별 Handler를 구현하면 된다.

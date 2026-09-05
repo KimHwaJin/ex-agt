@@ -15,6 +15,11 @@ Inbox/Outbox로 내구성 있게 전달해 같은 그래프를 resume한다. 두
 
 ## 개발 명령
 
+Redis 6.0.8 대응은 기본 `AGENT_REDIS_STREAM_MODE=compat`를 사용한다.
+업그레이드 후 기존 명령 경로로 돌아가려면 `native`로 변경하고 API/Worker를
+재시작한다. 지원 범위·전환 및 복귀 절차·검증 명령은
+[Redis 버전 호환 운영 안내](docs/redis-compatibility.md)를 참고한다.
+
 API/Worker 컨테이너와 **Agent Chat UI를 함께 테스트**하려면
 [Agent Chat UI Testing](docs/agent-chat-ui-testing.md)을 참고한다.
 실제 API → Agent → Executor → Jupyter → Worker 경로는

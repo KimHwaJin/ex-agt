@@ -47,11 +47,15 @@ class FakeRedis:
         max: str,
         count: int,
     ) -> list[tuple[str, dict[str, str]]]:
-        del stream, max
+        del stream
         if min.startswith("("):
             rows = [row for row in self.rows if row[0] > min[1:]]
         elif min != "-":
-            rows = [row for row in self.rows if row[0] == min]
+            rows = [
+                row
+                for row in self.rows
+                if row[0] >= min and (max == "+" or row[0] <= max)
+            ]
         else:
             rows = self.rows
         return rows[:count]

@@ -22,6 +22,8 @@ data:
   EXECUTOR_REQUEST_TIMEOUT_SECONDS: "30"
   EXECUTOR_OPERATION_WAIT_TIMEOUT_SECONDS: "3600"
 
+  # compat: Redis 6.0.8 이상, native: Redis 6.2 이상 전용 명령
+  AGENT_REDIS_STREAM_MODE: compat
   AGENT_COMMAND_STREAM: agent.commands
   AGENT_COMMAND_CONSUMER_GROUP: agent-workflow-workers-v1
   AGENT_COMMAND_DEAD_LETTER_STREAM: agent.commands.dlq

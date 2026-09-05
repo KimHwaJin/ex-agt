@@ -7,6 +7,7 @@ from uuid import UUID
 
 from ex_agent.maintenance.store import StreamMaintenanceStore
 from ex_agent.transport.stream_maintenance import SafeStreamTrimmer
+from worker.redis_streams import RedisStreamMode
 
 logger = logging.getLogger(__name__)
 
@@ -25,6 +26,7 @@ class StreamMaintenanceRecovery:
         claim_timeout_seconds: float = 60,
         max_attempts: int = 5,
         retry_seconds: float = 5,
+        redis_stream_mode: RedisStreamMode = "compat",
     ) -> None:
         if (
             min(
@@ -46,6 +48,7 @@ class StreamMaintenanceRecovery:
         self._claim_timeout_seconds = claim_timeout_seconds
         self._max_attempts = max_attempts
         self._retry_seconds = retry_seconds
+        self._redis_stream_mode = redis_stream_mode
 
     async def run(self, stop: asyncio.Event) -> None:
         while not stop.is_set():
@@ -86,6 +89,7 @@ class StreamMaintenanceRecovery:
         try:
             trimmer = SafeStreamTrimmer(
                 self._redis,
+                redis_stream_mode=self._redis_stream_mode,
                 retention_seconds=row.retention_seconds,
                 minimum_retained_entries=row.minimum_retained_entries,
             )

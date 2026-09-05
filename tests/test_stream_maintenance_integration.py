@@ -7,6 +7,7 @@ from uuid import uuid4
 
 import pytest
 from redis.asyncio import Redis
+from redis.exceptions import ResponseError
 
 from ex_agent.transport import SafeStreamTrimmer
 
@@ -36,7 +37,8 @@ async def _read_ids(
 
 @pytest.mark.redis
 @pytest.mark.asyncio
-async def test_real_redis_trim_preserves_slowest_group_and_pending() -> None:
+@pytest.mark.parametrize("mode", ["compat", "native"])
+async def test_real_redis_trim_preserves_slowest_group_and_pending(mode):
     stream = f"test-safe-trim-{uuid4()}"
     redis = Redis.from_url(
         os.environ["TEST_REDIS_URL"],
@@ -46,6 +48,7 @@ async def test_real_redis_trim_preserves_slowest_group_and_pending() -> None:
         redis,
         retention_seconds=3,
         minimum_retained_entries=1,
+        redis_stream_mode=mode,
     )
     now = datetime.fromtimestamp(10, tz=UTC)
     try:
@@ -64,6 +67,12 @@ async def test_real_redis_trim_preserves_slowest_group_and_pending() -> None:
         await redis.xack(stream, "slow", *slow_ids[:3])
 
         plan = await trimmer.plan(stream, now=now)
+        version = (await redis.info("server"))["redis_version"]
+        if mode == "native" and version.startswith("6.0."):
+            with pytest.raises(ResponseError):
+                await trimmer.trim(stream, now=now)
+            assert await redis.xlen(stream) == 6
+            return
         first = await trimmer.trim(stream, now=now)
 
         assert plan.trim_before_id == "4000-0"
@@ -92,6 +101,42 @@ async def test_real_redis_trim_preserves_slowest_group_and_pending() -> None:
         assert second.trim_before_id == "6000-0"
         assert second.removed_entries == 2
         assert [row[0] for row in await redis.xrange(stream)] == ["6000-0"]
+    finally:
+        await redis.delete(stream)
+        await redis.aclose()
+
+
+@pytest.mark.redis
+async def test_compat_trim_is_bounded_and_repeatable() -> None:
+    stream = f"test-bounded-trim-{uuid4()}"
+    redis = Redis.from_url(
+        os.environ["TEST_REDIS_URL"],
+        decode_responses=True,
+    )
+    trimmer = SafeStreamTrimmer(
+        redis,
+        retention_seconds=1,
+        minimum_retained_entries=1,
+        redis_stream_mode="compat",
+    )
+    try:
+        async with redis.pipeline() as pipeline:
+            for i in range(1, 1202):
+                pipeline.xadd(stream, {"value": str(i)}, id=f"{i}-0")
+            await pipeline.execute()
+        await redis.xgroup_create(stream, "g", id="0")
+        ids = await _read_ids(redis, stream, "g", "reader", 1201)
+        await redis.xack(stream, "g", *ids[:-1])
+        results = [
+            await trimmer.trim(
+                stream,
+                now=datetime.fromtimestamp(10, tz=UTC),
+            )
+            for _ in range(4)
+        ]
+        assert [r.removed_entries for r in results] == [500, 500, 200, 0]
+        assert [row[0] for row in await redis.xrange(stream)] == ["1201-0"]
+        assert (await redis.xpending(stream, "g"))["min"] == "1201-0"
     finally:
         await redis.delete(stream)
         await redis.aclose()

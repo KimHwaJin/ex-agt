@@ -52,7 +52,7 @@ dependencies = [
     "psycopg[binary,pool]>=3.2,<4",
     "pydantic>=2,<3",
     "pydantic-settings>=2,<3",
-    "redis>=6.4,<7",
+    "redis>=5.3,<6",
 ]
 ```
 
@@ -313,6 +313,7 @@ GET {EW_EXECUTOR_BASE_URL}/executions/{execution_id}/events
 |---|---|---|
 | `EW_DATABASE_URL` | 필수 | `ew_*` 테이블을 둘 PostgreSQL psycopg URL |
 | `EW_REDIS_URL` | 필수 | Executor event와 내부 command를 사용할 Redis URL |
+| `EW_REDIS_STREAM_MODE` | `compat` | 6.0.8 호환 회수. 서버 6.2 이상에서 `native`로 기존 명령 선택 가능 |
 | `EW_NAMESPACE` | `executor-worker` | DB 행·Redis key·기본 Stream을 구분하는 서비스 단위 이름 |
 | `EW_EXECUTOR_BASE_URL` | `http://localhost:8000/api/v1` | 순번 누락 시 Executor history 조회 base URL |
 | `EW_EXECUTOR_EVENT_STREAM` | `executor.events` | Executor가 발행하는 원본 Stream |

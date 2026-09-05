@@ -3,21 +3,22 @@ from __future__ import annotations
 import asyncio
 import logging
 from time import perf_counter
-from typing import Any
 
 from ex_agent.metrics import (
     CHECKPOINT_POOL,
     DELIVERY_BACKLOG,
     OUTBOX_PUBLISHED,
     OUTBOX_RELAY_SECONDS,
+    REDIS_STREAM_HAS_UNREAD,
     REDIS_STREAM_LAG,
     REDIS_STREAM_PENDING,
     WORKER_RETRIES,
     record_readiness,
     update_database_pool_metrics,
 )
-from ex_agent.readiness import probe_dependencies
+from ex_agent.readiness import DependencyStatus, probe_dependencies
 from ex_agent.workers.context import WorkerContext
+from worker.redis_streams import group_progress
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,16 @@ class WorkerMaintenance(WorkerContext):
                 )
                 if self._stop_requested.is_set():
                     return
+                consumers = (
+                    self._command_stream_consumer,
+                    self._executor_stream_consumer,
+                )
+                readiness.checks["consumers"] = DependencyStatus(
+                    ready=all(
+                        c is not None and c.is_healthy for c in consumers
+                    ),
+                    latency_seconds=0,
+                )
                 self._readiness.update(readiness)
                 record_readiness("worker", readiness)
                 if readiness.ready:
@@ -81,18 +92,14 @@ class WorkerMaintenance(WorkerContext):
         stream: str,
         group: str,
     ) -> None:
-        pending: Any = await self._redis.xpending(stream, group)
-        pending_count = (
-            pending.get("pending", 0) if isinstance(pending, dict) else 0
+        progress = await group_progress(self._redis, stream, group)
+        REDIS_STREAM_PENDING.labels(stream=logical_name).set(progress.pending)
+        REDIS_STREAM_LAG.labels(stream=logical_name).set(
+            progress.lag if progress.lag is not None else -1
         )
-        REDIS_STREAM_PENDING.labels(stream=logical_name).set(pending_count)
-        groups: Any = await self._redis.xinfo_groups(stream)
-        lag = 0
-        for group_info in groups:
-            if group_info.get("name") == group:
-                lag = group_info.get("lag") or 0
-                break
-        REDIS_STREAM_LAG.labels(stream=logical_name).set(lag)
+        REDIS_STREAM_HAS_UNREAD.labels(stream=logical_name).set(
+            int(progress.has_unread)
+        )
 
     async def _outbox_loop(self) -> None:
         retry_delay = self._settings.worker_retry_initial_seconds
