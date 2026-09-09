@@ -57,6 +57,7 @@ class Store:
         catch_up: bool = False,
     ) -> None:
         data = event.model_dump(mode="json")
+        identity = event.identity_document()
         async with self.pool.connection() as conn, conn.transaction():
             await conn.execute(
                 """INSERT INTO ew_inbox
@@ -77,7 +78,10 @@ class Store:
                 (self.namespace, event.event_id),
             )
             row = await cur.fetchone()
-            if row is None or row[0] != data:
+            if row is None or (
+                ExecutorEvent.model_validate(row[0]).identity_document()
+                != identity
+            ):
                 raise ValueError("Conflicting event identity or sequence")
             if catch_up:
                 await conn.execute(

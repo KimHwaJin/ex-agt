@@ -1,5 +1,12 @@
 # Redis 6.0.8 전달 패키지
 
+최근 결과는 [이벤트 동일성 보완 및 재검증](
+verification-event-identity-fix-2026-09-06.md)을 참고한다.
+앞서 발견한 REST/Redis 이벤트 비교 오류를 수정했고 실제 Executor/Jupyter의
+SINGLE/MULTI, Pending 회수 및 이력 보충을 재검증했다.
+최초 결함 발견 및 Redis 전환 이력은
+[전환 당시 검증 기록](verification-redis608-2026-09-06.md)에 보존한다.
+
 ## 적용 범위
 
 이 디렉터리의 Worker만 Redis 6.0.8 대응판이다. 기존 프로젝트의 `src/worker`,
@@ -26,6 +33,7 @@ Executor의 pending 회수와 Stream retention은 별도로 보완해야 한다.
 | lag | 미지원 값은 -1, lag_known=0; unread 존재 여부 별도 표시 |
 | Python client | Redis 6.0을 지원 범위에 포함하는 redis-py 5.3.1로 lock |
 | 이미지 | uv.lock 기반 non-editable 설치, 기본 CMD는 Worker 그대로 |
+| 이벤트 동일성 | 불변 envelope 필드와 UTC 시각으로 비교, REST 메타데이터 제외 |
 
 회수 script는 O(전체 pending)이 아니라 한 페이지에만 비례하는 작업을 한다.
 ID는 Lua 부동소수점으로 계산하지 않는다. Python 정수로 uint64 두 구성요소의
@@ -52,6 +60,12 @@ consumer idle은 6.0에서 '마지막 성공한 작업 이후 시간'이다. 프
 API의 ApiWorkerBridge와 Worker는 같은 Redis 클라이언트 의존성을 사용한다.
 설정변수, namespace, group 이름을 변경할 필요는 없다. 기존 PEL과 DB를 지우거나
 consumer group을 재생성하지 않는다. 중복 전달은 기존 receipt/멱등 계약으로 처리한다.
+
+이미 6.0.8 대응판을 받은 수령자는 이번 결함 보완분인
+`src/worker/contracts.py`, `src/worker/store.py` 두 파일만 함께 교체해도 된다.
+환경변수/의존성/DB migration 변경은 없다. 패키지를 설치해 사용한다면 파일
+교체 후 다시 설치하거나 이미지를 재빌드하고 Worker를 재기동한다.
+`src/agent` 및 `src/agent_worker`의 수령자 코드는 변경하지 않는다.
 
 ## 검증 실행
 
