@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 import httpx
 import pytest
@@ -6,7 +7,8 @@ import pytest
 
 @pytest.mark.postgres
 @pytest.mark.redis
-async def test_health_readiness_and_metrics(worker):
+async def test_health_readiness_and_metrics(worker, caplog):
+    caplog.set_level(logging.INFO, logger="worker")
     server = await asyncio.start_server(worker._health, "127.0.0.1", 0)
     port = server.sockets[0].getsockname()[1]
     run = None
@@ -31,6 +33,17 @@ async def test_health_readiness_and_metrics(worker):
             await run
         server.close()
         await server.wait_closed()
+    for marker in (
+        "worker_starting",
+        "consumer_started",
+        "consumer_connected",
+        "worker_readiness_changed ready=True",
+        "worker_readiness_changed ready=False",
+        "worker_stop_requested",
+        "consumer_stopped",
+        "worker_stopped",
+    ):
+        assert marker in caplog.text
 
 
 @pytest.mark.postgres

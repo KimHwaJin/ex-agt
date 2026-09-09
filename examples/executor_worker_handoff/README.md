@@ -8,6 +8,11 @@ Worker core와 Redis 의존성만 보완했다. 재전달 파일, 격리 Compose
 지표 변경, 적용 범위는 [Redis 6.0.8 가이드](docs/redis-6.0.8.md)를 확인한다.
 원본 Agent 서비스 및 Executor의 Redis 호환 수정까지 포함한 것은 아니다.
 
+2026-09-06 실제 Executor 연동에서 발견한 REST/Redis 이벤트 동일성 충돌은
+보완 후 재검증했다. [보완 결과와 재전달 방법](
+docs/verification-event-identity-fix-2026-09-06.md)을 참고한다.
+패키지 경로·환경변수·DB 스키마·Agent 연결 코드는 그대로다.
+
 이 패키지가 제공하는 것은 Agent가 아니라 다음 경계다.
 
 ```text
@@ -253,6 +258,54 @@ GET /health/live
 GET /health/ready
 GET /metrics
 ```
+
+### 실행 로그와 이벤트 추적
+
+전달 진입점은 기본 `INFO` 로그를 stderr에 출력한다. Docker/Kubernetes의
+컨테이너 로그에서 확인할 수 있으며 별도 로그 파일이나 서비스는 필요 없다.
+`EW_LOG_LEVEL`은 선택사항이며 미설정 시 `INFO`다.
+
+```bash
+EW_LOG_LEVEL=DEBUG uv run --no-sync executor-event-worker
+```
+
+- `INFO`: 진입점 시작, 그래프 연결, Consumer 시작/연결, 준비 상태 변경,
+  Handler 시작/완료/무시, 종료. 이벤트가 없으면 시작 로그 이후 조용하다.
+- `DEBUG`: 메시지 수신/재수신(`reclaimed`), Inbox 저장, 이력 조회/순번 진행,
+  Outbox 발행, 중복 제외, ACK, 메시지 처리 결과.
+- `WARNING/ERROR`: 처리 보류, 통신/Handler 재시도, 최종 실패, DLQ 이동.
+
+`handler_started`의 `event_id`, `execution_id`, `command_id`를 기준으로
+추적한다. `outbox_published`의 `command_id`와 `message_id`로 내부 Stream
+전달까지 연결할 수 있다. Inbox 저장은 중복을 포함한 저장 보장을 뜻하며,
+Handler 완료는 DB `DONE` 기록 후, ACK 로그는 Redis ACK 호출 성공 후 출력된다.
+Outbox 발행 로그는 Redis XADD 성공 시점이므로 DB `SENT` 확정과는 다르다.
+Handler 완료는 이벤트 처리 함수의 완료이며 전체 분석 작업의 성공과는 다르다.
+
+`worker_readiness_changed ready=True`는 Redis/DB/Consumer/등록된 준비 검사
+통과를 뜻한다. 기본 10초 간격 점검 또는 `/health/ready` 요청 시 확인하며,
+동일 상태를 반복 출력하지 않는다. 기동 직후 `ready=False`는 가능하다.
+기동 로그만으로 정상 준비를 판단하지 말고 `/health/ready`도 확인한다.
+
+Worker 로그는 코드, 이벤트 payload, DB/Redis URL, 예외 메시지/traceback을
+기록하지 않고 오류 클래스와 식별자를 남긴다. 상세 실패 사유는 기존 DB/DLQ에
+보존된다. 수령자 Handler 및 외부 라이브러리가 직접 출력하는 로그는 별도 관리한다.
+
+`EW_LOG_LEVEL`과 출력 포맷은 `agent_worker/worker_main.py`의 `run_worker()`가
+설정한다. `await main()`이나 `ExecutorWorker.run()`을 직접 호출하는 경우에는
+호스트에서 Python logging을 설정해야 한다. Worker core는 루트 로거를 변경하지
+않는다. 전달 진입점도 기존 로그 핸들러를 강제로 교체하지 않으므로, 호스트에서
+핸들러 레벨을 높여 두었다면 Worker 로그가 필터링될 수 있다.
+
+로그 보완 버전 이식 시 `src/worker/`와 진입점의 로그 설정 부분을 반영한다.
+커스텀한 그래프 생성/Handler 코드는 덮어쓰지 않는다. 그래프, Handler 인터페이스,
+이벤트 스키마, DB migration 및 필수 환경변수 변경은 없다.
+
+로그 보완 검증(2026-09-07): 격리 Compose에서 소스 마운트 없이 패키지를 설치해
+Redis 6.0.8 및 7.4.11 각각 **83 passed, 2 skipped**, Ruff/ty 통과.
+기동/준비 상태/종료, 정상 처리/중복/재시도/최종 실패/DLQ와 민감 문자열 미출력을
+검증했다. 건너뛴 2건은 실제 Executor 연결이 필요한 별도 계약 테스트이며,
+이번 로그 변경 검증에서는 실제 Executor/Jupyter 작업을 새로 실행하지 않았다.
 
 ## Handler 결과 계약
 

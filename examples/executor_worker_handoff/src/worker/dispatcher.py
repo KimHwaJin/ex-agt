@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from time import perf_counter
 from uuid import UUID
 
 from psycopg import Error as DatabaseError
@@ -69,7 +70,11 @@ class Dispatcher:
             PoolTimeout,
             RedisError,
         ) as error:
-            logger.warning("Command deferred: %s", type(error).__name__)
+            logger.warning(
+                "command_deferred command_id=%s error_type=%s",
+                command_id,
+                type(error).__name__,
+            )
             return HandlerResult(AckDecision.DEFER, outcome="deferred")
 
     async def _dispatch(
@@ -80,8 +85,10 @@ class Dispatcher:
         row = await self.store.command(command_id)
         assert row is not None
         if generation != row["generation"]:
+            logger.debug("command_old_generation command_id=%s", command_id)
             return HandlerResult(AckDecision.ACK, outcome="old_generation")
         if row["state"] in {"DONE", "IGNORED"}:
+            logger.debug("command_duplicate command_id=%s", command_id)
             return HandlerResult(AckDecision.ACK, outcome="duplicate")
         if row["state"] == "FAILED":
             raise PermanentMessageError(row["last_error"] or "Failed command")
@@ -91,6 +98,17 @@ class Dispatcher:
             # A replica with different code must not silently discard work.
             raise DeferEvent("Handler registry differs from routed event")
         await self.store.set_state(command_id, "RUNNING")
+        started = perf_counter()
+        logger.info(
+            "handler_started command_id=%s event_id=%s execution_id=%s "
+            "event_type=%r session_id=%r task_id=%r",
+            command_id,
+            context.event.event_id,
+            context.execution_id,
+            context.event.event_type,
+            context.session_id,
+            context.task_id,
+        )
         try:
             await handler(context)
         except (
@@ -103,6 +121,7 @@ class Dispatcher:
             raise
         except IgnoreEvent as error:
             await self.store.set_state(command_id, "IGNORED", error=str(error))
+            logger.info("handler_ignored command_id=%s", command_id)
             return HandlerResult(AckDecision.ACK, outcome="ignored")
         except Exception as error:
             terminal = isinstance(error, RejectEvent) or (
@@ -115,10 +134,29 @@ class Dispatcher:
                 error=reason,
                 failed_attempt=True,
             )
+            logger.log(
+                logging.ERROR if terminal else logging.WARNING,
+                "handler_failed command_id=%s event_id=%s execution_id=%s "
+                "error_type=%s attempt=%d terminal=%s",
+                command_id,
+                context.event.event_id,
+                context.execution_id,
+                type(error).__name__,
+                row["failure_attempts"] + 1,
+                terminal,
+            )
             if terminal:
                 raise PermanentMessageError(reason) from error
             # PEL owns redelivery. DB counts only real handler failures,
             # not lock contention or dependencies waiting to become ready.
             return HandlerResult(AckDecision.DEFER, outcome="handler_retry")
         await self.store.set_state(command_id, "DONE")
+        logger.info(
+            "handler_completed command_id=%s event_id=%s execution_id=%s "
+            "duration_seconds=%.3f",
+            command_id,
+            context.event.event_id,
+            context.execution_id,
+            perf_counter() - started,
+        )
         return HandlerResult(AckDecision.ACK)

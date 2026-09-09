@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import signal
 from typing import Any
 
@@ -15,6 +16,8 @@ from agent_worker.langgraph_adapter import LangGraphEventAdapter
 from agent_worker.worker_hooks import build_handlers
 from worker import EventContext, ExecutorWorker, Settings
 from worker.contracts import EventHandler
+
+logger = logging.getLogger(__name__)
 
 
 class HostSettings(BaseSettings):
@@ -68,6 +71,7 @@ def _install_signal_handlers(worker: ExecutorWorker) -> list[signal.Signals]:
 
 
 async def main() -> None:
+    logger.info("worker_entrypoint_starting")
     worker_settings = Settings()
     host_settings = HostSettings()
     deferred = DeferredHandler()
@@ -89,6 +93,7 @@ async def main() -> None:
             _validate_graph(graph)
             deferred.bind(LangGraphEventAdapter(graph))
             worker.add_readiness_check("agent-graph", deferred.ready)
+            logger.info("agent_graph_bound handler_count=%d", len(handlers))
             installed = _install_signal_handlers(worker)
             try:
                 await worker.run()
@@ -99,8 +104,24 @@ async def main() -> None:
 
 
 def run_worker() -> None:
-    logging.basicConfig(level=logging.INFO)
-    asyncio.run(main())
+    level = os.environ.get("EW_LOG_LEVEL", "INFO").upper()
+    if level not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+        raise ValueError("EW_LOG_LEVEL must be a standard logging level")
+    # Keep dependency request URLs and payloads out of the default output.
+    # Do not replace handlers installed by the receiving application.
+    logging.basicConfig(
+        level=logging.WARNING,
+        format="%(asctime)s %(levelname)s %(name)s %(message)s",
+    )
+    logging.getLogger("worker").setLevel(level)
+    logging.getLogger("agent_worker").setLevel(level)
+    try:
+        asyncio.run(main())
+    except Exception as error:
+        # Validation and dependency exceptions can contain credentials or
+        # payloads. Retain a nonzero exit without printing their contents.
+        logger.error("worker_failed error_type=%s", type(error).__name__)
+        raise SystemExit(1) from None
 
 
 if __name__ == "__main__":

@@ -226,6 +226,12 @@ class RedisStreamConsumer:
             if self._stop_requested.is_set():
                 return
             await self.initialize()
+            logger.info(
+                "consumer_started stream=%r group=%r concurrency=%d",
+                self._config.stream,
+                self._config.group,
+                self._config.concurrency,
+            )
             if self._stop_requested.is_set():
                 return
             self._slot_tasks = {
@@ -252,6 +258,11 @@ class RedisStreamConsumer:
             self._slot_health.clear()
             self._running = False
             self._stopped.set()
+            logger.info(
+                "consumer_stopped stream=%r group=%r",
+                self._config.stream,
+                self._config.group,
+            )
 
     def request_stop(self) -> None:
         """Permanently stop taking new messages after handlers finish."""
@@ -330,6 +341,13 @@ class RedisStreamConsumer:
     ) -> None:
         started_at = perf_counter()
         outcome = "succeeded"
+        logger.debug(
+            "message_received stream=%r group=%r message_id=%s reclaimed=%s",
+            self._config.stream,
+            self._config.group,
+            message.message_id,
+            message.reclaimed,
+        )
         lock_lease: _LockLease | None = None
         self._notify(self._observer.operation_started)
         try:
@@ -357,23 +375,39 @@ class RedisStreamConsumer:
                     message,
                     lock_lease=lock_lease,
                 )
-            except Exception:
+            except Exception as error:
                 outcome = "failed"
-                logger.exception(
-                    "Redis Stream message handler failed",
-                    extra={
-                        "stream": self._config.stream,
-                        "group": self._config.group,
-                        "message_id": message.message_id,
-                    },
+                logger.error(
+                    "message_processing_failed stream=%r group=%r "
+                    "message_id=%s error_type=%s",
+                    self._config.stream,
+                    self._config.group,
+                    message.message_id,
+                    type(error).__name__,
                 )
                 return
             outcome = result.outcome
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            logger.info(
+                "message_processing_cancelled stream=%r message_id=%s",
+                self._config.stream,
+                message.message_id,
+            )
+            raise
         finally:
             try:
                 if lock_lease is not None:
                     await self._release_lock(lock_lease)
             finally:
+                logger.debug(
+                    "message_finished stream=%r message_id=%s "
+                    "outcome=%r duration_seconds=%.3f",
+                    self._config.stream,
+                    message.message_id,
+                    outcome,
+                    perf_counter() - started_at,
+                )
                 self._notify(
                     self._observer.operation_finished,
                     outcome,
@@ -394,6 +428,13 @@ class RedisStreamConsumer:
                     consumer,
                     claim_cursor,
                 )
+                if not self._slot_health[slot_index]:
+                    logger.info(
+                        "consumer_connected stream=%r group=%r consumer=%r",
+                        self._config.stream,
+                        self._config.group,
+                        consumer,
+                    )
                 self._slot_health[slot_index] = True
                 if claimed:
                     for message_id, fields in claimed:
@@ -434,21 +475,27 @@ class RedisStreamConsumer:
                 retry_delay = self._retry_initial_seconds
             except asyncio.CancelledError:
                 raise
-            except ResponseError:
+            except ResponseError as error:
                 self._slot_health[slot_index] = False
                 # Unsupported commands, ACL errors, bad keys/groups, etc.
                 # must not turn into an indefinitely Ready retry loop.
-                logger.exception("Redis Stream protocol/configuration error")
+                logger.error(
+                    "consumer_protocol_error stream=%r group=%r error_type=%s",
+                    self._config.stream,
+                    self._config.group,
+                    type(error).__name__,
+                )
                 raise
-            except Exception:
+            except Exception as error:
                 self._slot_health[slot_index] = False
-                logger.exception(
-                    "Redis Stream consumer iteration failed",
-                    extra={
-                        "stream": self._config.stream,
-                        "group": self._config.group,
-                        "consumer": consumer,
-                    },
+                logger.warning(
+                    "consumer_retry stream=%r group=%r consumer=%r "
+                    "error_type=%s retry_seconds=%.3f",
+                    self._config.stream,
+                    self._config.group,
+                    consumer,
+                    type(error).__name__,
+                    retry_delay,
                 )
                 self._notify(self._observer.transport_retry)
                 await asyncio.sleep(retry_delay)
@@ -590,13 +637,12 @@ class RedisStreamConsumer:
             )
         except Exception as error:
             reason = f"{type(error).__name__}: {error}"
-            logger.exception(
-                "Redis Stream message handler requested retry",
-                extra={
-                    "stream": self._config.stream,
-                    "group": self._config.group,
-                    "message_id": message.message_id,
-                },
+            logger.warning(
+                "message_retry_requested stream=%r message_id=%s "
+                "error_type=%s",
+                self._config.stream,
+                message.message_id,
+                type(error).__name__,
             )
             result = HandlerResult(
                 AckDecision.RETRY,
@@ -606,6 +652,11 @@ class RedisStreamConsumer:
             )
         if result.decision is AckDecision.ACK:
             await self._ack(message)
+            logger.debug(
+                "message_acked stream=%r message_id=%s",
+                self._config.stream,
+                message.message_id,
+            )
         elif result.decision is AckDecision.RETRY:
             return await self._retry_or_dead_letter(
                 consumer,
@@ -635,6 +686,14 @@ class RedisStreamConsumer:
             str(self._config.retry_state_ttl_seconds),
         )
         attempts = await cast(Awaitable[Any], increment)
+        logger.warning(
+            "message_retry_counted stream=%r message_id=%s attempt=%s "
+            "max_attempts=%d",
+            self._config.stream,
+            message.message_id,
+            attempts,
+            self._config.max_retry_attempts,
+        )
         if int(attempts) < self._config.max_retry_attempts:
             return result
         reason = result.reason or "handler retry limit exhausted"
@@ -729,6 +788,15 @@ class RedisStreamConsumer:
         )
         await pipeline.execute()
         self._notify(self._observer.dead_lettered)
+        logger.error(
+            "message_dead_lettered stream=%r message_id=%s "
+            "dlq=%r error_type=%r retry_attempts=%d",
+            self._config.stream,
+            message.message_id,
+            dead_letter_stream,
+            error_type,
+            retry_attempts,
+        )
 
     def _retry_state_key(self, message_id: str) -> str:
         identity = "\0".join(
@@ -746,13 +814,12 @@ class RedisStreamConsumer:
     def _notify(self, callback: Callable[..., None], *args: Any) -> None:
         try:
             callback(*args)
-        except Exception:
-            logger.exception(
-                "Redis Stream consumer observer failed",
-                extra={
-                    "stream": self._config.stream,
-                    "group": self._config.group,
-                },
+        except Exception as error:
+            logger.error(
+                "consumer_observer_failed stream=%r group=%r error_type=%s",
+                self._config.stream,
+                self._config.group,
+                type(error).__name__,
             )
 
 

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from redis.asyncio import Redis
 
 from worker.store import Store
+
+logger = logging.getLogger(__name__)
 
 
 class Outbox:
@@ -46,6 +50,22 @@ class Outbox:
         for row, result in zip(rows, results, strict=True):
             target = failed if isinstance(result, BaseException) else sent
             target.append(row["command_id"])
+            if isinstance(result, BaseException):
+                logger.warning(
+                    "outbox_publish_failed command_id=%s generation=%s "
+                    "error_type=%s",
+                    row["command_id"],
+                    row["generation"],
+                    type(result).__name__,
+                )
+            else:
+                logger.debug(
+                    "outbox_published command_id=%s generation=%s "
+                    "message_id=%s",
+                    row["command_id"],
+                    row["generation"],
+                    result,
+                )
         await self.store.finish_publications(token, sent, sent=True)
         await self.store.finish_publications(token, failed, sent=False)
         return len(sent)

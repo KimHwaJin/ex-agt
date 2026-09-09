@@ -32,9 +32,23 @@ class Ingress:
             await self.store.ingest(event, catch_up=message.reclaimed)
         except (KeyError, ValueError, TypeError) as error:
             raise PermanentMessageError(str(error)) from error
-        except (DatabaseError, PoolTimeout):
-            logger.exception("Inbox unavailable; preserving pending event")
+        except (DatabaseError, PoolTimeout) as error:
+            logger.warning(
+                "inbox_deferred message_id=%s error_type=%s",
+                message.message_id,
+                type(error).__name__,
+            )
             return HandlerResult(AckDecision.DEFER, outcome="database_wait")
+        logger.debug(
+            "inbox_persisted message_id=%s event_id=%s execution_id=%s "
+            "event_type=%r sequence=%d reclaimed=%s",
+            message.message_id,
+            event.event_id,
+            event.execution_id,
+            event.event_type,
+            event.event_sequence,
+            message.reclaimed,
+        )
         return HandlerResult(AckDecision.ACK)
 
 
@@ -83,6 +97,13 @@ class EventRouter:
                         response.raise_for_status()
                         page = response.json()
                         items = page["items"]
+                        logger.debug(
+                            "executor_history_fetched execution_id=%s "
+                            "after_sequence=%d count=%d",
+                            execution_id,
+                            after,
+                            len(items),
+                        )
                         if not items and (
                             gap is not None or page.get("has_more")
                         ):
@@ -105,9 +126,19 @@ class EventRouter:
                                 execution_id,
                                 row["catch_up_version"],
                             )
+                    if count:
+                        logger.debug(
+                            "inbox_advanced execution_id=%s count=%d",
+                            execution_id,
+                            count,
+                        )
                     return count
                 except Exception as error:
-                    logger.exception("Event routing deferred")
+                    logger.warning(
+                        "event_routing_deferred execution_id=%s error_type=%s",
+                        execution_id,
+                        type(error).__name__,
+                    )
                     await self.store.scan_error(execution_id, str(error))
                     return 0
 

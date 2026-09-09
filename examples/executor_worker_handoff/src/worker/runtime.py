@@ -101,6 +101,7 @@ class ExecutorWorker:
         self._readiness_checks: dict[str, Callable[[], Awaitable[bool]]] = {}
         self._stop = asyncio.Event()
         self._running = False
+        self._last_ready: bool | None = None
         self._stack = AsyncExitStack()
 
     def _consumer(self, kind, stream, group, factory, concurrency):
@@ -143,6 +144,8 @@ class ExecutorWorker:
         await self._stack.aclose()
 
     def request_stop(self) -> None:
+        if not self._stop.is_set():
+            logger.info("worker_stop_requested")
         self._stop.set()
         for consumer in self.consumers:
             consumer.request_stop()
@@ -166,6 +169,12 @@ class ExecutorWorker:
         if self._stop.is_set():
             return
         self._running = True
+        logger.info(
+            "worker_starting namespace=%r instance_id=%r handler_count=%d",
+            self.settings.namespace,
+            self.settings.instance_id,
+            len(self.handlers),
+        )
         server = None
         tasks: list[asyncio.Task] = []
         stopper = asyncio.create_task(self._stop.wait())
@@ -176,6 +185,9 @@ class ExecutorWorker:
                     "0.0.0.0",
                     self.settings.health_port,
                     limit=8192,
+                )
+                logger.info(
+                    "health_listening port=%d", self.settings.health_port
                 )
             tasks = [asyncio.create_task(c.run()) for c in self.consumers]
             tasks += [
@@ -207,6 +219,7 @@ class ExecutorWorker:
                 server.close()
                 await server.wait_closed()
             self._running = False
+            logger.info("worker_stopped")
 
     async def _loop(
         self,
@@ -223,13 +236,18 @@ class ExecutorWorker:
                     if count
                     else min(delay * 2, self.settings.idle_poll_seconds)
                 )
-            except Exception:
-                logger.exception("Worker maintenance iteration failed")
+            except Exception as error:
+                logger.error(
+                    "maintenance_failed operation=%s error_type=%s",
+                    getattr(operation, "__name__", type(operation).__name__),
+                    type(error).__name__,
+                )
                 delay = min(max(delay * 2, 0.5), 30)
             with suppress(TimeoutError):
                 await asyncio.wait_for(self._stop.wait(), delay)
 
     async def _metrics(self) -> int:
+        self._log_readiness(await self.ready())
         counts = await self.store.counts()
         self.telemetry.backlog.clear()
         for state, count in counts.items():
@@ -255,6 +273,11 @@ class ExecutorWorker:
             }.items():
                 self.telemetry.stream.labels(kind, metric).set(value)
         return 0
+
+    def _log_readiness(self, ready: bool) -> None:
+        if ready != self._last_ready:
+            logger.info("worker_readiness_changed ready=%s", ready)
+            self._last_ready = ready
 
     async def ready(self) -> bool:
         if self._stop.is_set() or not all(
@@ -287,7 +310,9 @@ class ExecutorWorker:
                 path = request.split(b" ", 2)[1]
                 status, body = "200 OK", b"ok"
                 if path == b"/health/ready":
-                    if not await self.ready():
+                    ready = await self.ready()
+                    self._log_readiness(ready)
+                    if not ready:
                         status, body = "503 Unavailable", b"not ready"
                 elif path == b"/metrics":
                     body = generate_latest(self.telemetry.registry)
