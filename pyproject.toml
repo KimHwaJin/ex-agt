@@ -34,7 +34,7 @@ dev = [
 addopts = "-ra"
 asyncio_mode = "auto"
 testpaths = ["tests"]
-markers = ["postgres: requires an isolated management_test database"]
+markers = ["postgres: requires an isolated chatapp database"]
 
 [tool.ruff]
 line-length = 79

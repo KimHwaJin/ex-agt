@@ -22,6 +22,18 @@ def test_page_generic_on_python_311():
     assert Page[int](items=[1], next_cursor=None, has_more=False).items == [1]
 
 
+def test_development_database_name(monkeypatch):
+    monkeypatch.setenv("SERVICE_ENV", "development")
+    for name in (
+        "SERVICE_CONFIG",
+        "MANAGEMENT_DATABASE_URL",
+        "MANAGEMENT_CURSOR_SECRET",
+    ):
+        monkeypatch.delenv(name, raising=False)
+    settings = load_settings(Path(__file__).resolve().parents[1])
+    assert settings.database_url.get_secret_value().endswith("/chatapp")
+
+
 def test_cursor_roundtrip_and_scope():
     codec = CursorCodec("secret" * 8)
     timestamp, item_id = datetime.now(UTC), uuid4()

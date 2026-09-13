@@ -1,5 +1,6 @@
 # 운영용 템플릿. 연결 모듈과 비밀값이 준비되지 않으면 시작하지 않습니다.
 environment: production
+# 실제 연결 URL의 DB 이름은 chatapp으로 지정합니다.
 database_url: null
 database_url_env: MANAGEMENT_DATABASE_URL
 cursor_secret: null

@@ -1,6 +1,6 @@
 # 개발 전용. development_header는 본인 인증이 아닌 테스트 식별 모드입니다.
 environment: development
-database_url: postgresql://management:management@127.0.0.1:55439/management_test
+database_url: postgresql://management:management@127.0.0.1:55439/chatapp
 database_url_env: MANAGEMENT_DATABASE_URL
 cursor_secret: development-only-change-before-production-0001
 cursor_secret_env: MANAGEMENT_CURSOR_SECRET

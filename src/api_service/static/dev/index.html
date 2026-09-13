@@ -1,0 +1,329 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chatapp · 나의 분석 공간</title>
+  <link rel="stylesheet" href="assets/styles.css">
+  <script type="module" src="assets/app.js"></script>
+</head>
+<body>
+  <section id="login-screen" class="login-screen">
+    <div class="login-brand brand">
+      <span class="brand-mark" aria-hidden="true">✳</span> Chatapp
+    </div>
+    <main class="login-content">
+      <span class="login-symbol" aria-hidden="true">✳</span>
+      <h1>나의 분석 공간으로</h1>
+      <p class="login-intro">
+        데이터에서 답을 찾는 대화,<br>Chatapp에서 시작해 보세요.
+      </p>
+      <form id="me-form">
+        <fieldset id="identity-fields">
+          <label for="employee-id">사번</label>
+          <input id="employee-id" name="employee"
+            placeholder="사번을 입력해 주세요" required maxlength="200"
+            autocomplete="off" autofocus>
+          <button type="submit" class="continue-button">계속하기 →</button>
+        </fieldset>
+      </form>
+      <p id="login-notice" class="login-notice" role="status"
+        aria-live="polite"></p>
+      <p class="login-help">
+        처음 접속하면 사용자와 기본 프로젝트가 자동으로 만들어집니다.
+      </p>
+    </main>
+    <footer class="login-footer">
+      <span class="dev-dot"></span> 개발 미리보기
+      <p>사번 입력은 개발용 사용자 식별이며, 실제 인증이 아닙니다.</p>
+    </footer>
+  </section>
+
+  <div id="app-screen" hidden>
+    <fieldset id="workspace" class="workspace-layout" disabled>
+      <legend class="sr-only">프로젝트와 대화 공간</legend>
+      <button id="sidebar-backdrop" class="sidebar-backdrop" type="button"
+        aria-label="사이드바 닫기" hidden></button>
+      <aside id="sidebar" class="sidebar" aria-label="프로젝트와 대화">
+        <div class="sidebar-brand brand">
+          <span class="brand-mark" aria-hidden="true">✳</span> Chatapp
+          <span class="dev-label">DEV</span>
+        </div>
+        <button id="new-chat" type="button" class="new-chat">
+          <span aria-hidden="true">＋</span> 새 대화
+        </button>
+
+        <div class="sidebar-scroll">
+          <section aria-labelledby="projects-heading">
+            <div class="nav-heading">
+              <h2 id="projects-heading">프로젝트</h2>
+              <div class="nav-actions">
+                <button id="project-reload" type="button" class="icon-button"
+                  aria-label="프로젝트 목록 새로고침" title="목록 새로고침">
+                  ↻
+                </button>
+                <button id="open-project-create" type="button"
+                  class="icon-button" aria-label="프로젝트 만들기"
+                  title="프로젝트 만들기">＋</button>
+              </div>
+            </div>
+            <div id="project-list" class="resource-list"
+              aria-label="프로젝트 목록"></div>
+            <div class="list-footer">
+              <span id="project-count">0개</span>
+              <button id="project-next" type="button" class="text-button">
+                더 보기
+              </button>
+            </div>
+          </section>
+
+          <section class="session-nav" aria-labelledby="sessions-heading">
+            <div class="nav-heading">
+              <h2 id="sessions-heading">대화</h2>
+              <div class="nav-actions">
+                <button id="session-reload" type="button" class="icon-button"
+                  aria-label="대화 목록 새로고침" title="목록 새로고침">
+                  ↻
+                </button>
+                <button id="open-session-create" type="button"
+                  class="icon-button" aria-label="제목을 정해 대화 만들기"
+                  title="제목을 정해 대화 만들기">＋</button>
+              </div>
+            </div>
+            <p id="session-parent" class="nav-context">
+              프로젝트를 먼저 선택하세요.
+            </p>
+            <div id="session-list" class="resource-list"
+              aria-label="세션 목록"></div>
+            <div class="list-footer">
+              <span id="session-count">0개</span>
+              <button id="session-next" type="button" class="text-button">
+                더 보기
+              </button>
+            </div>
+          </section>
+        </div>
+
+        <div class="account">
+          <span id="account-avatar" class="avatar" aria-hidden="true">U</span>
+          <div class="account-copy">
+            <strong id="account-name">사용자</strong>
+            <span>개발용 작업 공간</span>
+          </div>
+          <button id="switch-user" type="button" class="icon-button"
+            aria-label="사용자 전환" title="사용자 전환">↪</button>
+        </div>
+      </aside>
+
+      <main class="main-pane">
+        <header class="main-header">
+          <div class="breadcrumbs">
+            <button id="sidebar-toggle" type="button" class="icon-button"
+              aria-label="사이드바 열기/닫기" aria-controls="sidebar"
+              aria-expanded="true">☰</button>
+            <span id="main-project-name">Chatapp</span>
+            <span class="breadcrumb-separator" aria-hidden="true">/</span>
+            <span id="main-session-name">새 대화</span>
+          </div>
+          <div class="header-actions">
+            <button id="open-project-edit" type="button"
+              class="text-button">프로젝트 설정</button>
+            <button id="open-session-edit" type="button"
+              class="text-button" hidden>대화 설정</button>
+            <button id="open-inspector" type="button" class="outline-button"
+              aria-haspopup="dialog">API 기록
+              <span id="history-count">0</span>
+            </button>
+          </div>
+        </header>
+
+        <p id="notice" class="notice" role="status" aria-live="polite">
+          사번을 입력해 시작하세요.
+        </p>
+        <div class="conversation">
+          <section class="welcome" aria-labelledby="view-title">
+            <span class="welcome-symbol" aria-hidden="true">✳</span>
+            <p id="view-context" class="eyebrow">YOUR WORKSPACE</p>
+            <h1 id="view-title" tabindex="-1">무엇을 분석해 볼까요?</h1>
+            <p id="view-description" class="welcome-description">
+              프로젝트를 선택하고 새로운 대화를 시작해 보세요.
+            </p>
+            <div class="welcome-actions">
+              <button id="welcome-new-chat" type="button"
+                class="pill-button">＋ 새 대화</button>
+              <button id="welcome-new-project" type="button"
+                class="pill-button">프로젝트 만들기</button>
+            </div>
+          </section>
+        </div>
+
+        <div class="composer-area">
+          <div class="composer">
+            <label for="message-draft" class="sr-only">메시지</label>
+            <textarea id="message-draft" rows="2" disabled
+              aria-describedby="composer-note"
+              placeholder="에이전트 연결 후 메시지를 입력할 수 있어요"
+            ></textarea>
+            <div class="composer-toolbar">
+              <div class="composer-status">
+                <button type="button" class="icon-button" disabled
+                  aria-label="파일 추가 · 준비 중">＋</button>
+                <span><span class="status-dot"></span> 에이전트 연결 준비 중</span>
+              </div>
+              <button id="send-message" type="button" class="send-button"
+                aria-label="메시지 전송 · 준비 중" disabled>↑</button>
+            </div>
+          </div>
+          <p id="composer-note" class="composer-note">
+            현재는 프로젝트·세션 관리만 가능합니다.
+            실제 메시지 전송과 분석 실행은 아직 연결되지 않았습니다.
+          </p>
+        </div>
+      </main>
+    </fieldset>
+
+      <dialog
+        id="project-create-dialog" aria-labelledby="project-create-heading"
+      >
+      <header class="dialog-header">
+        <h2 id="project-create-heading">새 프로젝트</h2>
+        <button type="button" class="icon-button"
+          data-close-dialog aria-label="닫기">×</button>
+      </header>
+      <p class="muted">함께 이어갈 대화를 하나의 프로젝트에 모아 보세요.</p>
+      <form id="project-create">
+        <fieldset class="create-fields">
+          <label for="new-project-name">프로젝트 이름</label>
+          <input id="new-project-name" required maxlength="100"
+            placeholder="예: 매출 데이터 분석">
+          <label for="new-project-description">설명 · 선택</label>
+          <textarea id="new-project-description" rows="3"
+            maxlength="2000" placeholder="어떤 작업을 위한 프로젝트인가요?"
+          ></textarea>
+          <button type="submit" class="submit-button">프로젝트 만들기</button>
+        </fieldset>
+      </form>
+      <p class="dialog-notice" role="status"></p>
+    </dialog>
+
+      <dialog
+        id="session-create-dialog" aria-labelledby="session-create-heading"
+      >
+      <header class="dialog-header">
+        <h2 id="session-create-heading">새 대화</h2>
+        <button type="button" class="icon-button"
+          data-close-dialog aria-label="닫기">×</button>
+      </header>
+      <p class="muted">선택한 프로젝트 안에 대화 공간을 만듭니다.</p>
+      <fieldset id="session-create-fields" disabled>
+        <form id="session-create">
+          <label for="new-session-title">대화 제목 · 선택</label>
+          <input id="new-session-title" maxlength="200"
+            placeholder="비우면 ‘새 대화’로 생성">
+          <button type="submit" class="submit-button">대화 만들기</button>
+        </form>
+      </fieldset>
+      <p class="dialog-notice" role="status"></p>
+    </dialog>
+
+    <dialog id="project-dialog" aria-labelledby="project-heading">
+      <header class="dialog-header">
+        <h2 id="project-heading">프로젝트 설정</h2>
+        <button type="button" class="icon-button"
+          data-close-dialog aria-label="닫기">×</button>
+      </header>
+      <p id="project-selection" class="selection">선택되지 않았습니다.</p>
+      <fieldset id="project-fields" disabled>
+        <form id="project-edit">
+          <label for="project-name">이름</label>
+          <input id="project-name" required maxlength="100">
+          <label for="project-description">설명 · 비우면 null로 변경</label>
+          <textarea id="project-description" rows="3"
+            maxlength="2000"></textarea>
+          <div class="actions">
+            <button type="submit">저장</button>
+            <button id="project-refresh" type="button"
+              class="outline-button">선택 다시 조회</button>
+            <button id="project-delete" type="button"
+              class="danger">삭제</button>
+          </div>
+        </form>
+      </fieldset>
+      <p class="dialog-notice" role="status"></p>
+      <p id="project-version" class="hint"></p>
+      <details>
+        <summary>상세 JSON · 소유자 / 감사 정보</summary>
+        <pre id="project-detail">선택한 프로젝트가 없습니다.</pre>
+      </details>
+    </dialog>
+
+    <dialog id="session-dialog" aria-labelledby="session-heading">
+      <header class="dialog-header">
+        <h2 id="session-heading">대화 설정</h2>
+        <button type="button" class="icon-button"
+          data-close-dialog aria-label="닫기">×</button>
+      </header>
+      <p id="session-selection" class="selection">선택되지 않았습니다.</p>
+      <fieldset id="session-fields" disabled>
+        <form id="session-edit">
+          <label for="session-title">제목</label>
+          <input id="session-title" required maxlength="200">
+          <div class="actions">
+            <button type="submit">저장</button>
+            <button id="session-refresh" type="button"
+              class="outline-button">선택 다시 조회</button>
+            <button id="session-delete" type="button"
+              class="danger">삭제</button>
+          </div>
+        </form>
+      </fieldset>
+      <p class="dialog-notice" role="status"></p>
+      <p id="session-version" class="hint"></p>
+      <details>
+        <summary>상세 JSON · 감사 정보</summary>
+        <pre id="session-detail">선택한 세션이 없습니다.</pre>
+      </details>
+    </dialog>
+
+    <dialog id="inspector-dialog" class="inspector-dialog"
+      aria-labelledby="inspector-heading">
+      <header class="dialog-header">
+        <div>
+          <p class="eyebrow">DEVELOPER TOOLS</p>
+          <h2 id="inspector-heading">API 호출 기록</h2>
+        </div>
+        <button type="button" class="icon-button"
+          data-close-dialog aria-label="패널 닫기">×</button>
+      </header>
+      <p class="muted">최근 20건 · 이 화면의 실제 요청과 응답입니다.</p>
+      <details class="connection-details">
+        <summary>사용자 연결 · 목록 설정</summary>
+        <label for="user-uuid">내부 사용자 UUID · 자동 적용</label>
+        <input id="user-uuid" readonly>
+        <p id="identity-summary" class="hint">연결된 사용자가 없습니다.</p>
+        <label for="page-size">목록 페이지 크기</label>
+        <select id="page-size">
+          <option value="5">5개</option>
+          <option value="10" selected>10개</option>
+          <option value="20">20개</option>
+        </select>
+      </details>
+      <div class="inspector-controls">
+        <label for="history-select">확인할 요청</label>
+        <button id="clear-history" type="button"
+          class="text-button">기록 비우기</button>
+      </div>
+      <select id="history-select">
+        <option value="">아직 호출 기록이 없습니다.</option>
+      </select>
+      <p id="response-meta" class="hint"></p>
+      <h3>Request</h3>
+      <pre id="request-json">—</pre>
+      <h3>Response</h3>
+      <pre id="response-json">—</pre>
+      <a href="../docs" target="_blank" rel="noopener">전체 API 명세 보기 ↗</a>
+    </dialog>
+  </div>
+  <noscript>이 화면은 JavaScript가 필요합니다.</noscript>
+</body>
+</html>

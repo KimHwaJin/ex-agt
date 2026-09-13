@@ -68,11 +68,18 @@ docker compose --profile test run --build --rm test
 docker compose down
 ```
 
-Compose의 `management_test` DB는 **tmpfs 기반 임시 DB**입니다.
+DB 이름은 `chatapp`입니다. PostgreSQL 계정과 테이블 스키마 이름은
+기존 `management`를 유지합니다. 운영 연결 URL도 `/chatapp`으로 지정합니다.
+기존 DB의 이름을 자동 변경하거나 데이터를 이전하지는 않습니다.
+
+Compose의 `chatapp` DB는 **tmpfs 기반 임시 DB**입니다.
 컨테이너를 내리거나 재시작하면 데이터가 소실됩니다.
 개발/테스트에만 사용하고 운영 DB는 외부 PostgreSQL로 연결합니다.
 통합 테스트는 임의 사용자를 생성하며 기존 행을 초기화하지 않습니다.
 테스트 중인 API에서 같은 테스트 DB를 수동 사용하지 마세요.
+테스트도 `chatapp` 이름을 쓰므로 DB 이름만으로 운영/테스트를 구분할 수
+없습니다. `MANAGEMENT_TEST_DATABASE_URL`은 반드시 격리된 Compose DB를
+가리키도록 설정하고 실제 서비스 DB에는 통합 테스트를 실행하지 마세요.
 
 ```sh
 uv run --locked ruff check .
@@ -86,9 +93,66 @@ uv run --locked pytest -q -m 'not postgres'
 
 ```sh
 export MANAGEMENT_TEST_DATABASE_URL=\
-postgresql://management:management@127.0.0.1:55439/management_test
+postgresql://management:management@127.0.0.1:55439/chatapp
 uv run --locked pytest -q
 ```
+
+## 개발용 확인 화면
+
+API 실행 후 `http://localhost:8020/dev`를 열면 됩니다.
+별도 프론트 서버, npm 설치, 프론트 빌드, CDN 연결은 필요하지 않습니다.
+HTML/CSS/JavaScript는 Python 패키지에 포함되어 기존 FastAPI가 제공합니다.
+
+1. 첫 화면에서 사번을 입력하고 ‘계속하기’를 누릅니다.
+   사용자·기본 프로젝트 조회가 성공하면 메인 작업 공간으로 전환됩니다.
+2. 왼쪽 사이드바에서 프로젝트와 대화를 선택합니다.
+   프로젝트 옆 + 버튼으로 생성하고 상단 ‘프로젝트 설정’에서 수정합니다.
+3. ‘새 대화’는 선택한 프로젝트에 세션을 바로 생성합니다.
+   대화 목록 옆 + 버튼은 제목을 입력하는 팝업을 엽니다.
+   선택한 대화의 조회·수정·삭제는 상단 ‘대화 설정’에서 확인합니다.
+4. 목록의 ‘더 보기’로 커서 기반 조회를 확인합니다.
+   페이지 크기는 ‘API 기록 → 사용자 연결 · 목록 설정’에서 변경합니다.
+5. 오른쪽 위 ‘API 기록’ 패널에서 실제 헤더·본문, HTTP 상태, 응답 JSON,
+   request_id를 확인합니다. 최근 20건만 브라우저 메모리에 유지합니다.
+
+메인은 대화형 앱 형태지만 메시지 전송과 에이전트 실행은 아직 미구현입니다.
+하단 메시지 입력·전송 버튼은 비활성화하며 가짜 응답을 생성하지 않습니다.
+왼쪽 아래 사용자 전환 버튼은 현재 화면 상태·키·기록을 지우고 첫 화면으로
+돌아갑니다. 새로고침해도 사번 입력부터 시작하며 실제 인증/로그아웃 처리는
+추가하지 않았습니다. 모바일에서는 메뉴 버튼으로 사이드바를 열 수 있습니다.
+
+`X-User-UUID`, 생성용 `Idempotency-Key`, 수정용 `version`은 자동 적용합니다.
+응답이 불명확한 생성 요청은 같은 사용자·본문으로 다시 시도하면 기존 키를
+재사용합니다. 자동 재시도는 하지 않으며, 새로고침/사용자 재연결 시 키와
+화면 기록은 사라집니다. 이 경우 재생성 전에 목록을 먼저 확인하세요.
+수정 충돌(409) 시 내용을 보존하고 ‘선택 다시 조회’를 안내합니다.
+다시 조회하면 편집 필드가 서버의 최신 값으로 대체됩니다.
+
+삭제는 확인 창을 거치며 기본 프로젝트 삭제 버튼은 비활성화합니다.
+프로젝트 삭제 시 하위 세션도 접근 불가임을 확인 창에서 안내합니다.
+브라우저 저장소에는 사용자 정보나 응답을 저장하지 않습니다.
+
+이 화면은 실제 DB를 변경하는 **개발용 도구**입니다.
+`environment: development`일 때만 `/dev`와 정적 파일 경로를 등록하며,
+운영 환경에서는 모두 404입니다. 화면을 숨기는 것이 API 인증을 대체하지는
+않습니다. 현재 화면은 헤더 식별 방식이며 SSO 로그인 UI는 아닙니다.
+템플릿 경로 아래 마운트해도 상대 경로로 동일 서비스 API를 호출합니다.
+
+구현 파일은 `src/api_service/dev_ui.py`와 `static/dev/` 아래에 있습니다.
+
+브라우저 회귀 검증은 `tests/browser/dev-ui.cjs`에 있습니다.
+일반 API/화면 실행에는 Node.js가 필요하지 않으며, 이 검증을 실행할 때만
+Playwright와 브라우저가 설치된 Node.js 환경이 필요합니다.
+반드시 격리된 로컬 Compose API를 대상으로 실행하세요.
+
+```sh
+CHATAPP_UI_TEST_URL=http://127.0.0.1:8020 node tests/browser/dev-ui.cjs
+```
+
+설치된 Chrome을 쓰려면 `CHROME_EXECUTABLE_PATH`에 실행 파일을 지정합니다.
+스크립트는 테스트 사용자를 생성해 API 12개, 페이지네이션, 수정 충돌,
+생성 응답 유실 후 멱등 재시도, 텍스트 안전 출력, 모바일 배치를 확인합니다.
+화면 캡처는 저장소 밖 OS 임시 디렉토리에 생성됩니다.
 
 ## 관리 API 계약
 
@@ -99,6 +163,7 @@ body/query에 섞지 않고 인증 의존성을 통해 전달합니다.
 | 메서드 | 경로 | 입력 | 응답 |
 | --- | --- | --- | --- |
 | POST | `/me` | `X-User-Id`: 사번 | 200, 사용자 + 기본 프로젝트 |
+| GET | `/me` | `X-User-UUID`: 내부 UUID | 200, 사용자 + 기본 프로젝트 |
 | POST | `/projects` | name, description | 201, 프로젝트 |
 | GET | `/projects` | limit, cursor | 200, 페이지 |
 | GET | `/projects/{project_id}` | - | 200, 프로젝트 |
@@ -110,9 +175,15 @@ body/query에 섞지 않고 인증 의존성을 통해 전달합니다.
 | PATCH | `/sessions/{session_id}` | version, title | 200 |
 | DELETE | `/sessions/{session_id}` | - | 204 |
 
-- `/me` 이외에는 `X-User-UUID`에 `/me`에서 받은 내부 UUID를 전달합니다.
-- `/me`는 중복/동시 호출해도 사용자와 기본 프로젝트를 하나씩 보장합니다.
+- `POST /me` 이외에는 `X-User-UUID`에 최초 등록 응답의 내부 UUID를
+  전달합니다. `GET /me`도 동일한 UUID 기반 인증 의존성을 사용합니다.
+- `POST /me`는 중복/동시 호출해도 사용자와 기본 프로젝트를 하나씩 보장합니다.
   세션은 자동 생성하지 않습니다.
+- `GET /me`는 사용자와 기본 프로젝트만 조회하며 생성·수정하지 않습니다.
+  전체 프로젝트 목록은 `GET /projects`로 조회합니다.
+  미등록 UUID는 403 `USER_NOT_INITIALIZED`, 비활성 사용자는 403
+  `USER_DISABLED`, 기본 프로젝트가 없으면 404 `DEFAULT_PROJECT_NOT_FOUND`를
+  반환합니다. 초기화/복구는 사번으로 `POST /me`를 호출해야 합니다.
 - 프로젝트/세션 생성에는 `Idempotency-Key` 헤더가 필요합니다.
   같은 사용자·작업·키·본문이면 최초 생성 응답을 반환하고,
   같은 키에 다른 본문이면 409입니다. 삭제 후 재호출은 404입니다.
