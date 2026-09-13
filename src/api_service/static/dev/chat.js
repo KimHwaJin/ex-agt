@@ -24,17 +24,22 @@ export function installChat({ $, state, api, apiBase, requestKey, notice }) {
   function controls() {
     const active = current ? !terminal.has(current.status)
       : !!state.session?.active_run_id;
-    const disabled = backend !== "demo" || !state.session || state.busy
+    const disabled = backend === "disabled" || !state.session || state.busy
       || busy || restoring || active;
     $("message-draft").disabled = !!disabled;
     $("send-message").disabled = !!disabled;
     $("message-draft").placeholder = backend === "demo"
       ? "[DEMO] 흐름 테스트 메시지 · 실제 분석은 실행되지 않습니다"
+      : backend === "langgraph" ? "메시지를 입력하세요"
       : "실행기가 연결되지 않았습니다";
     $("agent-mode").textContent = backend === "demo"
-      ? "DEMO · 실제 LLM/Executor 미연결" : "에이전트 미연결";
+      ? "DEMO · 실제 LLM/Executor 미연결"
+      : backend === "langgraph" ? "Agent · 대화 기능 / 실행 미연결"
+      : "에이전트 미연결";
     $("composer-note").textContent = backend === "demo"
       ? "테스트 실행기입니다. 승인·스트림·취소를 검증하며 실제 분석은 하지 않습니다."
+      : backend === "langgraph"
+      ? "대화는 세션에 저장됩니다. 현재 코드 실행과 파일 분석은 지원하지 않습니다."
       : "메시지 실행 기능을 사용하려면 실행기를 설정해 주세요.";
     $("run-panel").hidden = !current;
     $("run-status").textContent = current
@@ -63,7 +68,7 @@ export function installChat({ $, state, api, apiBase, requestKey, notice }) {
       article.dataset.messageId = item.message_id;
       const caption = document.createElement("p");
       caption.className = "message-caption";
-      caption.textContent = `${item.role === "user" ? "나" : "테스트 에이전트"}`
+      caption.textContent = `${item.role === "user" ? "나" : "에이전트"}`
         + ` · ${item.status}`;
       article.append(caption);
       for (const block of item.content) {

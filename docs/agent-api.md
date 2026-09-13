@@ -1,13 +1,15 @@
-# 메시지·Run API 1차 구현
+# 메시지·Run API 계약
 
 ## 현재 범위와 제한
 
 사용자·프로젝트·세션 관리 위에 메시지 저장, Run 접수·조회·재개·취소,
 SSE 스트림과 개발 화면을 추가했습니다. 아래 계약은 실제 API입니다.
-단, **실행기는 명시적인 DEMO**입니다. 개발 YAML에서만 활성화하며
+기본 실행기는 실제 LangGraph 대화입니다.
+[체크포인트와 실행 설정](langgraph-runtime.md)을 함께 참고하세요.
+아래 승인/분석 단계 예시는 **DEMO 실행기**에 해당합니다. 개발에서만 활성화하며
 운영 환경에서 `agent_backend: demo`를 지정하면 시작을 거부합니다.
 
-실제 LangGraph, LLM, Executor, Redis Worker, 프로젝트 공유 메모리,
+Executor, Redis Worker, 프로젝트 공유 메모리,
 파일·이미지 업로드, 노트북·리포트 생성은 아직 연결하지 않았습니다.
 DEMO의 실행 ID는 `simulated: true`이며 Executor 조회에 사용하면 안 됩니다.
 현재 승인 계획도 Skill/Tool 선택 결과가 아닌 고정 테스트 계획입니다.
@@ -181,6 +183,7 @@ data: {"run_id":"<Run UUID>","type":"message.delta","data":{"message_id":"<메�
 | `run.status_changed` | 상태 전이 |
 | `message.started` | assistant 메시지 작성 시작 |
 | `message.delta` | 특정 블록에 추가할 텍스트 |
+| `message.updated` | 재시작/복구 시 메시지 전체 내용 교체 |
 | `message.completed` | 전체 메시지 스냅샷과 저장 상태 |
 | `run.interrupted` | 사용자 입력 요청 |
 | `run.progress` | 작업 단계 진행 안내 |
@@ -229,12 +232,12 @@ GET 스트림 재연결 시 마지막 처리 ID를 `Last-Event-ID` 헤더로 보
 
 향후 실제 Agent 연결 시에는 출력 어댑터가 사용자 공개 메시지만 이 경로로
 보내야 합니다. 모든 내부 노드/툴 메시지, 추론, 비밀값을 그대로 저장·방출하면
-안 됩니다. DB의 `runs.checkpoint`는 **DEMO 단계 상태**이며 LangGraph
-checkpointer를 구현한 것이 아닙니다. 메시지 DB와 그래프 State는 분리합니다.
+안 됩니다. `runs.checkpoint`는 실행 관리 정보입니다. 실제 LangGraph
+상태는 별도 `agent_checkpoints` 스키마에 저장하며 메시지 DB와 분리합니다.
 
 ## 설정과 실행
 
-`config_dev.yaml` 기본값은 다음과 같습니다.
+`config_dev.yaml`에서 DEMO 흐름을 테스트할 때의 설정은 다음과 같습니다.
 
 ```yaml
 agent_backend: demo
@@ -271,17 +274,17 @@ python app.py
 python -m agent_service.worker_main
 ```
 
-기본 개발 구성은 편의를 위한 **FastAPI lifespan의 DEMO 작업**입니다.
+개발 구성은 편의를 위해 FastAPI lifespan에서 실행기를 시작합니다.
 최종 운영 배포 구조를 이 구성으로 확정한 것은 아닙니다.
-단독 worker 진입점도 현재는 DEMO만 처리합니다.
+단독 worker 진입점도 설정에 따라 실제 LangGraph 또는 DEMO를 처리합니다.
 DB 단계 상태와 짧은 트랜잭션/advisory lock으로 프로세스 재시작이나 중복
 worker의 동일 단계 경쟁에 대응합니다. 외부 부작용의 exactly-once를
 보장한다는 뜻은 아니며 실제 Executor 연동은 별도로 검증해야 합니다.
 
 ## 후속 구현
 
-1. 실제 LangGraph 실행 어댑터, session 기준 thread, 체크포인트 수명 관리.
-2. 실제 Run 작업 전달·복구/종료 정책, 배포 방식과 readiness 확정.
+1. 분석 그래프 확장과 새로운 HITL 타입.
+2. 실제 Run 실행기의 다중 인스턴스 부하 검증과 분리 배포 헬스체크.
 3. Executor 제출·취소·결과 이벤트, Inbox/Outbox 및 실행 ID 복구 연동.
 4. 복잡한 HITL 타입 추가, Skill/Tool 계획 추적, 성공 작업 리포트 작성.
 5. 프로젝트 Store 메모리와 파일/이미지 메시지 블록·권한·첨부 저장소.
@@ -306,7 +309,7 @@ CHATAPP_UI_TEST_URL=http://127.0.0.1:8020 node tests/browser/run-ui.cjs
 
 브라우저 테스트만 Playwright와 Chrome이 설치된 Node.js가 필요합니다.
 서비스와 개발 UI 실행에는 별도 프론트 빌드가 필요하지 않습니다.
-통합 테스트 중에는 같은 DB의 다른 DEMO worker를 중지해야 합니다.
+통합 테스트 중에는 같은 DB의 다른 실제/DEMO worker를 중지해야 합니다.
 
 실제 API 프로세스 재시작 복구 검증은 아래처럼 명시적으로 실행합니다.
 로컬 Compose의 `api`만 중지/시작하며 PostgreSQL은 재시작하지 않습니다.

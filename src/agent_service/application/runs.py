@@ -9,6 +9,7 @@ from psycopg.types.json import Jsonb
 from agent_service.application.cursors import CursorCodec
 from agent_service.application.management import active_user, fingerprint
 from agent_service.application.outputs import OutputWriter
+from agent_service.application.run_backends import initial_state, resumed_state
 from agent_service.domain.management import DomainError, Page
 from agent_service.domain.runs import (
     TERMINAL,
@@ -77,15 +78,9 @@ class RunService:
                     request.input.model_dump(mode="json"),
                     self.settings.agent_backend,
                 )
-                # Freeze the test scenario so a restart/config change cannot
-                # silently change the behavior of an already accepted run.
                 await repo.checkpoint(
                     run,
-                    {
-                        "phase": "start",
-                        "scenario": self.settings.demo_scenario,
-                        "revision": 1,
-                    },
+                    initial_state(self.settings),
                     0,
                 )
                 after = 0
@@ -111,6 +106,7 @@ class RunService:
                         "RUN_NOT_WAITING", "세션에 속한 실행이 아닙니다."
                     )
                 run = await repo.run(owner, request.input.run_id, lock=True)
+                self.require_backend(run)
                 if (
                     run["session_id"] != request.session_id
                     or session["active_run_id"] != run["run_id"]
@@ -139,9 +135,7 @@ class RunService:
                     "WHERE interrupt_id = %s",
                     (Jsonb(response), owner, request.input.interrupt_id),
                 )
-                cp = run["checkpoint"]
-                cp["response"] = response
-                cp["phase"] = "review_response"
+                cp = resumed_state(run, response)
                 await repo.checkpoint(run, cp, 0)
                 await repo.set_status(run, "queued")
                 await repo.emit(
@@ -229,9 +223,19 @@ class RunService:
             ):
                 await OutputWriter(repo, run).terminate("cancelled")
             else:
+                self.require_backend(run)
                 await repo.set_status(run, "cancelling")
                 await repo.checkpoint(run, run["checkpoint"], 0)
             return RunReceipt.model_validate(run)
+
+    def require_backend(self, run: dict) -> None:
+        if run["backend"] != self.settings.agent_backend:
+            raise DomainError(
+                "RUN_BACKEND_UNAVAILABLE",
+                "이 실행은 이전 실행기가 필요합니다. "
+                "해당 backend로 실행기를 구동한 뒤 처리해 주세요.",
+                409,
+            )
 
     @staticmethod
     def parse_event_id(run_id: UUID, token: str | None) -> int:

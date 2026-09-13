@@ -23,13 +23,35 @@ class Settings(BaseModel):
     pool_timeout: float = Field(default=10, gt=0)
     bind_host: str = "127.0.0.1"
     bind_port: int = Field(default=8020, ge=1, le=65535)
-    # No real agent/executor implementation is enabled in this milestone.
-    agent_backend: Literal["disabled", "demo"] = "disabled"
+    agent_backend: Literal["disabled", "demo", "langgraph"] = "disabled"
     embedded_run_worker: bool = False
     demo_scenario: Literal["reply", "analysis", "failure"] = "analysis"
     demo_step_seconds: float = Field(default=0.5, ge=0.05, le=10)
     stream_poll_seconds: float = Field(default=0.5, ge=0.05, le=10)
     stream_max_seconds: float = Field(default=60, ge=1, le=300)
+    # None이면 management DB URL을 사용하되 테이블은 별도 스키마에 저장.
+    checkpoint_database_url: SecretStr | None = None
+    checkpoint_schema: str = Field(
+        default="agent_checkpoints", pattern=r"^[a-z][a-z0-9_]{0,62}$"
+    )
+    checkpoint_pool_max_size: int = Field(default=5, ge=2, le=100)
+    worker_concurrency: int = Field(default=2, ge=1, le=32)
+    worker_poll_seconds: float = Field(default=0.25, ge=0.05, le=10)
+    worker_reschedule_seconds: float = Field(default=5, ge=1, le=60)
+    run_timeout_seconds: float = Field(default=180, ge=1, le=1800)
+    recovery_max_attempts: int = Field(default=3, ge=1, le=10)
+    model_name: str | None = None
+    model_provider: str = "openai"
+    model_base_url: str | None = None
+    model_api_key: SecretStr | None = None
+    model_timeout_seconds: float = Field(default=60, ge=1, le=600)
+    model_max_retries: int = Field(default=1, ge=0, le=5)
+    model_max_tokens: int = Field(default=2048, ge=1, le=16384)
+    model_extra_body: dict = Field(default_factory=dict)
+    context_message_limit: int = Field(default=40, ge=2, le=200)
+    output_flush_chars: int = Field(default=256, ge=1, le=4096)
+    output_flush_seconds: float = Field(default=0.2, ge=0.05, le=2)
+    output_max_chars: int = Field(default=64000, ge=100, le=256000)
 
     @model_validator(mode="after")
     def validate_runtime(self) -> "Settings":
@@ -59,8 +81,19 @@ class Settings(BaseModel):
                 raise ValueError("production requires host logging")
             if self.cursor_secret.get_secret_value().startswith("development"):
                 raise ValueError("replace the development cursor secret")
-        if self.embedded_run_worker and self.agent_backend != "demo":
-            raise ValueError("embedded worker requires explicit demo backend")
+        if self.embedded_run_worker and self.agent_backend == "disabled":
+            raise ValueError("embedded worker requires an enabled backend")
+        if self.checkpoint_database_url and not (
+            self.checkpoint_database_url.get_secret_value().startswith(
+                ("postgresql://", "postgres://")
+            )
+        ):
+            raise ValueError("checkpoint database must be PostgreSQL")
+        if self.agent_backend == "langgraph":
+            if not self.model_name:
+                raise ValueError("langgraph backend requires model_name")
+            if self.checkpoint_pool_max_size <= self.worker_concurrency:
+                raise ValueError("checkpoint pool needs an extra health slot")
         if self.logging_mode == "host":
             if not self.logging_initializer or not self.logging_yaml:
                 raise ValueError("host logging initializer and YAML required")

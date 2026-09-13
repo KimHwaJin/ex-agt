@@ -27,7 +27,15 @@ def load_settings(base_dir: Path) -> Settings:
     if values.get("environment", environment) != environment:
         raise RuntimeError("Configuration profile does not match SERVICE_ENV")
     values["environment"] = environment
-    for key in ("database_url", "cursor_secret"):
+    for key in (
+        "database_url",
+        "cursor_secret",
+        "checkpoint_database_url",
+        "model_name",
+        "model_provider",
+        "model_base_url",
+        "model_api_key",
+    ):
         variable = values.pop(f"{key}_env", None)
         if variable:
             value = os.environ.get(variable)

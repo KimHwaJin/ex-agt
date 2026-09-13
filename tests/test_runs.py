@@ -614,3 +614,23 @@ def test_message_request_does_not_allow_raw_graph_commands():
                 )
             )
         )
+
+
+@pytest.mark.postgres
+async def test_backend_switch_does_not_accept_unhandled_resume(
+    client, identity, session, runs, db
+):
+    receipt = await submit(client, identity, session)
+    detail = await advance(runs, db, receipt, identity, 3)
+    runs.settings.agent_backend = "langgraph"
+    response = await client.post(
+        "/api/v1/agent/runs",
+        headers={**identity, "Idempotency-Key": str(uuid4())},
+        json=resume(identity, session, detail),
+    )
+    assert response.status_code == 409
+    assert response.json()["code"] == "RUN_BACKEND_UNAVAILABLE"
+    cancelled = await client.post(
+        f"/api/v1/agent/runs/{receipt['run_id']}/cancel", headers=identity
+    )
+    assert cancelled.json()["status"] == "cancelled"
