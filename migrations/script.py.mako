@@ -1,8 +1,5 @@
-"""${message}
+"""${message}"""
 
-Revision ID: ${up_revision}
-Revises: ${down_revision | comma,n}
-"""
 from alembic import op
 import sqlalchemy as sa
 ${imports if imports else ""}

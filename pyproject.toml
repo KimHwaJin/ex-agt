@@ -1,53 +1,31 @@
 [project]
 name = "ex-agent"
-version = "0.1.0"
-description = "Durable data-analysis agent workflow for Executor"
+version = "0.2.0"
+description = "User, project, and session management API"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.11,<3.12"
 dependencies = [
     "alembic>=1.16,<2",
     "fastapi>=0.116,<1",
-    "httpx>=0.28,<1",
-    "langchain>=1.1,<2",
-    "langchain-core>=1.1,<2",
-    "langchain-openai>=1,<2",
-    "langgraph>=1,<2",
-    "langgraph-checkpoint-postgres>=3,<4",
-    "langsmith>=0.3,<1",
-    "orjson>=3.10,<4",
-    "pgvector>=0.4,<1",
-    "prometheus-client>=0.22,<1",
     "psycopg[binary,pool]>=3.2,<4",
-    "pydantic-settings>=2.10,<3",
-    "redis>=6.4,<7",
+    "pydantic>=2.10,<3",
+    "pyyaml>=6,<7",
     "sqlalchemy[asyncio]>=2.0.43,<3",
     "uvicorn[standard]>=0.35,<1",
 ]
-
-[project.scripts]
-ex-agent-api = "ex_agent.main:run_api"
-ex-agent-worker = "agent.worker_main:run_worker"
-ex-agent-migrate = "agent.migrate_main:run_migrations"
-ex-agent-cutover-check = "agent.cutover_main:run"
-ex-agent-cutover-rollback = "agent.cutover_policy_main:run"
-ex-agent-dlq = "ex_agent.dlq_main:run_dlq_cli"
-ex-agent-stream-maintenance = "ex_agent.stream_maintenance_main:run_cli"
 
 [build-system]
 requires = ["uv_build>=0.11.29,<0.12"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["ex_agent", "agent", "worker"]
+module-name = ["api_service", "agent_service"]
 
 [dependency-groups]
-chat-ui = [
-    "langgraph-cli[inmem]>=0.4,<1",
-]
 dev = [
+    "httpx>=0.28,<1",
     "pytest>=8.4,<9",
     "pytest-asyncio>=1.1,<2",
-    "respx>=0.22,<1",
     "ruff>=0.12,<1",
     "ty>=0.0.1a17,<1",
 ]
@@ -56,27 +34,14 @@ dev = [
 addopts = "-ra"
 asyncio_mode = "auto"
 testpaths = ["tests"]
-markers = [
-    "llm: opt-in live model evaluation (EX_AGENT_TEST_LIVE_MODEL_URL)",
-    "postgres: requires the Compose PostgreSQL service",
-    "redis: requires the Compose Redis service",
-    "executor: requires the Executor REST service",
-]
+markers = ["postgres: requires an isolated management_test database"]
 
 [tool.ruff]
 line-length = 79
-target-version = "py312"
+target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 
-[tool.ruff.lint.per-file-ignores]
-"migrations/versions/*.py" = ["E501"]
-"src/ex_agent/api/*.py" = ["B008"]
-"src/ex_agent/api/**/*.py" = ["B008"]
-
 [tool.ty.environment]
-python-version = "3.12"
-
-[tool.ty.src]
-exclude = ["migrations/versions", "skills"]
+python-version = "3.11"

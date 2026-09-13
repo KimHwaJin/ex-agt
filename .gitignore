@@ -1,7 +1,6 @@
 .DS_Store
 .env
-.env.chat-ui
-.langgraph_api/
+.env.*
 .pytest_cache/
 .ruff_cache/
 .venv/
@@ -13,4 +12,3 @@ build/
 dist/
 htmlcov/
 .coverage
-shared_dir/requests/

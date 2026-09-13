@@ -1,0 +1,16 @@
+# 운영용 템플릿. 연결 모듈과 비밀값이 준비되지 않으면 시작하지 않습니다.
+environment: production
+database_url: null
+database_url_env: MANAGEMENT_DATABASE_URL
+cursor_secret: null
+cursor_secret_env: MANAGEMENT_CURSOR_SECRET
+auth_mode: external
+identity_provider_factory: null
+logging_mode: host
+logging_initializer: null
+logging_yaml: null
+pool_min_size: 1
+pool_max_size: 10
+pool_timeout: 10
+bind_host: 0.0.0.0
+bind_port: 8020

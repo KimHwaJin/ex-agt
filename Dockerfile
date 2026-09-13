@@ -1,53 +1,27 @@
 FROM ghcr.io/astral-sh/uv:0.11.29 AS uv
 
-FROM python:3.12-slim-bookworm AS runtime
-
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    UV_COMPILE_BYTECODE=1 \
-    UV_LINK_MODE=copy \
-    PATH="/app/.venv/bin:${PATH}"
-
+FROM python:3.11-slim AS base
 WORKDIR /app
-
-RUN apt-get update \
-    && apt-get install --yes --no-install-recommends tini \
-    && rm -rf /var/lib/apt/lists/*
-
-COPY --from=uv /uv /uvx /bin/
+COPY --from=uv /uv /usr/local/bin/uv
+ENV UV_COMPILE_BYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PATH="/app/.venv/bin:$PATH"
 COPY pyproject.toml uv.lock README.md ./
-RUN uv sync --frozen --no-dev --no-install-project
-
 COPY src ./src
+RUN uv sync --frozen --no-dev --no-editable --no-cache
+COPY app.py config.yaml config_dev.yaml alembic.ini ./
 COPY migrations ./migrations
-COPY worker_migrations ./worker_migrations
-COPY alembic.ini ./
-COPY skills ./skills
-RUN uv sync --frozen --no-dev --no-editable
 
-RUN useradd --uid 10001 --create-home agent \
-    && mkdir -p /workspace/shared/requests \
-    && chown -R agent:agent /app /workspace/shared
-
-USER agent
-
-ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["ex-agent-api"]
-
-FROM runtime AS test
-
-USER root
+FROM base AS test
+RUN uv sync --frozen --no-editable --no-cache
 COPY tests ./tests
-COPY examples ./examples
-COPY scripts ./scripts
-COPY Dockerfile ./
-COPY docker-compose.yml ./
-COPY langgraph.json ./
-COPY docs/worker-centered-refactor.md ./docs/worker-centered-refactor.md
-COPY deploy/worker ./deploy/worker
-COPY deploy/worker-cutover ./deploy/worker-cutover
-COPY deploy/cutover-e2e ./deploy/cutover-e2e
-COPY deploy/rolling-e2e ./deploy/rolling-e2e
-COPY deploy/k8s ./deploy/k8s
-RUN uv sync --frozen --no-editable
-USER agent
+CMD ["python", "-m", "pytest"]
+
+FROM base AS runtime
+RUN useradd --uid 10001 --create-home appuser
+USER appuser
+EXPOSE 8020
+# Fail closed without explicit deployment configuration.
+ENV SERVICE_ENV=production
+CMD ["python", "app.py"]

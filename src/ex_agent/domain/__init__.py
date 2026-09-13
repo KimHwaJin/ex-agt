@@ -1,1 +1,0 @@
-"""Domain contracts and invariants."""

@@ -3,14 +3,13 @@
 .pytest_cache
 .ruff_cache
 .ty
-__pycache__
-*.pyc
 **/__pycache__
 **/*.pyc
-**/.venv
-**/.pytest_cache
-**/.ruff_cache
-shared_dir
-# Finder/editor numbered copies can duplicate Python modules and Alembic
-# revision identifiers inside an otherwise clean image build.
-**/* [0-9].*
+.DS_Store
+**/.DS_Store
+.env
+.env.*
+build
+dist
+htmlcov
+.coverage

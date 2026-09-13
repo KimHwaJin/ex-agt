@@ -1,0 +1,79 @@
+name: ex-agent-management
+x-build: &build
+  context: .
+  target: runtime
+x-environment: &environment
+  SERVICE_ENV: development
+  MANAGEMENT_DATABASE_URL: >-
+    postgresql://management:management@postgres:5432/management_test
+  MANAGEMENT_CURSOR_SECRET: development-compose-only-cursor-secret-000001
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: management_test
+      POSTGRES_USER: management
+      POSTGRES_PASSWORD: management
+    ports:
+      - "127.0.0.1:55439:5432"
+    # Disposable development/test DB; no existing data is mounted.
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U management -d management_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  migrate:
+    build: *build
+    environment: *environment
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    build: *build
+    environment: *environment
+    command:
+      - python
+      - -m
+      - uvicorn
+      - app:app
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8020"
+      - --no-proxy-headers
+    ports:
+      - "127.0.0.1:8020:8020"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8020/health/ready', timeout=2)
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: test
+    environment:
+      <<: *environment
+      MANAGEMENT_TEST_DATABASE_URL: >-
+        postgresql://management:management@postgres:5432/management_test
+    depends_on:
+      migrate:
+        condition: service_completed_successfully

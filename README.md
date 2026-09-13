@@ -1,162 +1,162 @@
-# ex-agent
+# Management API
 
-LangGraph 상태 머신과 LangChain `create_agent()` middleware를 사용하는
-데이터 분석/코드 실행 Agent BFF다. 승인된 코드는 Executor REST API로 제출하고
-Executor Redis event에서 workflow를 재개한다.
+Python **3.11** 기반 사용자·프로젝트·세션 관리 API입니다.
+기존 Agent, Worker, 전달 패키지와 구버전 운영 자료는 제거했습니다.
+현재 소스에는 에이전트 실행, Redis 소비, 메시지 및 메모리 처리가 없습니다.
 
-## API+Agent / Worker 구조
+## 브랜치 운영
 
-공통 워커는 [src/worker](src/worker)로 편입했고, 그래프 연결·시작 코드는
-src/agent로 이동했다. [현재 워커 안내](src/worker/README.md)와
-[전환 계획·검증 상태](docs/worker-centered-refactor.md)를 참고한다.
-FastAPI는 요청을 세션 그래프에 직접 접수·invoke하고, Worker는 Executor 이벤트를
-Inbox/Outbox로 내구성 있게 전달해 같은 그래프를 resume한다. 두 프로세스는
-`session_id = thread_id`인 PostgreSQL checkpoint와 Redis SessionGuard를 공유한다.
+이후 개발의 기준 브랜치는 `agt`입니다. 새 작업은 최신 `agt`에서
+`feature/<작업명>` 브랜치를 생성하여 진행하고, 검증 후 `agt`로 합칩니다.
+기존 `main`에는 별도 요청 없이 병합하지 않습니다.
 
-## 개발 명령
+## 구조
 
-API/Worker 컨테이너와 **Agent Chat UI를 함께 테스트**하려면
-[Agent Chat UI Testing](docs/agent-chat-ui-testing.md)을 참고한다.
-실제 API → Agent → Executor → Jupyter → Worker 경로는
-[Live Executor E2E](docs/live-executor-e2e.md)를 참고한다.
-로컬 `langgraph dev`는 UI 연결 그래프를 제공하고, 업무 START/RESUME은 API가,
-Executor 이벤트 resume은 Worker가 처리한다.
-
-```bash
-uv sync --frozen --group dev --no-editable --reinstall-package ex-agent
-uv run --no-sync ruff check .
-uv run --no-sync ruff format --check .
-uv run --no-sync ty check
-uv run --no-sync python -m pytest
+```text
+app.py                       # 외부 템플릿과 동일한 루트 실행 진입점
+config_dev.yaml              # 개발 설정
+config.yaml                  # 운영 설정 (인증·로깅 연결 후 사용)
+src/
+  api_service/               # HTTP, 요청 스키마, 인증 의존성
+  agent_service/
+    application/             # 사용자·프로젝트·세션 유스케이스
+    domain/                  # 엔티티와 도메인 오류
+    infrastructure/database/ # PostgreSQL 저장소
+    runtime/                 # 프로세스별 DB 풀 수명 관리
+    bootstrap/               # YAML 설정·외부 로깅 초기화
+    settings.py              # 설정 검증
+migrations/                  # 현재 관리 API 전용 마이그레이션
+tests/                       # 현재 구현만 검증
 ```
 
-실제 PostgreSQL/pgvector와 Redis 통합 테스트:
+## 개발 환경
 
-```bash
-docker compose --profile test build
-docker compose --profile test run --rm test
+`uv sync --locked --python 3.11`로 설치합니다.
+설정 프로파일은 `SERVICE_ENV=development`(기본값),
+`SERVICE_ENV=production`에 따라 선택됩니다.
+운영 설정이 잘못되면 개발 설정으로 대체하지 않고 시작을 중단합니다.
+
+DB 연결은 YAML `database_url` 또는 `MANAGEMENT_DATABASE_URL`,
+커서 서명 키는 YAML `cursor_secret` 또는 `MANAGEMENT_CURSOR_SECRET`로
+설정합니다. 환경변수를 못 쓰는 배포에서는 YAML에 값을 주입하고
+실제 비밀값은 Git에 커밋하지 않습니다.
+
+현재 변경은 개발용 새 기준선입니다. 과거 DB를 이 마이그레이션으로
+업그레이드하지 마세요. 기존 실행 서비스 및 DB는 정리 대상이 아닙니다.
+
+## 실행 및 검증
+
+```sh
+uv sync --locked --python 3.11
+docker compose up -d postgres
+uv run --locked python -m alembic upgrade head
+uv run --locked python app.py
 ```
 
-`test` profile은 app container와 격리된 임시 `test-postgres`와 `test-redis`를
-사용한다. API/worker가 실행 중이어도 같은 outbox나 consumer group을 경쟁하지
-않으며 test migration도 별도 DB에 적용된다.
+Python 실행 환경이 이미 활성화돼 있으면 `python app.py`로 실행합니다.
+설치는 src layout 패키지 설치 방식이며, `PYTHONPATH` 조작은 불필요합니다.
+기본 포트는 8020이고 Swagger는 `/docs`, 헬스체크는 `/health/live`,
+`/health/ready`입니다. DB 풀은 FastAPI lifespan에서 열고 닫습니다.
+테이블은 서버가 자동 생성하지 않고 배포 전 Alembic으로 생성합니다.
 
-API 부하 테스트와 Prometheus 지표 설명은
-[Performance Testing](docs/performance-testing.md)을 참고한다. API는 `/metrics`,
-Worker는 기본적으로 `8011` 포트에서 metrics를 제공한다.
-Liveness/readiness 계약과 Prometheus 경보 기준은
-[Readiness and Alerting](docs/operations-readiness.md)을 참고한다.
-실제 Kubernetes Worker 정상·강제 재시작 복구는
-[Kubernetes Worker restart E2E](deploy/rolling-e2e/README.md)로 재현한다.
-별도 Agent에서도 사용할 수 있는 Redis Stream 소비기 계약과 예시는
-[Reusable Redis Stream Consumer](docs/redis-stream-consumer.md)를 참고한다.
-외부 이벤트를 내구성 있는 커맨드로 바꾸어 LangGraph를 재개하는 이식용
-참조 구현은
-[Durable event to LangGraph](examples/durable_event_to_langgraph/README.md)를
-참고한다.
-기존 Agent 개발자에게 Worker를 전달할 때는
-[독립 Worker 모듈](src/worker/README.md)을 먼저 읽는다.
-`src/worker/`에 공통 소스와 문서가 함께 있다. 실행하려면 루트 의존성과
-`worker_migrations/`도 필요하며, Agent 연결 예제와 테스트·배포 자료의 위치는
-워커 README에서 안내한다. 별도 standalone_worker 폴더는 유지하지 않는다.
-이전 Task 기반 연결 예제 설명은
-[Worker 인수인계 가이드](docs/worker-handoff-guide.md)에 보존했다.
-이전 Task 기반 [연결 예제](examples/api_agent_worker/README.md)와
-[동일 Pod 배포 템플릿](deploy/handoff/README.md)도 참조용으로 보존한다.
-이전 Worker 중심 구현은
-[과거 서비스 참조](docs/worker-reference-implementation.md)에 별도 보존했다.
-현재 모듈 경계와 허용 import 방향은
-[Project Structure](docs/project-structure.md)를 참고한다.
-공통 audit 필드, cursor pagination과 OpenAPI 규칙은
-[API Conventions](docs/api-conventions.md)를 참고한다.
+컨테이너만으로 실행하려면 다음 명령을 사용합니다.
+소스를 마운트하지 않고 이미지에 패키지를 설치하는 방식입니다.
 
-결정론적 전체 수명주기 benchmark 예시:
-
-```bash
-uv run --no-sync python scripts/lifecycle_benchmark.py \
-  --scenario multi_analysis --requests 20 --concurrency 4
+```sh
+docker compose up --build -d api
+docker compose --profile test run --build --rm test
+docker compose down
 ```
 
-API와 worker 실행:
+Compose의 `management_test` DB는 **tmpfs 기반 임시 DB**입니다.
+컨테이너를 내리거나 재시작하면 데이터가 소실됩니다.
+개발/테스트에만 사용하고 운영 DB는 외부 PostgreSQL로 연결합니다.
+통합 테스트는 임의 사용자를 생성하며 기존 행을 초기화하지 않습니다.
+테스트 중인 API에서 같은 테스트 DB를 수동 사용하지 마세요.
 
-```bash
-cp .env.example .env
-docker compose up --build
+```sh
+uv run --locked ruff check .
+uv run --locked ruff format --check .
+uv run --locked ty check
+uv run --locked pytest -q -m 'not postgres'
 ```
 
-Kubernetes 운영 배포는 루트 Dockerfile로 이미지 하나를 만든 뒤 같은 Pod에서
-`ex-agent-api`와 `ex-agent-worker`를 별도 컨테이너로 실행한다. 배포 전에 같은
-이미지의 `ex-agent-migrate` Job을 완료해야 한다. 정식 manifest와 환경별 치환
-항목은 [Kubernetes 배포](deploy/k8s/README.md)를 따른다.
+로컬 PostgreSQL 통합 테스트는 마이그레이션 후 다음과 같이 실행합니다.
+테스트 DB 설정 없이 실행하면 PostgreSQL 테스트는 명시적으로 skip됩니다.
 
-기본 Compose는 `migrate`, `api`, `worker`만 실행하고 Executor 쪽
-PostgreSQL(`5432`)과 Redis(`6379`)에 연결한다. PostgreSQL 서버는 공유하되
-Agent의 DB/role은 `agent`로 분리하며 Executor DB에 Agent migration을
-실행하지 않는다. 최초 DB 생성과 기존 데이터 전환 주의사항은
-[Shared Executor Infrastructure](docs/shared-executor-infrastructure.md)를
-참고한다. `.env`의 두 DB URL과 Redis URL이 실제 접속 정보와 일치해야 한다.
+```sh
+export MANAGEMENT_TEST_DATABASE_URL=\
+postgresql://management:management@127.0.0.1:55439/management_test
+uv run --locked pytest -q
+```
 
-Executor는 별도로 실행하고 `EXECUTOR_BASE_URL`을 설정한다. Agent와 Executor가
-PATH source를 교환하려면 `EXECUTOR_SHARED_DIR`이 Executor의 `shared_dir`을
-가리켜야 한다. `EXECUTOR_SOURCE_MODE=PATH`만 허용되며, 실행 코드와 성공
-리포트는 공유 입력 파일의 상대경로와 SHA-256으로만 제출된다.
+## 관리 API 계약
 
-API와 worker는 반드시 같은 `AGENT_REDIS_URL`을 사용해야 한다.
-Executor의 `executor.events`를 같은 Redis에서 소비하는 배치라면
-`.env`에 `redis://host.docker.internal:6379/0` 같은 실제 공유 Redis URL을
-저장한다. 일회성 shell 변수로만 주입하면 후속 `docker compose up`
-시 worker가 기본 로컬 Redis로 복귀할 수 있다.
+공통 prefix는 `/api/v1`입니다. 관리 API에는 사용자 사번이나 UUID를
+body/query에 섞지 않고 인증 의존성을 통해 전달합니다.
+향후 에이전트 실행 API와 Gaia 호환 입력은 별도 구현 범위입니다.
 
-## API 흐름
+| 메서드 | 경로 | 입력 | 응답 |
+| --- | --- | --- | --- |
+| POST | `/me` | `X-User-Id`: 사번 | 200, 사용자 + 기본 프로젝트 |
+| POST | `/projects` | name, description | 201, 프로젝트 |
+| GET | `/projects` | limit, cursor | 200, 페이지 |
+| GET | `/projects/{project_id}` | - | 200, 프로젝트 |
+| PATCH | `/projects/{project_id}` | version, name/description | 200 |
+| DELETE | `/projects/{project_id}` | - | 204 |
+| POST | `/sessions` | project_id, title | 201, 세션 |
+| GET | `/sessions` | project_id, limit, cursor | 200, 페이지 |
+| GET | `/sessions/{session_id}` | - | 200, 세션 |
+| PATCH | `/sessions/{session_id}` | version, title | 200 |
+| DELETE | `/sessions/{session_id}` | - | 204 |
 
-- `POST /api/v1/projects/{project_id}/sessions/{session_id}/tasks`
-- `GET /api/v1/tasks/{task_id}`
-- `POST /api/v1/tasks/{task_id}/resume`
-- `POST /api/v1/tasks/{task_id}/cancel`
-- `GET /api/v1/tasks/{task_id}/events` (`Last-Event-ID` 기반 SSE)
-- `GET /api/v1/tasks/{task_id}/workflow-promotion-draft`
-- `POST /api/v1/tasks/{task_id}/workflow-promotions`
-- `POST /api/v1/workflows/{workflow_id}/versions`
-- `GET /api/v1/workflows/{workflow_id}`
-- `GET /api/v1/workflows/{workflow_id}/versions`
-- `GET /api/v1/workflows/{workflow_id}/versions/{version_id}`
-- `GET /api/v1/workflows/{workflow_id}/lifecycle-actions`
-- `POST /api/v1/workflows/{workflow_id}/versions/{version_id}/reviews`
-- `POST /api/v1/workflows/{workflow_id}/versions/{version_id}/activate`
-- `POST /api/v1/workflows/{workflow_id}/status`
+- `/me` 이외에는 `X-User-UUID`에 `/me`에서 받은 내부 UUID를 전달합니다.
+- `/me`는 중복/동시 호출해도 사용자와 기본 프로젝트를 하나씩 보장합니다.
+  세션은 자동 생성하지 않습니다.
+- 프로젝트/세션 생성에는 `Idempotency-Key` 헤더가 필요합니다.
+  같은 사용자·작업·키·본문이면 최초 생성 응답을 반환하고,
+  같은 키에 다른 본문이면 409입니다. 삭제 후 재호출은 404입니다.
+  키는 1~200자 영숫자 또는 `.`, `_`, `:`, `-`를 허용합니다.
+- 프로젝트 응답에는 소유자의 `user_uuid`와 사번 `user_id`가 포함됩니다.
+- 사용자·프로젝트·세션에 `created_at/by`, `updated_at/by`를 반환합니다.
+  by는 내부 사용자 UUID이고 timestamp는 타임존 포함 시각입니다.
+- PATCH의 version은 현재 조회 값입니다. 경합/구버전 수정은 409입니다.
+  프로젝트 description은 명시적 null로 지울 수 있습니다.
+- 삭제는 논리 삭제입니다. 기본 프로젝트는 삭제 불가(409)이고,
+  프로젝트 삭제 시 하위 세션도 조회/수정/신규 생성할 수 없습니다.
+- 소유하지 않거나 삭제된 리소스는 404입니다. 비활성 사용자는 403입니다.
+- 목록은 `items`, `next_cursor`, `has_more`를 반환합니다.
+  limit 기본 20/최대 100, 정렬은 생성일 내림차순 + UUID 내림차순입니다.
+  커서는 서명되며 소유자와 목록 범위가 다르면 422입니다.
+- 일반 오류는 code/message/request_id, 검증 오류는 errors도 포함합니다.
+  오류 응답에는 원본 요청 본문·인증 토큰을 넣지 않습니다.
 
-BFF는 인증한 사용자의 `X-User-ID`를 전달한다. production에서는 method,
-path/query, user ID, timestamp, nonce와 body hash를 HMAC으로 함께 서명하며 상세
-계약은 [BFF 요청 서명](docs/bff-request-signing.md)을 따른다. Task 생성 시 BFF가
-채번한 `task_id`와 `input_message_id`를 body에 넣는다. API는 Task와 요청 원장을
-한 트랜잭션으로 저장한 뒤 같은 세션 guard에서 Graph를 직접 invoke한다. 승인·수정·
-취소도 현재 interrupt ID와 함께 접수하며, 응답 유실이나 API 종료 시 요청 복구
-loop가 checkpoint 증거를 확인해 이어 간다. Worker는 Executor 이벤트만 받아
-Graph를 resume한다.
+## 외부 템플릿 연동
 
-Task의 비최종 상태와 interrupt ID는 checkpoint에서 멱등 projection한다. SSE의
-재연결·누락 복구 원본은 PostgreSQL event history이며, 공통 runtime의 제품 이벤트
-outbox relay가 Task별 Redis Pub/Sub을 깨운다.
+템플릿의 루트 `app.py`와 기존 FastAPI 앱을 그대로 두고, 시작 전에
+`api_service.factory.install_management_api(app, settings)`를 호출합니다.
+기존 lifespan을 보존하며, API 코드는 Agent/Worker를 import하지 않습니다.
 
-기본 LLM은 내부 vLLM OpenAI 호환 endpoint
-`http://model.frodo.com/v1`의 `qwen38-27b-fp8`이다. Compose는
-`model.frodo.com:10.250.110.99`를 각 Agent 컨테이너의 `/etc/hosts`에
-추가한다. IP가 바뀌면 `MODEL_HOST_IP`, 모델이 바뀌면 `AGENT_MODEL`로
-덮어쓴다. 서버의 `/v1/models`에는 `qwen38-28b-fp8`이 없고
-`qwen38-27b-fp8`이 등록되어 있어 실제 등록 ID를 기본값으로 사용한다.
+인증은 `api_service.security.IdentityProvider`의 비동기 메서드
+`employee_id(request) -> str`, `user_uuid(request) -> UUID`를 구현해
+교체합니다. 팩토리는 `factory(settings) -> IdentityProvider` 형식이며,
+YAML의 `identity_provider_factory: package.module:function`으로 연결합니다.
 
-현재 Workflow 검색은 외부 모델 없이 `dummy-hash-v1` 결정적 임베딩을 사용한다.
-동일한 1024차원 구현을 인덱싱과 질의에 함께 사용해 pgvector 흐름을 개발할 수
-있지만, 의미 검색 품질을 보장하지는 않는다. 실제 임베딩 모델이 확보되면
-`AGENT_EMBEDDING_PROVIDER=openai`와 모델 endpoint를 설정해 교체한다.
-Embedding 생성 자체가 실패하거나 차원이 다르면 `workflow.search_degraded` Task
-event를 남기고 동적 MULTI 계획으로 전환한다.
+- `development_header`: 로컬 개발용이며 인증 기능이 아닙니다.
+- `trusted_header`: 신뢰 게이트웨이만 접근 가능하도록 제한하고,
+  게이트웨이가 클라이언트 identity 헤더를 제거·재설정해야 합니다.
+  `trusted_proxy_cidrs`는 직접 연결한 게이트웨이 주소 범위입니다.
+  ASGI 서버의 proxy header 해석을 끄고 네트워크 접근도 제한해야 합니다.
+- `external`: 플랫폼 인증/미래 SSO 어댑터입니다. 실제 토큰 검증 후
+  내부 UUID로 매핑해야 합니다. 클라이언트 헤더만 믿으면 안 됩니다.
 
-승인 시점부터 성공 리포트 완료, Executor 실패 확인 또는 취소 완료까지
-Session lock을 유지한다. 성공 리포트는 Executor REPORT Artifact API로
-Notebook의 Markdown cell과 함께 생성한다. 리포트 본문도 INLINE API
-payload가 아니라 공유 입력 루트의 Markdown 파일로 전달한다.
+운영 logging은 `logging_mode: host`,
+`logging_initializer: package.module:function`, `logging_yaml`을 설정합니다.
+initializer는 YAML `Path` 하나를 받아 내부 로깅 라이브러리를 호출하는
+얇은 어댑터입니다. 템플릿이 이미 로깅을 초기화했다면 설치 함수의
+기본값인 `initialize_host_logging=False`로 유지합니다.
 
-상세 설계는 [LangGraph Workflow Design](docs/langgraph-design.md)을 참고한다.
-Workflow version 운영 API는
-[Workflow Operations API](docs/workflow-operations.md)를 참고한다.
+현재 `config.yaml`은 실제 인증·로깅 어댑터/DB/비밀키를 연결하기 전까지
+시작이 실패하도록 돼 있습니다. 사내 라이브러리를 임의로 모사하지 않습니다.
+현재 버전은 관리 API만 구현하며 메시지, 에이전트 실행, 프로젝트 메모리,
+SSO 자체 구현, 논리 삭제/멱등 기록의 물리 정리 정책은 포함하지 않습니다.
