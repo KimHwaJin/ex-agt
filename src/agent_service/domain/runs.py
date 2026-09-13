@@ -26,8 +26,12 @@ class StrictModel(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
-class TextBlock(StrictModel):
+class OutputTextBlock(StrictModel):
     type: Literal["text"]
+    text: str
+
+
+class TextBlock(OutputTextBlock):
     text: str = Field(min_length=1, max_length=16000)
 
 
@@ -94,7 +98,7 @@ class Message(Audit):
     run_id: UUID
     role: Literal["user", "assistant"]
     event_sequence: int = 0
-    content: list[TextBlock]
+    content: list[OutputTextBlock]
     status: Literal["streaming", "completed", "interrupted", "failed"]
 
 

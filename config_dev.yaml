@@ -1,9 +1,25 @@
 # 개발 전용. development_header는 본인 인증이 아닌 테스트 식별 모드입니다.
 environment: development
-# Explicit simulator: no LLM, code execution, notebook or real report.
-agent_backend: demo
+# 실제 대화 모델 연결. 코드 실행/Executor는 아직 연결하지 않습니다.
+agent_backend: langgraph
 embedded_run_worker: true
 demo_scenario: analysis
+checkpoint_database_url: null
+checkpoint_database_url_env: CHECKPOINT_DATABASE_URL
+checkpoint_schema: agent_checkpoints
+checkpoint_pool_max_size: 5
+worker_concurrency: 2
+model_name: qwen38-27b-nvfp4
+model_name_env: AGENT_MODEL_NAME
+model_provider: openai
+model_provider_env: AGENT_MODEL_PROVIDER
+model_base_url: http://model.frodo.com/v1
+model_base_url_env: AGENT_MODEL_BASE_URL
+model_api_key: EMPTY
+model_api_key_env: AGENT_MODEL_API_KEY
+model_extra_body:
+  chat_template_kwargs:
+    enable_thinking: false
 database_url: postgresql://management:management@127.0.0.1:55439/chatapp
 database_url_env: MANAGEMENT_DATABASE_URL
 cursor_secret: development-only-change-before-production-0001

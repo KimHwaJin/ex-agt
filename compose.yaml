@@ -29,7 +29,7 @@ services:
   migrate:
     build: *build
     environment: *environment
-    command: ["python", "-m", "alembic", "upgrade", "head"]
+    command: ["python", "-m", "agent_service.migrate"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -37,6 +37,8 @@ services:
   api:
     build: *build
     environment: *environment
+    extra_hosts:
+      - "model.frodo.com:${MODEL_HOST_IP:-10.250.110.99}"
     command:
       - python
       - -m

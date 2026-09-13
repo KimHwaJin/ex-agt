@@ -3,8 +3,9 @@
 Python **3.11** 기반 사용자·프로젝트·세션 및 메시지·Run 관리 API입니다.
 기존 Agent, Worker, 전달 패키지와 구버전 운영 자료는 제거했습니다.
 메시지 저장, Run 접수·재개·취소와 SSE 스트림을 구현했습니다.
-개발용 DEMO 실행기로 화면 흐름을 검증하며 실제 LangGraph/LLM/Executor,
-Redis 소비와 프로젝트 메모리는 아직 연결하지 않았습니다.
+LangGraph·LLM 대화와 PostgreSQL 체크포인트를 연결했습니다.
+Executor·Redis 소비·프로젝트 공유 메모리·파일 분석은 아직 연결하지 않았습니다.
+실제 실행 설정은 [LangGraph 실행기](docs/langgraph-runtime.md)를 참고하세요.
 요청·응답 계약과 제한은 [메시지·Run API](docs/agent-api.md)를 참고하세요.
 
 ## 브랜치 운영
@@ -25,8 +26,11 @@ src/
     application/             # 관리/Run 유스케이스와 메시지 출력 저장
     domain/                  # 엔티티와 도메인 오류
     infrastructure/database/ # PostgreSQL 저장소
-    runtime/                 # DB 풀 수명 관리, 독립 DEMO 실행기
-    worker_main.py           # 선택적 별도 DEMO worker 진입점
+    agents/                  # create_agent 정의와 모델 구성
+    graphs/assistant/        # 세션 대화 그래프의 builder/nodes/state
+    runtime/                 # DB 풀 수명 관리, 실제/DEMO 실행기
+    worker_main.py           # 선택적 별도 worker 진입점
+    checkpoint_main.py       # 체크포인트 DB 명시적 초기화/업그레이드
     bootstrap/               # YAML 설정·외부 로깅 초기화
     settings.py              # 설정 검증
 migrations/                  # 관리/Run/메시지 마이그레이션
@@ -53,7 +57,7 @@ DB 연결은 YAML `database_url` 또는 `MANAGEMENT_DATABASE_URL`,
 ```sh
 uv sync --locked --python 3.11
 docker compose up -d postgres
-uv run --locked python -m alembic upgrade head
+uv run --locked python -m agent_service.migrate
 uv run --locked python app.py
 ```
 
@@ -83,7 +87,7 @@ Compose의 `chatapp` DB는 **tmpfs 기반 임시 DB**입니다.
 개발/테스트에만 사용하고 운영 DB는 외부 PostgreSQL로 연결합니다.
 통합 테스트는 임의 사용자를 생성하며 기존 행을 초기화하지 않습니다.
 테스트 중인 API에서 같은 테스트 DB를 수동 사용하지 마세요.
-Run 통합 테스트 중에는 같은 DB를 소비하는 API 내장/별도 DEMO worker를
+Run 통합 테스트 중에는 같은 DB를 소비하는 API 내장/별도 실행기를
 중지하세요. 테스트가 직접 단계를 진행하므로 다른 worker와 경쟁하면 안 됩니다.
 테스트도 `chatapp` 이름을 쓰므로 DB 이름만으로 운영/테스트를 구분할 수
 없습니다. `MANAGEMENT_TEST_DATABASE_URL`은 반드시 격리된 Compose DB를
@@ -123,8 +127,9 @@ HTML/CSS/JavaScript는 Python 패키지에 포함되어 기존 FastAPI가 제공
 5. 오른쪽 위 ‘API 기록’ 패널에서 실제 헤더·본문, HTTP 상태, 응답 JSON,
    request_id를 확인합니다. 최근 20건만 브라우저 메모리에 유지합니다.
 
-대화를 선택하면 메시지를 보내고 DEMO 승인·수정·거절·취소 흐름을 확인합니다.
-화면에 DEMO를 명시하며 실제 분석 결과로 표시하지 않습니다.
+대화를 선택하면 실제 모델과 대화하며 같은 세션의 대화를 유지합니다.
+현재는 일반 대화/설명만 지원하고 분석이나 코드 실행을 수행하지 않습니다.
+`agent_backend: demo`로 바꾸면 기존 승인·수정·거절·취소 테스트가 가능합니다.
 출력은 스트림으로 갱신하고 기존 대화를 다시 선택하면 DB에서 복원합니다.
 실행 중에는 새 메시지를 받지 않으며 연결 중단은 작업 취소가 아닙니다.
 API 기록 패널은 일반 JSON 요청을 기록하며 스트림 프레임은 기록하지 않습니다.

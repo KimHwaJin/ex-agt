@@ -180,8 +180,10 @@ def create_app(settings: Settings) -> FastAPI:
     @app.get("/health/ready", include_in_schema=False)
     async def ready(request: Request):
         runtime = request.app.state.management_runtime
-        async with runtime.resources.pool.connection() as connection:
-            await connection.execute("SELECT 1")
+        try:
+            await runtime.resources.ready()
+        except RuntimeError:
+            return JSONResponse({"status": "not_ready"}, status_code=503)
         return {"status": "ready"}
 
     return app

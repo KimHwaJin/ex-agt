@@ -52,6 +52,29 @@ class OutputWriter:
             (sequence, message_id, self.run["run_id"]),
         )
 
+    async def replace(self, message_id: UUID, text: str, *, complete=False):
+        """Reconcile checkpoint output, or reset an interrupted attempt."""
+        row = await self.repo.one(
+            "UPDATE management.messages SET content = %s, status = %s, "
+            "updated_at = clock_timestamp(), updated_by = %s "
+            "WHERE message_id = %s AND run_id = %s RETURNING *",
+            (
+                Jsonb([{"type": "text", "text": text}] if text else []),
+                "completed" if complete else "streaming",
+                self.run["owner_user_uuid"],
+                message_id,
+                self.run["run_id"],
+            ),
+        )
+        if row is None:
+            raise DomainError("MESSAGE_NOT_FOUND", "메시지가 없습니다.")
+        event = await self.repo.emit(
+            self.run,
+            "message.completed" if complete else "message.updated",
+            Message.model_validate(row).model_dump(mode="json"),
+        )
+        await self.stamp(message_id, event.sequence)
+
     async def append(self, message_id: UUID, text: str, key: str) -> None:
         payload = {
             "message_id": str(message_id),
