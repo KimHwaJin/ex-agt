@@ -23,6 +23,7 @@ from agent_service.domain.management import DomainError
 from agent_service.runtime.management import ManagementRuntime
 from agent_service.settings import Settings
 
+from .dev_ui import install_dev_ui
 from .routers import router
 from .security import HeaderIdentityProvider, IdentityProvider
 
@@ -83,6 +84,7 @@ def install_management_api(
 
     app.router.lifespan_context = lifespan
     app.include_router(router)
+    install_dev_ui(app, settings)
 
     @app.middleware("http")
     async def trace_request(request: Request, call_next):

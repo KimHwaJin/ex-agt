@@ -101,7 +101,7 @@ class Repository:
         )
         if row is None:
             raise DomainError(
-                "USER_NOT_INITIALIZED", "먼저 /me를 호출해 주세요.", 403
+                "USER_NOT_INITIALIZED", "먼저 POST /me를 호출해 주세요.", 403
             )
         return row
 
@@ -118,6 +118,10 @@ class Repository:
             """,
             (uuid4(), owner, owner, owner),
         )
+        return await self.get_default_project(owner)
+
+    async def get_default_project(self, owner: UUID) -> dict[str, Any]:
+        """Read the default project without provisioning or repairing it."""
         row = await self.one(
             PROJECT_SELECT
             + """
@@ -126,7 +130,12 @@ class Repository:
             """,
             (owner,),
         )
-        assert row is not None
+        if row is None:
+            raise DomainError(
+                "DEFAULT_PROJECT_NOT_FOUND",
+                "기본 프로젝트가 없습니다. POST /me를 호출해 주세요.",
+                404,
+            )
         return row
 
     async def project(

@@ -43,6 +43,14 @@ class ManagementService:
                 user=user, default_project=Project.model_validate(project)
             )
 
+    async def get_me(self, user_uuid: UUID) -> Home:
+        async with self.store.transaction() as repository:
+            user = await self.checked(repository, user_uuid)
+            project = await repository.get_default_project(user_uuid)
+            return Home(
+                user=user, default_project=Project.model_validate(project)
+            )
+
     async def user(self, user_uuid: UUID) -> User:
         async with self.store.transaction() as repository:
             return active_user(await repository.user(user_uuid))

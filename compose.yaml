@@ -5,14 +5,14 @@ x-build: &build
 x-environment: &environment
   SERVICE_ENV: development
   MANAGEMENT_DATABASE_URL: >-
-    postgresql://management:management@postgres:5432/management_test
+    postgresql://management:management@postgres:5432/chatapp
   MANAGEMENT_CURSOR_SECRET: development-compose-only-cursor-secret-000001
 
 services:
   postgres:
     image: postgres:17
     environment:
-      POSTGRES_DB: management_test
+      POSTGRES_DB: chatapp
       POSTGRES_USER: management
       POSTGRES_PASSWORD: management
     ports:
@@ -21,7 +21,7 @@ services:
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U management -d management_test"]
+      test: ["CMD-SHELL", "pg_isready -U management -d chatapp"]
       interval: 2s
       timeout: 2s
       retries: 30
@@ -73,7 +73,7 @@ services:
     environment:
       <<: *environment
       MANAGEMENT_TEST_DATABASE_URL: >-
-        postgresql://management:management@postgres:5432/management_test
+        postgresql://management:management@postgres:5432/chatapp
     depends_on:
       migrate:
         condition: service_completed_successfully

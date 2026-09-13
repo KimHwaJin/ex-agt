@@ -1,4 +1,4 @@
-"""Real PostgreSQL transactions and all eleven management endpoints."""
+"""Real PostgreSQL transactions and management endpoints."""
 
 import asyncio
 from uuid import UUID, uuid4
@@ -60,6 +60,67 @@ async def test_bootstrap_rolls_back(client, db, monkeypatch):
         (employee,),
     )
     assert await cursor.fetchone() == (0,)
+
+
+async def test_get_me_is_read_only(client, home, identity, monkeypatch):
+    async def forbidden(*args):
+        raise AssertionError("GET /me must not provision users or projects")
+
+    monkeypatch.setattr(Repository, "provision_user", forbidden)
+    monkeypatch.setattr(Repository, "default_project", forbidden)
+    await create_project(client, identity)
+    for _ in range(2):
+        response = await client.get("/api/v1/me", headers=identity)
+        assert response.status_code == 200, response.text
+        assert response.json() == home
+
+
+async def test_get_me_unknown_user_is_not_created(client, db):
+    unknown = str(uuid4())
+    response = await client.get("/api/v1/me", headers={"X-User-UUID": unknown})
+    assert response.status_code == 403
+    assert response.json()["code"] == "USER_NOT_INITIALIZED"
+    cursor = await db.execute(
+        "SELECT count(*) FROM management.users WHERE user_uuid = %s",
+        (unknown,),
+    )
+    assert await cursor.fetchone() == (0,)
+
+
+async def test_get_me_does_not_repair_missing_project(
+    client, home, identity, db
+):
+    project_id = home["default_project"]["project_id"]
+    await db.execute(
+        "UPDATE management.projects SET is_default = false "
+        "WHERE project_id = %s",
+        (project_id,),
+    )
+    response = await client.get("/api/v1/me", headers=identity)
+    assert response.status_code == 404
+    assert response.json()["code"] == "DEFAULT_PROJECT_NOT_FOUND"
+    cursor = await db.execute(
+        "SELECT count(*) FROM management.projects "
+        "WHERE owner_user_uuid = %s AND is_default AND deleted_at IS NULL",
+        (identity["X-User-UUID"],),
+    )
+    assert await cursor.fetchone() == (0,)
+
+
+async def test_get_me_disabled_user(client, identity, db):
+    await db.execute(
+        "UPDATE management.users SET status = 'disabled' WHERE user_uuid = %s",
+        (identity["X-User-UUID"],),
+    )
+    response = await client.get("/api/v1/me", headers=identity)
+    assert response.status_code == 403
+    assert response.json()["code"] == "USER_DISABLED"
+
+
+async def test_get_me_requires_uuid_identity(client, home):
+    for headers in [{}, {"X-User-Id": home["user"]["user_id"]}]:
+        response = await client.get("/api/v1/me", headers=headers)
+        assert response.status_code == 401
 
 
 async def test_default_project_cannot_be_deleted(client, home, identity):

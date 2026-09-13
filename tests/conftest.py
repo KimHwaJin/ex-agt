@@ -17,7 +17,7 @@ from api_service.factory import create_app
 def settings() -> Settings:
     return Settings.model_validate(
         {
-            "database_url": "postgresql://unused:unused@localhost/management_test",
+            "database_url": "postgresql://unused:unused@localhost/chatapp",
             "cursor_secret": "test-cursor-key-0123456789-0123456789",
         }
     )
@@ -30,9 +30,9 @@ async def client(settings: Settings) -> AsyncIterator[httpx.AsyncClient]:
         raise pytest.skip.Exception(
             "Set MANAGEMENT_TEST_DATABASE_URL for PostgreSQL tests"
         )
-    if conninfo_to_dict(url).get("dbname") != "management_test":
+    if conninfo_to_dict(url).get("dbname") != "chatapp":
         raise RuntimeError(
-            "Integration tests require the management_test database"
+            "Integration tests require an isolated chatapp database"
         )
     configured = Settings.model_validate(
         {

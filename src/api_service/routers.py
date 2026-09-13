@@ -1,4 +1,4 @@
-"""The eleven management endpoints; no graph imports or background work."""
+"""Management endpoints; no graph imports or background work."""
 
 from typing import Annotated
 from uuid import UUID
@@ -23,6 +23,11 @@ Cursor = Annotated[str | None, Query(min_length=1, max_length=4096)]
 @router.post("/me", response_model=Home, tags=["user"])
 async def me(employee: EmployeeId, management: Service) -> Home:
     return await management.me(employee)
+
+
+@router.get("/me", response_model=Home, tags=["user"])
+async def get_me(user: CurrentUser, management: Service) -> Home:
+    return await management.get_me(user.user_uuid)
 
 
 @router.post(
