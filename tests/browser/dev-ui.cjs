@@ -340,7 +340,8 @@ async function main() {
     await page.locator("#welcome-new-chat").click();
     await done("세션을 생성");
     assert.equal(await page.locator("#view-title").textContent(), "새 대화");
-    assert.equal(await page.locator("#send-message").isDisabled(), true);
+    await page.waitForFunction(() =>
+      !document.querySelector("#send-message").disabled);
     await page.reload();
     await page.waitForFunction(
       () => document.querySelector("#project-list p"),
@@ -351,17 +352,17 @@ async function main() {
     const operations = new Set(requests.map((request) => {
       const path = request.path.replace(
         /\/(projects|sessions)\/[^/]+$/, "/$1/:id",
-      );
+      ).replace(/\/sessions\/[^/]+\/(messages|runs)$/, "/sessions/:id/$1");
       return request.method + " " + path;
     }));
-    assert.equal(operations.size, 12);
+    assert.equal(operations.size, 14);
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({
       result: "passed",
       operations: operations.size,
       checks: [
         "login transition/rejection/reset", "CRUD", "cursor pagination",
-        "version conflict in dialog", "disabled chat composer",
+        "version conflict in dialog", "context-aware chat composer",
         "idempotency after lost response", "XSS-safe text",
         "identity/project switching", "delete confirmation", "mobile layout",
       ],

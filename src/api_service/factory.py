@@ -23,8 +23,10 @@ from agent_service.domain.management import DomainError
 from agent_service.runtime.management import ManagementRuntime
 from agent_service.settings import Settings
 
+from .body_limits import RunBodyLimit
 from .dev_ui import install_dev_ui
 from .routers import router
+from .run_routes import router as run_router
 from .security import HeaderIdentityProvider, IdentityProvider
 
 logger = logging.getLogger("api_service")
@@ -84,6 +86,8 @@ def install_management_api(
 
     app.router.lifespan_context = lifespan
     app.include_router(router)
+    app.include_router(run_router)
+    app.add_middleware(RunBodyLimit)
     install_dev_ui(app, settings)
 
     @app.middleware("http")

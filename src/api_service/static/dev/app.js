@@ -1,3 +1,5 @@
+import { installChat } from "./chat.js";
+
 const $ = (id) => document.getElementById(id);
 const apiBase = new URL("../api/v1/", window.location.href);
 const mobile = window.matchMedia("(max-width: 760px)");
@@ -15,6 +17,7 @@ const state = {
   history: [],
   sequence: 0,
   pendingCreates: new Map(),
+  identityEpoch: 0,
 };
 
 function notice(message, kind = "") {
@@ -106,6 +109,7 @@ function syncControls() {
   });
   setSidebar(state.sidebarOpen);
   if (entering) $("view-title").focus({ preventScroll: true });
+  window.dispatchEvent(new Event("chat:controls"));
 }
 
 async function run(action) {
@@ -153,6 +157,7 @@ function renderHistory() {
 }
 
 async function api(method, path, options = {}) {
+  const identityEpoch = state.identityEpoch;
   const url = new URL(path, apiBase);
   const headers = { Accept: "application/json", ...options.headers };
   if (state.user) headers["X-User-UUID"] = state.user.user_uuid;
@@ -211,9 +216,11 @@ async function api(method, path, options = {}) {
   } finally {
     clearTimeout(timer);
     entry.elapsed = Math.round(performance.now() - started);
-    state.history.unshift(entry);
-    state.history = state.history.slice(0, 20);
-    renderHistory();
+    if (identityEpoch === state.identityEpoch) {
+      state.history.unshift(entry);
+      state.history = state.history.slice(0, 20);
+      renderHistory();
+    }
   }
 }
 
@@ -325,6 +332,7 @@ function drawSession() {
     : "메시지 및 에이전트 실행은 이 화면의 범위에 포함되지 않습니다.";
   drawList("session");
   renderShell();
+  window.dispatchEvent(new Event("chat:context"));
 }
 
 function clearSessions() {
@@ -394,6 +402,7 @@ function click(id, action) {
 }
 
 function resetWorkspace() {
+  state.identityEpoch += 1;
   document.querySelectorAll("dialog[open]").forEach((node) => node.close());
   state.screen = "login";
   state.user = null;
@@ -497,7 +506,11 @@ click("session-reload", () => loadSessions());
 click("project-next", () => loadProjects(true));
 click("session-next", () => loadSessions(true));
 click("project-refresh", () => chooseProject(state.project.project_id));
-click("session-refresh", () => chooseSession(state.session.session_id));
+click("session-refresh", async () => {
+  const message = await chooseSession(state.session.session_id);
+  window.dispatchEvent(new Event("chat:refresh"));
+  return message;
+});
 
 click("project-delete", async () => {
   if (!confirm(
@@ -587,6 +600,7 @@ $("switch-user").addEventListener("click", () => {
   $("employee-id").focus();
 });
 
+installChat({ $, state, api, apiBase, requestKey, notice });
 drawProject();
 drawSession();
 syncControls();

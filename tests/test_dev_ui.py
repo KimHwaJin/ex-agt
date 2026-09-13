@@ -24,6 +24,7 @@ async def test_dev_console_assets_and_redirect(settings):
         for path, media_type in [
             ("/dev/", "text/html"),
             ("/dev/assets/app.js", "text/javascript"),
+            ("/dev/assets/chat.js", "text/javascript"),
             ("/dev/assets/styles.css", "text/css"),
         ]:
             response = await client.get(path)
@@ -38,7 +39,7 @@ async def test_dev_console_assets_and_redirect(settings):
         # Development UI does not expand the public management API contract.
         paths = app.openapi()["paths"]
         assert not any(path.startswith("/dev") for path in paths)
-        assert sum(len(methods) for methods in paths.values()) == 12
+        assert sum(len(methods) for methods in paths.values()) == 18
 
 
 @pytest.mark.parametrize(
@@ -47,7 +48,9 @@ async def test_dev_console_assets_and_redirect(settings):
         "/dev",
         "/dev/",
         "/dev/assets/app.js",
+        "/dev/assets/chat.js",
         "/dev/assets/styles.css",
+        "/dev/runtime",
     ],
 )
 async def test_production_has_no_dev_routes(settings, path):
