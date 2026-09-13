@@ -25,6 +25,10 @@ def install_dev_ui(app: FastAPI, settings: Settings) -> None:
     if settings.environment != "development":
         return
 
+    @app.get("/dev/runtime", include_in_schema=False)
+    async def runtime() -> dict:
+        return {"agent_backend": settings.agent_backend}
+
     @app.get("/dev", name="management_dev_redirect", include_in_schema=False)
     async def redirect(request: Request) -> RedirectResponse:
         root = request.scope.get("root_path", "").rstrip("/")
@@ -44,6 +48,16 @@ def install_dev_ui(app: FastAPI, settings: Settings) -> None:
     async def script() -> FileResponse:
         return FileResponse(
             ASSETS / "app.js", media_type="text/javascript", headers=HEADERS
+        )
+
+    @app.get(
+        "/dev/assets/chat.js",
+        name="management_dev_chat",
+        include_in_schema=False,
+    )
+    async def chat() -> FileResponse:
+        return FileResponse(
+            ASSETS / "chat.js", media_type="text/javascript", headers=HEADERS
         )
 
     @app.get(

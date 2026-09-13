@@ -134,6 +134,16 @@ class ManagementService:
                     "기본 프로젝트는 삭제할 수 없습니다.",
                 )
             if current["deleted_at"] is None:
+                active = await repository.one(
+                    "SELECT 1 FROM management.sessions "
+                    "WHERE project_id = %s "
+                    "AND active_run_id IS NOT NULL LIMIT 1",
+                    (project_id,),
+                )
+                if active:
+                    raise DomainError(
+                        "RUN_ACTIVE", "진행 중인 실행이 있습니다."
+                    )
                 await repository.delete_project(owner, project_id)
 
     async def create_session(
@@ -203,4 +213,8 @@ class ManagementService:
                 owner, session_id, deleted=True, lock=True
             )
             if current["deleted_at"] is None:
+                if current["active_run_id"]:
+                    raise DomainError(
+                        "RUN_ACTIVE", "진행 중인 실행이 있습니다."
+                    )
                 await repository.delete_session(owner, session_id)

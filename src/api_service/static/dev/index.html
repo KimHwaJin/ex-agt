@@ -141,6 +141,12 @@
           사번을 입력해 시작하세요.
         </p>
         <div class="conversation">
+          <section id="chat-history" class="chat-history" hidden
+            aria-label="대화 메시지">
+            <button id="older-messages" type="button" class="text-button"
+              hidden>이전 메시지 더 보기</button>
+            <div id="chat-messages"></div>
+          </section>
           <section class="welcome" aria-labelledby="view-title">
             <span class="welcome-symbol" aria-hidden="true">✳</span>
             <p id="view-context" class="eyebrow">YOUR WORKSPACE</p>
@@ -157,6 +163,19 @@
           </section>
         </div>
 
+        <section id="run-panel" class="run-panel" hidden
+          aria-label="실행 상태">
+          <p id="run-status" role="status"></p>
+          <p id="run-progress"></p>
+          <div id="hitl-panel"></div>
+          <button id="observe-run" type="button" class="text-button" hidden>
+            진행 상황 재연결
+          </button>
+          <button id="cancel-run" type="button" class="text-button" hidden>
+            작업 취소
+          </button>
+        </section>
+
         <div class="composer-area">
           <div class="composer">
             <label for="message-draft" class="sr-only">메시지</label>
@@ -168,10 +187,10 @@
               <div class="composer-status">
                 <button type="button" class="icon-button" disabled
                   aria-label="파일 추가 · 준비 중">＋</button>
-                <span><span class="status-dot"></span> 에이전트 연결 준비 중</span>
+                <span id="agent-mode">실행기 설정 확인 중</span>
               </div>
               <button id="send-message" type="button" class="send-button"
-                aria-label="메시지 전송 · 준비 중" disabled>↑</button>
+                aria-label="메시지 전송" disabled>↑</button>
             </div>
           </div>
           <p id="composer-note" class="composer-note">

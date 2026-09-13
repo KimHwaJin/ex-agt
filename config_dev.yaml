@@ -1,5 +1,9 @@
 # 개발 전용. development_header는 본인 인증이 아닌 테스트 식별 모드입니다.
 environment: development
+# Explicit simulator: no LLM, code execution, notebook or real report.
+agent_backend: demo
+embedded_run_worker: true
+demo_scenario: analysis
 database_url: postgresql://management:management@127.0.0.1:55439/chatapp
 database_url_env: MANAGEMENT_DATABASE_URL
 cursor_secret: development-only-change-before-production-0001

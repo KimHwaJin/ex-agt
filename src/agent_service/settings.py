@@ -23,6 +23,13 @@ class Settings(BaseModel):
     pool_timeout: float = Field(default=10, gt=0)
     bind_host: str = "127.0.0.1"
     bind_port: int = Field(default=8020, ge=1, le=65535)
+    # No real agent/executor implementation is enabled in this milestone.
+    agent_backend: Literal["disabled", "demo"] = "disabled"
+    embedded_run_worker: bool = False
+    demo_scenario: Literal["reply", "analysis", "failure"] = "analysis"
+    demo_step_seconds: float = Field(default=0.5, ge=0.05, le=10)
+    stream_poll_seconds: float = Field(default=0.5, ge=0.05, le=10)
+    stream_max_seconds: float = Field(default=60, ge=1, le=300)
 
     @model_validator(mode="after")
     def validate_runtime(self) -> "Settings":
@@ -44,12 +51,16 @@ class Settings(BaseModel):
             if not self.identity_provider_factory:
                 raise ValueError("external identity provider is required")
         if self.environment == "production":
+            if self.agent_backend == "demo":
+                raise ValueError("demo agent is forbidden in production")
             if self.auth_mode == "development_header":
                 raise ValueError("development identity is not production auth")
             if self.logging_mode != "host":
                 raise ValueError("production requires host logging")
             if self.cursor_secret.get_secret_value().startswith("development"):
                 raise ValueError("replace the development cursor secret")
+        if self.embedded_run_worker and self.agent_backend != "demo":
+            raise ValueError("embedded worker requires explicit demo backend")
         if self.logging_mode == "host":
             if not self.logging_initializer or not self.logging_yaml:
                 raise ValueError("host logging initializer and YAML required")

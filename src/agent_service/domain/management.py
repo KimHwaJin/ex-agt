@@ -44,6 +44,9 @@ class Session(Audit):
     project_id: UUID
     title: str
     version: int
+    active_run_id: UUID | None = None
+    is_locked: bool = False
+    lock_reason: str | None = None
 
 
 class Home(BaseModel):
