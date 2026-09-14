@@ -62,7 +62,13 @@ private Config의 `__getattr__` 반환 None/평탄화 방식에 의존하지 않
 섹션이 dict가 아니면 명확히 실패한다. private helper가 섹션을 평탄화한다면
 app.py에서 명시적 dict로 만들어 전달한다.
 
-| HCP_ACTIVE_PROFILE | 호스트가 읽을 파일 | AGENT_SERVICE.environment |
+템플릿 YAML은 대문자 설정 키(`ENVIRONMENT`, `DATABASE_URL`, `MODEL_NAME` 등)를
+사용한다. adapter가 `AGENT_SERVICE` 바로 아래의 키만 소문자 Settings 필드로
+변환한다. 과거 소문자 설정도 읽지만 같은 항목의 대소문자 중복은 허용하지
+않는다. 설정값과 `MODEL_EXTRA_BODY` 내부의 모델 요청 키는 그대로 전달한다.
+기존 Gaia `PRIVATE_LLM_*`를 우리 `MODEL_*`로 자동 복사하지는 않는다.
+
+| HCP_ACTIVE_PROFILE | 호스트가 읽을 파일 | AGENT_SERVICE.ENVIRONMENT |
 |---|---|---|
 | local | config.local.yml | local |
 | dev | config.dev.yml | dev |
@@ -74,7 +80,7 @@ app.py에서 명시적 dict로 만들어 전달한다.
 `local/dev`는 개발 기능, `stg/prd`는 운영 수준의 인증·비밀값 검증을 적용한다.
 독립 실행의 `SERVICE_ENV`도 같은 네 값을 사용한다.
 
-`logging_mode: preconfigured`는 호스트가 이미 logger.yml을 적용했다는
+`LOGGING_MODE: preconfigured`는 호스트가 이미 logger.yml을 적용했다는
 명시적 계약이다. logging 초기화를 아무것도 하지 않으므로 **진입점에서
 init_logger가 호출되어 있어야 한다.** 내부 라이브러리의 설정 완료 여부를
 자동으로 탐지할 수는 없다. 업무 코드는 기존 logging.getLogger를 사용한다.
@@ -211,7 +217,7 @@ resume 때 동일 owner와 pending 상태를 확인해야 한다. 이번 v1은 A
 - 분류·대화·계획·위험 검토·코드 계획 모두 선택한 모델 bundle을 사용한다.
 - model.selected 이벤트에 모델/제공자/선택자/재개 여부와 발생 시각을 저장한다.
 - endpoint/provider/API key는 서버 설정만 사용한다. body override는 거절한다.
-- allowed_model_names에 기본 model_name은 자동 포함되고 중복은 제거된다.
+- ALLOWED_MODEL_NAMES에 기본 MODEL_NAME은 자동 포함되고 중복은 제거된다.
 - 프로세스 시작 때 허용 모델들의 agent/client를 준비하고 종료 때 모두 닫는다.
   구성 상한은 기본 모델 포함 최대 32개다. HTTP 연결이 요청별로 계속 생성되지 않는다.
 - 허용 목록에서 제거된 모델의 미완료 Run은 해당 모델 구성을 복원해야 처리된다.
@@ -229,9 +235,9 @@ API 응답에도 source=configured로 구분한다. 실제 모델 서버에 없�
 
 ```yaml
 AGENT_SERVICE:
-  database_bootstrap: initialize_if_empty
-  database_bootstrap_timeout_seconds: 60
-  database_migration_config: alembic.ini
+  DATABASE_BOOTSTRAP: initialize_if_empty
+  DATABASE_BOOTSTRAP_TIMEOUT_SECONDS: 60
+  DATABASE_MIGRATION_CONFIG: alembic.ini
 ```
 
 `chatapp` 데이터베이스는 미리 생성한다. `src/d_test`뿐 아니라 최신

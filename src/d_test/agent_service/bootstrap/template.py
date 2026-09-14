@@ -13,11 +13,18 @@ def settings_from_template(values: Mapping[str, Any]) -> Settings:
 
     The host owns profile/file selection and logging initialization. This
     adapter only validates the already selected AGENT_SERVICE mapping.
+    Normalize settings keys only; provider payloads keep their original keys.
     """
     if not isinstance(values, Mapping):
         raise RuntimeError("config.AGENT_SERVICE must be a mapping")
+    normalized: dict[str, Any] = {}
+    for key, value in values.items():
+        if not isinstance(key, str) or key.lower() in normalized:
+            raise RuntimeError("Invalid or duplicate AGENT_SERVICE key")
+        normalized[key.lower()] = value
+    values = normalized
     if "environment" not in values:
-        raise RuntimeError("config.AGENT_SERVICE.environment is required")
+        raise RuntimeError("config.AGENT_SERVICE.ENVIRONMENT is required")
     if values.get("logging_mode", "preconfigured") != "preconfigured":
         raise RuntimeError("Template logging must already be configured")
     try:

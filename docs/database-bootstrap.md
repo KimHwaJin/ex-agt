@@ -10,15 +10,15 @@ YAML에 끄는 값을 명시할 때는 `database_bootstrap: "off"`처럼 따옴�
 
 ```yaml
 AGENT_SERVICE:
-  database_bootstrap: initialize_if_empty
-  database_bootstrap_timeout_seconds: 60
-  database_migration_config: alembic.ini
+  DATABASE_BOOTSTRAP: initialize_if_empty
+  DATABASE_BOOTSTRAP_TIMEOUT_SECONDS: 60
+  DATABASE_MIGRATION_CONFIG: alembic.ini
 ```
 
 독립 실행의 `config_local.yaml`, `config_dev.yaml`, `config_stg.yaml`,
-`config.yaml`에서는 위 세 항목을 최상위에 둔다.
+`config.yaml`에서는 위 세 항목을 소문자로 바꿔 최상위에 둔다.
 템플릿은 기존대로 HCP_ACTIVE_PROFILE에 맞는 YAML을 읽고 Settings에 전달한다.
-우리 adapter는 이 환경변수를 직접 받지 않고 AGENT_SERVICE.environment의
+우리 adapter는 이 환경변수를 직접 받지 않고 AGENT_SERVICE.ENVIRONMENT의
 `local/dev/stg/prd` 값을 검증한다.
 `GaiaService.core` 수정이나 라우터별 초기화 코드는 필요 없다.
 

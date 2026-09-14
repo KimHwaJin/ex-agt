@@ -61,23 +61,27 @@ S3_AWS_SECRET_ACCESS_KEY: ""
 
 # 우리 서비스 추가 설정: config.AGENT_SERVICE(dict)로 전달합니다.
 AGENT_SERVICE:
-  ENVIRONMENT: dev
+  ENVIRONMENT: prd
   DATABASE_BOOTSTRAP: initialize_if_empty
   DATABASE_BOOTSTRAP_TIMEOUT_SECONDS: 60
   DATABASE_MIGRATION_CONFIG: alembic.ini
-  # 개발 연결 예시. 내부 DB 주소/계정으로 교체합니다. DB명은 chatapp입니다.
-  DATABASE_URL: postgresql://management:management@localhost:55439/chatapp
-  CURSOR_SECRET: development-change-this-cursor-secret-before-production
-  AUTH_MODE: development_header
+  # 이 환경의 PostgreSQL URI를 입력합니다. DB명은 chatapp입니다.
+  DATABASE_URL: ""
+  # 페이지 커서 서명용 비밀값. 최소 32자이며 배포 환경 값으로 채웁니다.
+  CURSOR_SECRET: ""
+  AUTH_MODE: external
+  # 실제 인증 provider factory 경로: package.module:function
+  IDENTITY_PROVIDER_FACTORY: ""
   AGENT_BACKEND: langgraph
-  # 한 프로세스 개발 실행. 별도 worker를 띄우면 false로 설정합니다.
+  # API 내장 실행기 사용. 별도 worker를 띄우면 false로 설정합니다.
   EMBEDDED_RUN_WORKER: true
   # 우리 Agent 모델 설정. 위 PRIVATE_LLM_* 값과 자동 연동하지 않습니다.
   MODEL_NAME: qwen38-27b-nvfp4
   ALLOWED_MODEL_NAMES: []
   MODEL_PROVIDER: openai
-  MODEL_BASE_URL: http://model.frodo.com/v1
-  MODEL_API_KEY: EMPTY
+  # 이 환경에서 접근 가능한 모델 endpoint와 API key를 입력합니다.
+  MODEL_BASE_URL: ""
+  MODEL_API_KEY: ""
   # 아래 내부 키는 vLLM 요청 본문 규격이므로 소문자를 유지합니다.
   MODEL_EXTRA_BODY:
     chat_template_kwargs:
