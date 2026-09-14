@@ -12,6 +12,10 @@
 - `src/template_bindings.py`: 인증·세션 매핑 및 외부 프로토콜 변환 구현.
 - `config.dev.yml`: 제공받은 기본 항목과 대문자 `AGENT_SERVICE` 추가 설정을
   합친 예제. 실제 환경의 기존 값은 유지하고 추가 섹션을 병합한다.
+- `config.stg.yml`, `config.yml`: 같은 항목 구성의 스테이징/운영 예제.
+  `ENVIRONMENT`는 각각 `stg`, `prd`이며 인증은 `external`을 사용한다.
+  빈 `DATABASE_URL`, `CURSOR_SECRET`, `IDENTITY_PROVIDER_FACTORY`,
+  `MODEL_BASE_URL`, `MODEL_API_KEY`를 해당 환경 값으로 채운다.
 
 기존 `common`, `gaia`, `lib`, `middleware`, `routers`를 덮어쓰지 않는다.
 예제 app.py의 workflow import 경로는 실제 탐색 경로와 일치시킨다.
@@ -64,7 +68,7 @@ model.frodo.com은 기존 개발 환경 값이므로 내부 환경 값으로 교
 PORT는 기존 Gaia의 5000을 사용한다. `S3_FULE_URL_ENABLED`는 제공받은 철자를
 유지했으며, 실제 private 코드에서 사용하는 키를 확인해 맞춘다.
 
-개발 예제는 `AGENT_SERVICE.DATABASE_BOOTSTRAP: initialize_if_empty`를 켠다.
+세 환경 예제 모두 `AGENT_SERVICE.DATABASE_BOOTSTRAP: initialize_if_empty`를 켠다.
 `chatapp` DB는 미리 생성하고, 루트에 `alembic.ini`와 `migrations/`도 복사한다.
 앱 시작 시 비어 있는 관리/체크포인트 스키마를 초기화한다. 현재 버전은
 건너뛰며, 구버전이나 불완전한 스키마는 자동 수정하지 않고 시작에 실패한다.
