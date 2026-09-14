@@ -50,10 +50,15 @@ OpenAPI·instrumentation·uvicorn 설정은 예제 진입점에 명시했다.
 HCP_ACTIVE_PROFILE=dev python app.py
 ```
 
-DB migration은 앱 startup에서 자동 수행하지 않는다. 내부 배포 job에서
-우리 기존 migration/checkpoint 초기화 절차를 별도 실행해야 한다.
+개발 예제는 `AGENT_SERVICE.database_bootstrap: initialize_if_empty`를 켠다.
+`chatapp` DB는 미리 생성하고, 루트에 `alembic.ini`와 `migrations/`도 복사한다.
+앱 시작 시 비어 있는 관리/체크포인트 스키마를 초기화한다. 현재 버전은
+건너뛰며, 구버전이나 불완전한 스키마는 자동 수정하지 않고 시작에 실패한다.
+기존 DB의 버전 변경은 내부 배포 job에서 명시적으로 수행한다.
+자동 초기화를 원하지 않으면 `database_bootstrap: "off"`로 설정한다.
 기존 CLI는 우리 YAML 로더를 쓰므로 private config를 자동으로 읽지 않는다.
 이 차이는 `docs/gaia-template-integration.md`의 초기화 예제를 참고한다.
+상세 정책은 `docs/database-bootstrap.md`를 참고한다.
 
 ## 반드시 구현할 한 곳
 

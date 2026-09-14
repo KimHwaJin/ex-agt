@@ -10,7 +10,9 @@ from d_test.agent_service.settings import Settings
 
 
 def main(settings: Settings | None = None):
-    config = Config("alembic.ini")
+    config = Config(
+        settings.database_migration_config if settings else "alembic.ini"
+    )
     if settings is not None:
         config.attributes["agent_settings"] = settings
     command.upgrade(config, "head")

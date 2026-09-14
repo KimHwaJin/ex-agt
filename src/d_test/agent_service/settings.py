@@ -10,6 +10,10 @@ class Settings(BaseModel):
     environment: Literal["development", "production"] = "development"
     database_url: SecretStr
     cursor_secret: SecretStr
+    # 기본은 별도 migration. 명시적으로 켠 경우에만 빈 스키마를 생성.
+    database_bootstrap: Literal["off", "initialize_if_empty"] = "off"
+    database_bootstrap_timeout_seconds: float = Field(default=60, ge=1, le=600)
+    database_migration_config: str = Field(default="alembic.ini", min_length=1)
     auth_mode: Literal["development_header", "trusted_header", "external"] = (
         "development_header"
     )
@@ -66,6 +70,14 @@ class Settings(BaseModel):
             raise ValueError("cursor_secret must have at least 32 characters")
         if self.pool_min_size > self.pool_max_size:
             raise ValueError("pool_min_size exceeds pool_max_size")
+        if self.database_bootstrap == "initialize_if_empty" and (
+            self.checkpoint_schema
+            in {"public", "management", "information_schema"}
+            or self.checkpoint_schema.startswith("pg_")
+        ):
+            raise ValueError(
+                "bootstrap requires a dedicated checkpoint schema"
+            )
         if self.auth_mode == "trusted_header":
             if not self.trusted_proxy_cidrs:
                 raise ValueError("trusted proxies must be explicitly set")

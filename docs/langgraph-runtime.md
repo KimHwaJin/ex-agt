@@ -152,12 +152,17 @@ uv run --locked python app.py
 python -m d_test.agent_service.checkpoint_main
 ```
 
-`AsyncPostgresSaver.setup()`은 배포 단계에서만 호출합니다. `setup()`은
+기본값에서는 `AsyncPostgresSaver.setup()`을 배포 단계에서 호출합니다.
+`database_bootstrap: initialize_if_empty`를 명시하면 빈 체크포인트 스키마에
+한해서 앱 시작 시에도 호출합니다. 기존 버전 업그레이드는 하지 않습니다.
+[자동 초기화 정책](database-bootstrap.md)을 참고하세요. `setup()`은
 라이브러리가 제공하는 버전별 테이블/인덱스 마이그레이션이며 이를 임의의
 Alembic DDL로 복제하지 않았습니다. 동시 초기화는 PostgreSQL advisory lock으로
 직렬화하고, 런타임은 테이블과 라이브러리 마이그레이션 버전이 준비됐는지 확인합니다.
-테이블 생성/인덱스 권한은 배포 계정에, 실행 중 필요한 접근 권한은 실행 계정에
+수동 배포 방식에서는 테이블 생성/인덱스 권한은 배포 계정에,
+실행 중 필요한 접근 권한은 실행 계정에
 부여하세요. 별도 계정을 쓴다면 스키마 USAGE와 기존 테이블 DML 권한도 필요합니다.
+자동 초기화 시에는 앱 계정에도 최초 스키마/테이블/인덱스 생성 권한이 필요합니다.
 
 기본 테이블:
 

@@ -15,6 +15,9 @@ from d_test.agent_service.agents.intake import build_intake_agents
 from d_test.agent_service.application.cursors import CursorCodec
 from d_test.agent_service.application.management import ManagementService
 from d_test.agent_service.application.runs import RunService
+from d_test.agent_service.infrastructure.database.bootstrap import (
+    initialize_database,
+)
 from d_test.agent_service.infrastructure.database.checkpoints import (
     Checkpoints,
 )
@@ -54,6 +57,7 @@ class ManagementRuntime:
         return cls(pool=pool, service=service, runs=runs, settings=settings)
 
     async def start(self) -> None:
+        await initialize_database(self.settings)
         await self.pool.open(wait=True)
         async with self.pool.connection() as connection:
             await connection.execute("SELECT 1 FROM management.users LIMIT 0")

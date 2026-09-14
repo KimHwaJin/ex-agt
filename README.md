@@ -81,7 +81,10 @@ Python 실행 환경이 이미 활성화돼 있으면 `python app.py`로 실행�
 설치는 src layout 패키지 설치 방식이며, `PYTHONPATH` 조작은 불필요합니다.
 기본 포트는 8020이고 Swagger는 `/docs`, 헬스체크는 `/health/live`,
 `/health/ready`입니다. DB 풀은 FastAPI lifespan에서 열고 닫습니다.
-테이블은 서버가 자동 생성하지 않고 배포 전 Alembic으로 생성합니다.
+기본값은 배포 전 Alembic으로 테이블을 준비하는 방식입니다.
+`database_bootstrap: initialize_if_empty`를 설정하면 앱 시작 시 빈 스키마만
+초기화하고, 현재 버전이면 DDL을 실행하지 않습니다. DB 자체는 미리 생성해야
+합니다. [자동 초기화 설정과 제한](docs/database-bootstrap.md)을 참고하세요.
 
 컨테이너만으로 실행하려면 다음 명령을 사용합니다.
 소스를 마운트하지 않고 이미지에 패키지를 설치하는 방식입니다.

@@ -6,6 +6,9 @@ from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg import sql
 
 from d_test.agent_service.infrastructure.database.management import create_pool
+from d_test.agent_service.infrastructure.database.setup_locks import (
+    acquire_checkpoint_lock,
+)
 from d_test.agent_service.settings import Settings
 
 
@@ -66,10 +69,7 @@ class Checkpoints:
     async def setup(self):
         # Deployment command only, never called by API/worker startup.
         async with self.connection() as connection:
-            await connection.execute(
-                "SELECT pg_advisory_lock(hashtextextended(%s, 0))",
-                (f"checkpoint-setup:{self.schema}",),
-            )
+            await acquire_checkpoint_lock(connection, self.schema)
             try:
                 await connection.execute(
                     sql.SQL("CREATE SCHEMA IF NOT EXISTS {}").format(
