@@ -1,5 +1,5 @@
 """The template's workflow discovery picks up this manager instance."""
 
-from agent_service.integrations.template_workflow import WorkflowManager
+from d_test.agent_service.integrations.template_workflow import WorkflowManager
 
 manager = WorkflowManager()

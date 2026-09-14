@@ -7,8 +7,8 @@ from pathlib import Path
 
 import uvicorn
 
-from agent_service.bootstrap.configuration import load_settings
-from api_service.factory import create_app
+from d_test.agent_service.bootstrap.configuration import load_settings
+from d_test.api_service.factory import create_app
 
 settings = load_settings(Path(__file__).resolve().parent)
 app = create_app(settings)

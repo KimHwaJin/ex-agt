@@ -9,13 +9,17 @@ import pytest
 from fastapi import FastAPI, Request
 from pydantic import ValidationError
 
-from agent_service.application.cursors import CursorCodec
-from agent_service.bootstrap.configuration import load_settings
-from agent_service.domain.management import DomainError, Page
-from agent_service.settings import Settings
-from api_service.factory import install_management_api
-from api_service.schemas import ProjectCreate, ProjectUpdate, SessionCreate
-from api_service.security import HeaderIdentityProvider
+from d_test.agent_service.application.cursors import CursorCodec
+from d_test.agent_service.bootstrap.configuration import load_settings
+from d_test.agent_service.domain.management import DomainError, Page
+from d_test.agent_service.settings import Settings
+from d_test.api_service.factory import install_management_api
+from d_test.api_service.schemas import (
+    ProjectCreate,
+    ProjectUpdate,
+    SessionCreate,
+)
+from d_test.api_service.security import HeaderIdentityProvider
 
 
 def test_page_generic_on_python_311():

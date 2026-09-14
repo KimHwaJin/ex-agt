@@ -9,8 +9,8 @@ import pytest
 from psycopg import AsyncConnection
 from psycopg.conninfo import conninfo_to_dict
 
-from agent_service.settings import Settings
-from api_service.factory import create_app
+from d_test.agent_service.settings import Settings
+from d_test.api_service.factory import create_app
 
 
 @pytest.fixture

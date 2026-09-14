@@ -137,11 +137,11 @@ Compose 매핑이 필요하지 않습니다. 호스트의 `/etc/hosts`는 수정
 
 ```sh
 uv sync --locked --python 3.11
-uv run --locked python -m agent_service.migrate
+uv run --locked python -m d_test.agent_service.migrate
 uv run --locked python app.py
 ```
 
-`agent_service.migrate`는 관리 Alembic 적용 후 체크포인트 라이브러리의
+`d_test.agent_service.migrate`는 관리 Alembic 적용 후 체크포인트 라이브러리의
 마이그레이션을 수행합니다. 기존 관리 DB는 초기화하지 않습니다.
 승인 ID 매핑의 `management_0004`와 셀 계획 저장의 `management_0005`를
 포함합니다.
@@ -149,7 +149,7 @@ uv run --locked python app.py
 체크포인트만 초기화/업그레이드하려면 다음 명령을 사용합니다.
 
 ```sh
-python -m agent_service.checkpoint_main
+python -m d_test.agent_service.checkpoint_main
 ```
 
 `AsyncPostgresSaver.setup()`은 배포 단계에서만 호출합니다. `setup()`은
@@ -185,7 +185,7 @@ Alembic DDL로 복제하지 않았습니다. 동시 초기화는 PostgreSQL advi
 
 ```sh
 python app.py
-python -m agent_service.worker_main
+python -m d_test.agent_service.worker_main
 ```
 
 같은 컨테이너의 두 프로세스 또는 별도 Deployment에서도 동일 소스를 사용할 수

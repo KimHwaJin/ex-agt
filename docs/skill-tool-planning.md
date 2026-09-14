@@ -27,13 +27,13 @@ LangGraph는 계획 생성과 재실행 가능한 승인 경계를 분리하고 
 
 | 위치 | 책임 |
 |---|---|
-| `src/agent_service/catalog/assets/*.md` | Skill 설명, 사용 제약, 연결 Tool |
-| `src/agent_service/catalog/assets/*.py` | Jupyter로 복사할 독립 함수 원문 |
-| `src/agent_service/catalog/registry.py` | Skill/Tool ID·버전·파라미터 계약 |
-| `src/agent_service/catalog/compiler.py` | 인자 검증, 이전 셀 참조, 셀 조립 |
-| `src/agent_service/agents/code_planner.py` | 선택/직접 작성 Agent, 위험 검토 |
-| `src/agent_service/graphs/assistant/preparation.py` | 공개 계획과 내부 셀 분리 |
-| `src/agent_service/application/plan_snapshots.py` | 승인 카드와 원문 원자적 저장 |
+| `src/d_test/agent_service/catalog/assets/*.md` | Skill 설명, 사용 제약, 연결 Tool |
+| `src/d_test/agent_service/catalog/assets/*.py` | Jupyter로 복사할 독립 함수 원문 |
+| `src/d_test/agent_service/catalog/registry.py` | Skill/Tool ID·버전·파라미터 계약 |
+| `src/d_test/agent_service/catalog/compiler.py` | 인자 검증, 이전 셀 참조, 셀 조립 |
+| `src/d_test/agent_service/agents/code_planner.py` | 선택/직접 작성 Agent, 위험 검토 |
+| `src/d_test/agent_service/graphs/assistant/preparation.py` | 공개 계획과 내부 셀 분리 |
+| `src/d_test/agent_service/application/plan_snapshots.py` | 승인 카드와 원문 원자적 저장 |
 
 새 도메인 함수를 받으면 `.md`와 독립 함수 파일을 추가하고 `registry.py`에
 파라미터 모델 및 입출력 계약을 등록합니다. 함수/스킬을 변경할 때는 버전을 올립니다.
@@ -137,7 +137,7 @@ step_2 = inspect_data(data=step_1)
 `model_max_tokens`와 분리했습니다. LLM/DB IO는 async이고, 파일 로딩과 셀 구문
 검사는 이벤트 루프 밖에서 처리합니다. 승인 대기는 worker/DB 연결을 점유하지 않습니다.
 
-배포 전 `python -m agent_service.migrate`로 `management_0005`까지 적용합니다.
+배포 전 `python -m d_test.agent_service.migrate`로 `management_0005`까지 적용합니다.
 새 코드는 v1/v2의 진행 중인 Run도 처리합니다. 구버전으로 돌아가려면 신규 접수를
 중단하고 v3 활성 Run을 먼저 완료/취소해야 합니다. 구버전 worker와 v3 접수를
 동시에 운영하는 롤링 배포는 지원하지 않습니다. 데이터 삭제/자동 다운그레이드는 없습니다.

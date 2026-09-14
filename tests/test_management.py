@@ -5,8 +5,8 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from agent_service.domain.management import DomainError
-from agent_service.infrastructure.database.management import Repository
+from d_test.agent_service.domain.management import DomainError
+from d_test.agent_service.infrastructure.database.management import Repository
 
 pytestmark = pytest.mark.postgres
 

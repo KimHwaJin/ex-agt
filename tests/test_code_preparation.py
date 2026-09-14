@@ -5,8 +5,8 @@ from uuid import uuid4
 import pytest
 from langchain_core.messages import HumanMessage
 
-from agent_service.domain.code_plans import GeneratedProposal
-from agent_service.graphs.assistant.preparation import preparation_node
+from d_test.agent_service.domain.code_plans import GeneratedProposal
+from d_test.agent_service.graphs.assistant.preparation import preparation_node
 
 
 class Proposals:

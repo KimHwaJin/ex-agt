@@ -20,9 +20,9 @@ app.py                              # GaiaService 생성 후 우리 runtime 부�
 src/routers/__init__.py              # 기존 get_routers()에 라우터 추가
 src/workflows/analysis.py            # manager = WorkflowManager()
 src/template_bindings.py             # private 인증/외부 요청 변환
-src/api_service/template.py          # 같은 FastAPI에 lifecycle 연결
-src/agent_service/bootstrap/template.py
-src/agent_service/integrations/
+src/d_test/api_service/template.py          # 같은 FastAPI에 lifecycle 연결
+src/d_test/agent_service/bootstrap/template.py
+src/d_test/agent_service/integrations/
   template_protocol.py              # 변경 가능한 외부 계약 v1
   template_workflow.py               # Run 접수/조회와 formatter 호환
 ```
@@ -31,6 +31,12 @@ src/agent_service/integrations/
 복사하지 않는다. 실제 탐색 경로가 workflows가 아니면 예제 export 파일 위치와
 app.py의 import만 실제 경로로 바꾼다. 발견되는 manager와 lifespan에 bind하는
 manager는 **동일한 객체**여야 한다.
+
+우리 구현은 `src/d_test/` 전체를 한 단위로 전달한다. 템플릿의 common,
+gaia, lib, middleware를 이 아래로 옮기는 것이 아니다. 우리 Python 경로만
+`d_test.api_service.*` / `d_test.agent_service.*`로 바뀌며 외부 API URL과
+DB 식별자는 그대로다. 별도 worker/migration의 `python -m` 명령도
+`d_test.agent_service.*`로 변경해야 한다.
 
 ## 앱 lifespan과 설정
 
@@ -221,7 +227,7 @@ API 응답에도 source=configured로 구분한다. 실제 모델 서버에 없�
 루트에 alembic.ini/migrations를 함께 배치하고 아래는 동기 진입점에서 실행한다.
 
 ```python
-from agent_service.migrate import main as migrate
+from d_test.agent_service.migrate import main as migrate
 
 migrate(settings)  # management Alembic + official checkpoint setup
 ```
@@ -230,7 +236,7 @@ migrate(settings)  # management Alembic + official checkpoint setup
 
 ```python
 import asyncio
-from agent_service.worker_main import main as run_worker
+from d_test.agent_service.worker_main import main as run_worker
 
 asyncio.run(run_worker(settings))
 ```

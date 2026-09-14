@@ -289,7 +289,7 @@ docker compose up --no-deps -d api
 ```sh
 python app.py
 # 별도 터미널, 저장소 루트에서:
-python -m agent_service.worker_main
+python -m d_test.agent_service.worker_main
 ```
 
 개발 구성은 편의를 위해 FastAPI lifespan에서 실행기를 시작합니다.
