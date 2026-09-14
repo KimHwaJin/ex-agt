@@ -10,6 +10,7 @@ from agent_service.agents.assistant import (
     build_model,
     close_model,
 )
+from agent_service.agents.intake import build_intake_agents
 from agent_service.application.cursors import CursorCodec
 from agent_service.application.management import ManagementService
 from agent_service.application.runs import RunService
@@ -68,13 +69,23 @@ class ManagementRuntime:
                 "SELECT event_sequence FROM management.messages LIMIT 0"
             )
         if self.settings.agent_backend == "langgraph":
+            async with self.pool.connection() as connection:
+                await connection.execute(
+                    "SELECT graph_interrupt_id "
+                    "FROM management.run_interrupts LIMIT 0"
+                )
             self.checkpoints = Checkpoints(self.settings)
             await self.checkpoints.open()
             self.model = build_model(self.settings)
+            router, planner = build_intake_agents(
+                self.model, self.settings.context_message_limit
+            )
             self.driver = GraphDriver(
                 self.runs,
                 self.checkpoints,
                 build_assistant(self.model),
+                router=router,
+                planner=planner,
             )
         elif self.settings.agent_backend == "demo":
             self.driver = DemoDriver(self.runs)

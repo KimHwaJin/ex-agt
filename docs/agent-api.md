@@ -6,13 +6,16 @@
 SSE 스트림과 개발 화면을 추가했습니다. 아래 계약은 실제 API입니다.
 기본 실행기는 실제 LangGraph 대화입니다.
 [체크포인트와 실행 설정](langgraph-runtime.md)을 함께 참고하세요.
-아래 승인/분석 단계 예시는 **DEMO 실행기**에 해당합니다. 개발에서만 활성화하며
+실제 LangGraph도 동일한 승인/수정/거절 계약을 사용합니다. 아래 실행 대기와
+리포트 단계 예시는 **DEMO 실행기**에 해당합니다. 개발에서만 활성화하며
 운영 환경에서 `agent_backend: demo`를 지정하면 시작을 거부합니다.
 
 Executor, Redis Worker, 프로젝트 공유 메모리,
 파일·이미지 업로드, 노트북·리포트 생성은 아직 연결하지 않았습니다.
 DEMO의 실행 ID는 `simulated: true`이며 Executor 조회에 사용하면 안 됩니다.
-현재 승인 계획도 Skill/Tool 선택 결과가 아닌 고정 테스트 계획입니다.
+실제 그래프의 승인 계획은 LLM이 만든 초안이며 아직 Skill/Tool 선택 결과가 아닙니다.
+승인 후 `failed`와 `EXECUTOR_NOT_CONFIGURED`를 반환하며 실제 실행은 하지 않습니다.
+고정 테스트 계획은 `agent_backend: demo`에서만 사용합니다.
 
 ## API 목록
 

@@ -4,16 +4,22 @@ import asyncio
 import logging
 from contextlib import aclosing, asynccontextmanager
 from time import monotonic
-from uuid import UUID, uuid4
+from uuid import UUID, uuid4, uuid5
 
 from langchain_core.messages import AIMessageChunk, HumanMessage
+from langgraph.types import Command
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
 
+from agent_service.application.graph_reviews import publish_review
 from agent_service.application.outputs import OutputWriter
 from agent_service.domain.runs import TERMINAL
-from agent_service.graphs.assistant.builder import GRAPH_VERSION, build_graph
+from agent_service.graphs.assistant.builder import (
+    SUPPORTED_VERSIONS,
+    build_graph,
+)
 from agent_service.graphs.assistant.nodes import answer_id, public_text
+from agent_service.graphs.assistant.review import plan_text
 
 logger = logging.getLogger("agent_service.graph")
 
@@ -27,11 +33,15 @@ class CancelRequested(Exception):
 
 
 class GraphDriver:
-    def __init__(self, service, checkpoints, agent):
+    def __init__(
+        self, service, checkpoints, agent, *, router=None, planner=None
+    ):
         self.service = service
         self.settings = service.settings
         self.checkpoints = checkpoints
         self.agent = agent
+        self.router = router
+        self.planner = planner
 
     @asynccontextmanager
     async def owned(self, run_id, owner, attempt):
@@ -70,7 +80,11 @@ class GraphDriver:
             attempt = str(uuid4())
             async with self.service.repository() as repo:
                 run = await repo.run(owner, run_id, lock=True)
-                if run["backend"] != "langgraph" or run["status"] in TERMINAL:
+                if (
+                    run["backend"] != "langgraph"
+                    or run["status"] in TERMINAL
+                    or run["status"] == "awaiting_input"
+                ):
                     return
                 state = run["checkpoint"]
                 state["attempt_id"] = attempt
@@ -97,7 +111,7 @@ class GraphDriver:
                 state["attempts"],
             )
             try:
-                if state.get("graph_version") != GRAPH_VERSION:
+                if state.get("graph_version") not in SUPPORTED_VERSIONS:
                     raise ValueError("Unsupported graph version")
                 async with asyncio.timeout(self.settings.run_timeout_seconds):
                     await self.watch(run, attempt, saver)
@@ -131,7 +145,7 @@ class GraphDriver:
                         "message": (
                             "대화 처리 제한 시간을 초과했습니다."
                             if isinstance(error, TimeoutError)
-                            else "대화 처리에 실패했습니다. 모델 연결/응답과 "
+                            else "요청 처리에 실패했습니다. 모델 연결·응답과 "
                             "그래프 설정을 확인해 주세요."
                         ),
                     },
@@ -169,7 +183,12 @@ class GraphDriver:
     async def execute(self, run, attempt, saver):
         run_id, owner = run["run_id"], run["owner_user_uuid"]
         graph = build_graph(
-            self.agent, saver, self.settings.context_message_limit
+            self.agent,
+            saver,
+            self.settings.context_message_limit,
+            router=self.router,
+            planner=self.planner,
+            version=run["checkpoint"]["graph_version"],
         )
         config = {
             "configurable": {"thread_id": str(run["session_id"])},
@@ -179,7 +198,11 @@ class GraphDriver:
         values = snapshot.values
         same_run = values.get("run_id") == str(run_id)
         completed = same_run and values.get("completed_run_id") == str(run_id)
+        resume = run["checkpoint"].get("resume")
+        # Keep each review phase as a separate message in the public history.
         message_id = UUID(answer_id(str(run_id)))
+        if resume:
+            message_id = uuid5(run_id, f"review-answer:{resume['review_id']}")
         async with self.owned(run_id, owner, attempt) as output:
             await output.start(message_id, [])
             if not completed:
@@ -198,6 +221,14 @@ class GraphDriver:
                     "run_id": str(run_id),
                     "answer": "",
                     "completed_run_id": None,
+                    "route": {},
+                    "plan": None,
+                    "plan_version": 0,
+                    "instruction": None,
+                    "decision": None,
+                    "applied_review_id": None,
+                    "outcome": "completed",
+                    "error": None,
                     "messages": [
                         HumanMessage(
                             id=f"{run_id}:user",
@@ -208,6 +239,19 @@ class GraphDriver:
                     ],
                 }
             )
+            if same_run and resume and snapshot.interrupts:
+                if values.get("applied_review_id") != resume["review_id"]:
+                    expected = resume["graph_interrupt_id"]
+                    if expected not in {i.id for i in snapshot.interrupts}:
+                        raise ValueError("Resume target does not match graph")
+                    graph_input = Command(
+                        resume={
+                            expected: {
+                                "review_id": resume["review_id"],
+                                "response": resume["response"],
+                            }
+                        }
+                    )
             pending, size, sequence = [], 0, 0
             flushed = monotonic()
             total = 0
@@ -247,6 +291,26 @@ class GraphDriver:
                         pending, size, flushed = [], 0, monotonic()
             snapshot = await graph.aget_state(config)
             values = snapshot.values
+        if values.get("route"):
+            async with self.owned(run_id, owner, attempt) as output:
+                await output.repo.emit(
+                    output.run,
+                    "run.classified",
+                    values["route"],
+                    "graph:classification",
+                )
+        if snapshot.interrupts:
+            if len(snapshot.interrupts) != 1:
+                raise ValueError("Only one plan review may be pending")
+            async with self.owned(run_id, owner, attempt) as output:
+                await output.replace(
+                    message_id,
+                    plan_text(snapshot.interrupts[0].value),
+                    complete=True,
+                )
+                await publish_review(output, snapshot.interrupts[0])
+            logger.info("graph_run_interrupted run_id=%s", run_id)
+            return
         if values.get("completed_run_id") != str(run_id) or snapshot.next:
             raise RuntimeError("Graph did not finish this run")
         answer = values["answer"]
@@ -255,8 +319,14 @@ class GraphDriver:
         async with self.owned(run_id, owner, attempt) as output:
             # Reconcile from durable state, not a potentially partial stream.
             await output.replace(message_id, answer, complete=True)
-            await output.terminate("completed")
-        logger.info("graph_run_completed run_id=%s", run_id)
+            await output.terminate(
+                values.get("outcome", "completed"), values.get("error")
+            )
+        logger.info(
+            "graph_run_finished run_id=%s status=%s",
+            run_id,
+            values.get("outcome", "completed"),
+        )
 
     async def serve(self):
         jobs = {}

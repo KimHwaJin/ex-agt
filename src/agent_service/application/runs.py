@@ -135,7 +135,7 @@ class RunService:
                     "WHERE interrupt_id = %s",
                     (Jsonb(response), owner, request.input.interrupt_id),
                 )
-                cp = resumed_state(run, response)
+                cp = resumed_state(run, response, pending[0])
                 await repo.checkpoint(run, cp, 0)
                 await repo.set_status(run, "queued")
                 await repo.emit(
