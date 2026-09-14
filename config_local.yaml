@@ -1,6 +1,5 @@
-# 개발 전용. development_header는 본인 인증이 아닌 테스트 식별 모드입니다.
-environment: dev
-# 실제 대화 모델 연결. 코드 실행/Executor는 아직 연결하지 않습니다.
+# 로컬 전용. development_header는 본인 인증이 아닌 테스트 식별 모드입니다.
+environment: local
 agent_backend: langgraph
 embedded_run_worker: true
 demo_scenario: analysis
@@ -17,7 +16,6 @@ model_base_url: http://model.frodo.com/v1
 model_base_url_env: AGENT_MODEL_BASE_URL
 model_api_key: EMPTY
 model_api_key_env: AGENT_MODEL_API_KEY
-# 코드 계획은 함수 원문을 포함하므로 일반 답변과 출력 상한을 구분합니다.
 code_plan_max_tokens: 8192
 model_extra_body:
   chat_template_kwargs:

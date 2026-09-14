@@ -1,6 +1,5 @@
 """Internal-template entrypoint example: keep gaia/core.py unchanged."""
 
-import os
 import sys
 from pathlib import Path
 
@@ -22,9 +21,7 @@ def main():
 
     # Constructor initializes the host logger and existing routes/middleware.
     service = GaiaService()
-    settings = settings_from_template(
-        config.AGENT_SERVICE, profile=os.environ["HCP_ACTIVE_PROFILE"]
-    )
+    settings = settings_from_template(config.AGENT_SERVICE)
     app = service.app
     app.openapi = service.custom_openapi
     # These two lines reproduce the provided main() instrumentation.

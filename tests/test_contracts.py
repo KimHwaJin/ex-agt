@@ -26,8 +26,9 @@ def test_page_generic_on_python_311():
     assert Page[int](items=[1], next_cursor=None, has_more=False).items == [1]
 
 
-def test_development_database_name(monkeypatch):
-    monkeypatch.setenv("SERVICE_ENV", "development")
+@pytest.mark.parametrize("profile", ["local", "dev"])
+def test_development_database_name(monkeypatch, profile):
+    monkeypatch.setenv("SERVICE_ENV", profile)
     for name in (
         "SERVICE_CONFIG",
         "MANAGEMENT_DATABASE_URL",
@@ -87,24 +88,47 @@ def test_patch_nullable_description():
     assert SessionCreate(project_id=uuid4()).title == "새 대화"
 
 
-def test_production_rejects_development_auth(settings):
+@pytest.mark.parametrize("profile", ["stg", "prd"])
+def test_deployed_profile_rejects_development_auth(settings, profile):
     with pytest.raises(ValidationError):
         Settings.model_validate(
             {
                 **settings.model_dump(),
-                "environment": "production",
+                "environment": profile,
             }
         )
 
 
-def test_production_config_never_falls_back(monkeypatch):
-    monkeypatch.setenv("SERVICE_ENV", "production")
+@pytest.mark.parametrize("profile", ["stg", "prd"])
+def test_deployed_config_never_falls_back(monkeypatch, profile):
+    monkeypatch.setenv("SERVICE_ENV", profile)
     monkeypatch.delenv("SERVICE_CONFIG", raising=False)
     monkeypatch.delenv("MANAGEMENT_DATABASE_URL", raising=False)
     monkeypatch.delenv("MANAGEMENT_CURSOR_SECRET", raising=False)
     root = Path(__file__).resolve().parents[1]
     with pytest.raises(RuntimeError, match="Invalid management"):
         load_settings(root)
+
+
+def test_unknown_service_profile_fails(monkeypatch):
+    monkeypatch.setenv("SERVICE_ENV", "development")
+    with pytest.raises(RuntimeError, match="local, dev, stg or prd"):
+        load_settings(Path(__file__).resolve().parents[1])
+
+
+@pytest.mark.parametrize(
+    ("profile", "development", "deployed"),
+    [
+        ("local", True, False),
+        ("dev", True, False),
+        ("stg", False, True),
+        ("prd", False, True),
+    ],
+)
+def test_profile_families(settings, profile, development, deployed):
+    configured = settings.model_copy(update={"environment": profile})
+    assert configured.is_development is development
+    assert configured.is_deployed is deployed
 
 
 def request(headers, host="127.0.0.1"):

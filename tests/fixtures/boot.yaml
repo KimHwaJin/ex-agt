@@ -1,5 +1,5 @@
 # Isolated root-app boot smoke test; no model calls or Run consumers.
-environment: development
+environment: local
 database_bootstrap: initialize_if_empty
 database_url: postgresql://unused:unused@localhost/chatapp
 database_url_env: MANAGEMENT_DATABASE_URL

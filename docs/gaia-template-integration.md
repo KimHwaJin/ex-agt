@@ -62,16 +62,17 @@ private Config의 `__getattr__` 반환 None/평탄화 방식에 의존하지 않
 섹션이 dict가 아니면 명확히 실패한다. private helper가 섹션을 평탄화한다면
 app.py에서 명시적 dict로 만들어 전달한다.
 
-| HCP_ACTIVE_PROFILE | 호스트가 읽을 파일 | 우리 검증 환경 |
+| HCP_ACTIVE_PROFILE | 호스트가 읽을 파일 | AGENT_SERVICE.environment |
 |---|---|---|
-| dev | config.dev.yml | development |
-| stg | config.stg.yml | production |
-| prd | config.yml | production |
+| local | config.local.yml | local |
+| dev | config.dev.yml | dev |
+| stg | config.stg.yml | stg |
+| prd | config.yml | prd |
 
-호스트가 파일 선택을 담당하며, 우리 adapter는 다시 파일을 읽지 않는다.
-stg도 운영 수준의 인증·비밀값 검증을 한다. 이름이 틀린 profile로 개발 설정에
-fallback하지 않는다. 기존 독립 로컬 실행의 SERVICE_ENV/config_dev.yaml은
-호환성을 위해 유지한다.
+호스트가 파일 선택을 담당하며, 우리 adapter는 `HCP_ACTIVE_PROFILE`을 받거나
+다시 파일을 읽지 않는다. 이미 선택된 `config.AGENT_SERVICE`만 검증한다.
+`local/dev`는 개발 기능, `stg/prd`는 운영 수준의 인증·비밀값 검증을 적용한다.
+독립 실행의 `SERVICE_ENV`도 같은 네 값을 사용한다.
 
 `logging_mode: preconfigured`는 호스트가 이미 logger.yml을 적용했다는
 명시적 계약이다. logging 초기화를 아무것도 하지 않으므로 **진입점에서

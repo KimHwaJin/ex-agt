@@ -15,8 +15,11 @@ AGENT_SERVICE:
   database_migration_config: alembic.ini
 ```
 
-로컬 `config_dev.yaml` / `config.yaml`에서는 위 세 항목을 최상위에 둔다.
+독립 실행의 `config_local.yaml`, `config_dev.yaml`, `config_stg.yaml`,
+`config.yaml`에서는 위 세 항목을 최상위에 둔다.
 템플릿은 기존대로 HCP_ACTIVE_PROFILE에 맞는 YAML을 읽고 Settings에 전달한다.
+우리 adapter는 이 환경변수를 직접 받지 않고 AGENT_SERVICE.environment의
+`local/dev/stg/prd` 값을 검증한다.
 `GaiaService.core` 수정이나 라우터별 초기화 코드는 필요 없다.
 
 전달 시 최신 `src/d_test/`, 루트 `alembic.ini`, `migrations/` 전체가 필요하다.

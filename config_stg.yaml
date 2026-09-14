@@ -1,5 +1,5 @@
-# 운영용 템플릿. 연결 모듈과 비밀값이 준비되지 않으면 시작하지 않습니다.
-environment: prd
+# 스테이징용 템플릿. 운영과 같은 안전 검증을 적용합니다.
+environment: stg
 agent_backend: disabled
 embedded_run_worker: false
 checkpoint_database_url: null
@@ -15,7 +15,6 @@ model_base_url: null
 model_base_url_env: AGENT_MODEL_BASE_URL
 model_api_key: null
 model_api_key_env: AGENT_MODEL_API_KEY
-# 실제 연결 URL의 DB 이름은 chatapp으로 지정합니다.
 database_url: null
 database_url_env: MANAGEMENT_DATABASE_URL
 cursor_secret: null

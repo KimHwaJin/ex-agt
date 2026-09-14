@@ -39,10 +39,11 @@ OpenAPI·instrumentation·uvicorn 설정은 예제 진입점에 명시했다.
 ## 실행 및 초기화
 
 내부 requirements/pyproject에 우리 의존성을 합치고 Python 3.11 사용.
-호스트가 `HCP_ACTIVE_PROFILE=dev/stg/prd`에 맞는 YAML과 logger.yml을
-이미 읽은 후 `settings_from_template(config.AGENT_SERVICE, profile=...)`
-로 넘긴다. 우리 코드가 private Config의 파일 선택을 재구현하지 않는다.
-`stg/prd`는 production 검증을 적용한다. 운영 인증은 실제 신뢰 경계에 맞는
+호스트가 `HCP_ACTIVE_PROFILE=local/dev/stg/prd`에 맞는 YAML과 logger.yml을
+이미 읽은 후 `settings_from_template(config.AGENT_SERVICE)`로 넘긴다.
+우리 코드는 `HCP_ACTIVE_PROFILE`을 읽거나 private Config의 파일 선택을
+재구현하지 않는다. 각 YAML의 `AGENT_SERVICE.environment`에 같은 프로필을
+명시한다. `stg/prd`는 운영 검증을 적용한다. 운영 인증은 실제 신뢰 경계에 맞는
 `external` identity provider 또는 명시된 프록시 대역의 `trusted_header`
 연결이 필요하다. 개발 헤더 인증을 그대로 배포하지 않는다.
 
