@@ -10,7 +10,8 @@
 - 이 예제의 `app.py`: 내부 루트 진입점에 반영.
 - `src/workflows/analysis.py`: 실제 workflow 탐색 디렉토리에 반영.
 - `src/template_bindings.py`: 인증·세션 매핑 및 외부 프로토콜 변환 구현.
-- `config.dev.yml`: 기존 YAML에 `AGENT_SERVICE` 섹션만 추가.
+- `config.dev.yml`: 제공받은 기본 항목과 대문자 `AGENT_SERVICE` 추가 설정을
+  합친 예제. 실제 환경의 기존 값은 유지하고 추가 섹션을 병합한다.
 
 기존 `common`, `gaia`, `lib`, `middleware`, `routers`를 덮어쓰지 않는다.
 예제 app.py의 workflow import 경로는 실제 탐색 경로와 일치시킨다.
@@ -42,7 +43,7 @@ OpenAPI·instrumentation·uvicorn 설정은 예제 진입점에 명시했다.
 호스트가 `HCP_ACTIVE_PROFILE=local/dev/stg/prd`에 맞는 YAML과 logger.yml을
 이미 읽은 후 `settings_from_template(config.AGENT_SERVICE)`로 넘긴다.
 우리 코드는 `HCP_ACTIVE_PROFILE`을 읽거나 private Config의 파일 선택을
-재구현하지 않는다. 각 YAML의 `AGENT_SERVICE.environment`에 같은 프로필을
+재구현하지 않는다. 각 YAML의 `AGENT_SERVICE.ENVIRONMENT`에 같은 프로필을
 명시한다. `stg/prd`는 운영 검증을 적용한다. 운영 인증은 실제 신뢰 경계에 맞는
 `external` identity provider 또는 명시된 프록시 대역의 `trusted_header`
 연결이 필요하다. 개발 헤더 인증을 그대로 배포하지 않는다.
@@ -51,12 +52,24 @@ OpenAPI·instrumentation·uvicorn 설정은 예제 진입점에 명시했다.
 HCP_ACTIVE_PROFILE=dev python app.py
 ```
 
-개발 예제는 `AGENT_SERVICE.database_bootstrap: initialize_if_empty`를 켠다.
+설정 키는 `ENVIRONMENT`, `DATABASE_URL`, `MODEL_NAME`처럼 대문자로 쓴다.
+로더는 이 키만 내부 Settings의 소문자 필드에 대응시킨다. 이전 소문자 키도
+호환되지만 같은 항목을 대소문자 두 가지로 중복 작성하면 오류가 발생한다.
+값(`dev`, `langgraph`, `preconfigured`)과 `MODEL_EXTRA_BODY` 안의 실제
+모델 요청 필드(`chat_template_kwargs.enable_thinking`)는 변환하지 않는다.
+
+기본 `PRIVATE_LLM_*`는 Gaia 설정이고, 우리 Agent는 `AGENT_SERVICE.MODEL_*`를
+읽는다. 같은 모델을 쓰려면 양쪽 주소/모델/키를 맞춘다. 예제의 localhost DB와
+model.frodo.com은 기존 개발 환경 값이므로 내부 환경 값으로 교체한다.
+PORT는 기존 Gaia의 5000을 사용한다. `S3_FULE_URL_ENABLED`는 제공받은 철자를
+유지했으며, 실제 private 코드에서 사용하는 키를 확인해 맞춘다.
+
+개발 예제는 `AGENT_SERVICE.DATABASE_BOOTSTRAP: initialize_if_empty`를 켠다.
 `chatapp` DB는 미리 생성하고, 루트에 `alembic.ini`와 `migrations/`도 복사한다.
 앱 시작 시 비어 있는 관리/체크포인트 스키마를 초기화한다. 현재 버전은
 건너뛰며, 구버전이나 불완전한 스키마는 자동 수정하지 않고 시작에 실패한다.
 기존 DB의 버전 변경은 내부 배포 job에서 명시적으로 수행한다.
-자동 초기화를 원하지 않으면 `database_bootstrap: "off"`로 설정한다.
+자동 초기화를 원하지 않으면 `DATABASE_BOOTSTRAP: "off"`로 설정한다.
 기존 CLI는 우리 YAML 로더를 쓰므로 private config를 자동으로 읽지 않는다.
 이 차이는 `docs/gaia-template-integration.md`의 초기화 예제를 참고한다.
 상세 정책은 `docs/database-bootstrap.md`를 참고한다.

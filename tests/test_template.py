@@ -9,6 +9,7 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
+import yaml
 from fastapi import FastAPI
 from pydantic import ValidationError
 
@@ -53,7 +54,7 @@ def test_profiles_and_preconfigured_logging(settings, monkeypatch):
         settings_from_template({**values, "environment": "unknown"})
     with pytest.raises(RuntimeError, match="must be a mapping"):
         settings_from_template(None)  # ty: ignore
-    with pytest.raises(RuntimeError, match="environment is required"):
+    with pytest.raises(RuntimeError, match="ENVIRONMENT is required"):
         settings_from_template(
             {
                 key: value
@@ -64,6 +65,45 @@ def test_profiles_and_preconfigured_logging(settings, monkeypatch):
     with pytest.raises(RuntimeError) as caught:
         settings_from_template({**values, "unexpected": "secret-password"})
     assert "secret-password" not in str(caught.value)
+
+
+def test_complete_template_yaml_loads_uppercase_settings():
+    with (ROOT / "examples/gaia_template/config.dev.yml").open() as source:
+        template = yaml.safe_load(source)
+    values = template["AGENT_SERVICE"]
+    assert all(key.isupper() for key in values)
+    configured = settings_from_template(values)
+    assert configured.environment == "dev"
+    assert configured.database_bootstrap == "initialize_if_empty"
+    assert configured.database_url.get_secret_value().endswith("/chatapp")
+    assert configured.model_name == "qwen38-27b-nvfp4"
+    assert configured.logging_mode == "preconfigured"
+    assert configured.model_extra_body == {
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+    assert template["PORT"] == 5000
+    assert template["SERVICE_ID"] == "S030042"
+    assert template["GAIA_API_SESSION_NAME"] == ""
+    assert template["S3_FULE_URL_ENABLED"] is True
+
+
+@pytest.mark.parametrize("profile", ["stg", "prd"])
+def test_uppercase_settings_preserve_deployment_checks(settings, profile):
+    values = {
+        key.upper(): value for key, value in settings.model_dump().items()
+    }
+    values.update(ENVIRONMENT=profile, LOGGING_MODE="preconfigured")
+    with pytest.raises(RuntimeError, match="Invalid AGENT_SERVICE"):
+        settings_from_template(values)
+    values.update(
+        AUTH_MODE="trusted_header", TRUSTED_PROXY_CIDRS=["10.0.0.0/24"]
+    )
+    assert settings_from_template(values).environment == profile
+
+
+def test_duplicate_setting_casing_is_not_silently_overwritten(settings):
+    with pytest.raises(RuntimeError, match="duplicate AGENT_SERVICE"):
+        settings_from_template({**settings.model_dump(), "ENVIRONMENT": "prd"})
 
 
 def test_router_collision_and_missing_registration(settings):
@@ -221,7 +261,12 @@ def test_example_entrypoint_uses_host_app_not_main(settings, monkeypatch):
         "common.config": SimpleNamespace(
             config=SimpleNamespace(
                 PORT=8020,
-                AGENT_SERVICE=settings.model_dump(exclude={"logging_mode"}),
+                AGENT_SERVICE={
+                    key.upper(): value
+                    for key, value in settings.model_dump(
+                        exclude={"logging_mode"}
+                    ).items()
+                },
             )
         ),
         "gaia.core": SimpleNamespace(GaiaService=GaiaService),

@@ -1,21 +1,85 @@
-# Merge this section into the EXISTING template YAML. Do not replace its file.
-# common.config must expose this section as config.AGENT_SERVICE (dict).
+# 제공받은 Gaia 기본 설정 + 우리 서비스 추가 설정 예제.
+# 실제 환경에 이미 설정된 주소/비밀값은 유지하고 아래 추가 섹션을 병합합니다.
+SERVICE_ID: S030042
+PORT: 5000
+
+# Gaia service Config
+RECURSION_LIMIT: 100
+ACTIVE_MULTI_TURN: true
+SET_MAX_HISTORY: 6
+ACTIVE_TRACE: true
+
+GAIA_OUTPUT_MARKDOWN: true
+GAIA_OUTPUT_STREAM: true
+CUBE_OUTPUT_MARKDOWN: false
+CUBE_OUTPUT_STREAM: false
+API_OUTPUT_MARKDOWN: true
+API_OUTPUT_STREAM: false
+GAIA_API_SESSION_NAME: ""
+
+# Cube bot info
+CUBE_BOT_EMP_ID: ""
+CUBE_BOT_TOKEN_ID: ""
+
+# Gaia Standard Output model only
+IS_SECURITY_SERVICE: true
+# Public LLM Info - if IS_SECURITY_SERVICE = false
+
+# Private LLM info - if IS_SECURITY_SERVICE = true
+PRIVATE_LLM_MODEL_NAME: ""
+PRIVATE_LLM_ENDPOINT: ""
+PRIVATE_LLM_API_KEY: ""
+
+# Reranker Endpoint
+RERANKER_MODEL: ""
+RERANKER_API_KEY: ""
+
+# API Authorization
+API_TOKEN: ""
+SYSTEM_ADMIN: system_admin
+SECRET_KEY: ""
+
+# Template runtime migration
+DEFAULT_WORKFLOW: workflow
+PHOENIX_ENDPOINT: ""
+PHOENIX_API_KEY: ""
+A2A_AGENT_URL: ""
+A2A_STREAMING_ENABLED: true
+S3_FILE_ROUTE_PATH: "/file"
+# 제공받은 키 이름을 유지합니다. 실제 템플릿 코드의 철자와 대조하세요.
+S3_FULE_URL_ENABLED: true
+S3_FILE_GATEWAY_URL: ""
+S3_FILE_URL_EXPIRES_IN: 3600
+S3_FILE_ROUTE_AUTH_REQUIRED: false
+GAIA_CUBE_ROUTER_CALL_BACK: ""
+
+S3_REGION_NAME: ""
+S3_AWS_ACCESS: ""
+S3_ENDPOINT_URL: ""
+S3_BUCKET_NAME: ""
+S3_AWS_SECRET_ACCESS_KEY: ""
+
+# 우리 서비스 추가 설정: config.AGENT_SERVICE(dict)로 전달합니다.
 AGENT_SERVICE:
-  environment: dev
-  database_bootstrap: initialize_if_empty
-  database_bootstrap_timeout_seconds: 60
-  database_url: postgresql://management:management@localhost:55439/chatapp
-  cursor_secret: development-change-this-cursor-secret-before-production
-  auth_mode: development_header
-  agent_backend: langgraph
-  # Local one-process test. Use false when a separate worker is deployed.
-  embedded_run_worker: true
-  model_name: qwen38-27b-nvfp4
-  allowed_model_names: []
-  model_provider: openai
-  model_base_url: http://model.frodo.com/v1
-  model_api_key: EMPTY
-  model_extra_body:
+  ENVIRONMENT: dev
+  DATABASE_BOOTSTRAP: initialize_if_empty
+  DATABASE_BOOTSTRAP_TIMEOUT_SECONDS: 60
+  DATABASE_MIGRATION_CONFIG: alembic.ini
+  # 개발 연결 예시. 내부 DB 주소/계정으로 교체합니다. DB명은 chatapp입니다.
+  DATABASE_URL: postgresql://management:management@localhost:55439/chatapp
+  CURSOR_SECRET: development-change-this-cursor-secret-before-production
+  AUTH_MODE: development_header
+  AGENT_BACKEND: langgraph
+  # 한 프로세스 개발 실행. 별도 worker를 띄우면 false로 설정합니다.
+  EMBEDDED_RUN_WORKER: true
+  # 우리 Agent 모델 설정. 위 PRIVATE_LLM_* 값과 자동 연동하지 않습니다.
+  MODEL_NAME: qwen38-27b-nvfp4
+  ALLOWED_MODEL_NAMES: []
+  MODEL_PROVIDER: openai
+  MODEL_BASE_URL: http://model.frodo.com/v1
+  MODEL_API_KEY: EMPTY
+  # 아래 내부 키는 vLLM 요청 본문 규격이므로 소문자를 유지합니다.
+  MODEL_EXTRA_BODY:
     chat_template_kwargs:
       enable_thinking: false
-  logging_mode: preconfigured
+  LOGGING_MODE: preconfigured
