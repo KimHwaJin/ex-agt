@@ -1,6 +1,8 @@
 # Merge this section into the EXISTING template YAML. Do not replace its file.
 # common.config must expose this section as config.AGENT_SERVICE (dict).
 AGENT_SERVICE:
+  database_bootstrap: initialize_if_empty
+  database_bootstrap_timeout_seconds: 60
   database_url: postgresql://management:management@localhost:55439/chatapp
   cursor_secret: development-change-this-cursor-secret-before-production
   auth_mode: development_header

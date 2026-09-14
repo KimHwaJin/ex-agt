@@ -223,6 +223,24 @@ API 응답에도 source=configured로 구분한다. 실제 모델 서버에 없�
 
 ## migration / 별도 worker
 
+빈 DB를 앱 시작 시 준비하려면 내부 YAML에 다음 값을 추가한다.
+설치 함수가 사용하는 lifespan에서 처리하므로 GaiaService.core 수정은 없다.
+
+```yaml
+AGENT_SERVICE:
+  database_bootstrap: initialize_if_empty
+  database_bootstrap_timeout_seconds: 60
+  database_migration_config: alembic.ini
+```
+
+`chatapp` 데이터베이스는 미리 생성한다. `src/d_test`뿐 아니라 최신
+`alembic.ini`와 `migrations/` 전체도 루트에 배치한다. 특히 `migrations/env.py`는
+앱이 잠근 연결을 전달받는 버전이어야 한다. 예전 env.py를 그대로 쓰지 않는다.
+현재 버전은 검사 후 건너뛰며 구버전/부분 생성 상태는 시작을 중단한다.
+기본값 `off`는 기존 명시적 배포 방식을 유지한다.
+동시 시작·권한·실패 대응은 [DB 초기화 안내](database-bootstrap.md)를 참고한다.
+
+기존 버전 업그레이드 또는 자동 초기화를 끈 경우에는 아래처럼
 템플릿 config를 초기화하고 Settings를 만든 후 별도 배포 job에서 호출한다.
 루트에 alembic.ini/migrations를 함께 배치하고 아래는 동기 진입점에서 실행한다.
 
