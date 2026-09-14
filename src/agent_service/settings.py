@@ -15,7 +15,7 @@ class Settings(BaseModel):
     )
     trusted_proxy_cidrs: list[str] = Field(default_factory=list)
     identity_provider_factory: str | None = None
-    logging_mode: Literal["standard", "host"] = "standard"
+    logging_mode: Literal["standard", "host", "preconfigured"] = "standard"
     logging_initializer: str | None = None
     logging_yaml: str | None = None
     pool_min_size: int = Field(default=1, ge=1)
@@ -41,12 +41,16 @@ class Settings(BaseModel):
     run_timeout_seconds: float = Field(default=180, ge=1, le=1800)
     recovery_max_attempts: int = Field(default=3, ge=1, le=10)
     model_name: str | None = None
+    # 동일 endpoint에서 선택 가능한 이름. 기본 모델은 자동 포함된다.
+    allowed_model_names: list[str] = Field(default_factory=list, max_length=31)
     model_provider: str = "openai"
     model_base_url: str | None = None
     model_api_key: SecretStr | None = None
     model_timeout_seconds: float = Field(default=60, ge=1, le=600)
     model_max_retries: int = Field(default=1, ge=0, le=5)
     model_max_tokens: int = Field(default=2048, ge=1, le=16384)
+    # 함수 원문을 포함하는 코드 계획에만 적용되는 출력 상한.
+    code_plan_max_tokens: int = Field(default=8192, ge=512, le=16384)
     model_extra_body: dict = Field(default_factory=dict)
     context_message_limit: int = Field(default=40, ge=2, le=200)
     output_flush_chars: int = Field(default=256, ge=1, le=4096)
@@ -77,7 +81,7 @@ class Settings(BaseModel):
                 raise ValueError("demo agent is forbidden in production")
             if self.auth_mode == "development_header":
                 raise ValueError("development identity is not production auth")
-            if self.logging_mode != "host":
+            if self.logging_mode not in {"host", "preconfigured"}:
                 raise ValueError("production requires host logging")
             if self.cursor_secret.get_secret_value().startswith("development"):
                 raise ValueError("replace the development cursor secret")
@@ -94,7 +98,16 @@ class Settings(BaseModel):
                 raise ValueError("langgraph backend requires model_name")
             if self.checkpoint_pool_max_size <= self.worker_concurrency:
                 raise ValueError("checkpoint pool needs an extra health slot")
+        if any(not name.strip() for name in self.allowed_model_names):
+            raise ValueError("allowed model names cannot be blank")
         if self.logging_mode == "host":
             if not self.logging_initializer or not self.logging_yaml:
                 raise ValueError("host logging initializer and YAML required")
         return self
+
+    @property
+    def selectable_models(self) -> tuple[str, ...]:
+        names = ([self.model_name] if self.model_name else []) + (
+            self.allowed_model_names
+        )
+        return tuple(dict.fromkeys(names))

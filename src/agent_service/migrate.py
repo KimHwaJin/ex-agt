@@ -6,11 +6,15 @@ from alembic import command
 from alembic.config import Config
 
 from agent_service.checkpoint_main import main as setup_checkpoints
+from agent_service.settings import Settings
 
 
-def main():
-    command.upgrade(Config("alembic.ini"), "head")
-    asyncio.run(setup_checkpoints())
+def main(settings: Settings | None = None):
+    config = Config("alembic.ini")
+    if settings is not None:
+        config.attributes["agent_settings"] = settings
+    command.upgrade(config, "head")
+    asyncio.run(setup_checkpoints(settings))
 
 
 if __name__ == "__main__":

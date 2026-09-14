@@ -8,7 +8,10 @@ import pytest
 from pydantic import ValidationError
 
 from agent_service.application.outputs import OutputWriter
+from agent_service.domain.management import DomainError
 from agent_service.domain.runs import RunRequest
+from agent_service.integrations.template_protocol import decode_v1
+from agent_service.integrations.template_workflow import WorkflowManager
 from agent_service.runtime.demo_driver import DemoDriver
 
 
@@ -634,3 +637,104 @@ async def test_backend_switch_does_not_accept_unhandled_resume(
         f"/api/v1/agent/runs/{receipt['run_id']}/cancel", headers=identity
     )
     assert cancelled.json()["status"] == "cancelled"
+
+
+@pytest.mark.postgres
+async def test_template_manager_roundtrip_and_authorization(
+    client, identity, session, runs
+):
+    owner = UUID(identity["X-User-UUID"])
+
+    async def resolver(data, config):
+        # Fake verified principal, independent of body/config metadata.
+        return decode_v1(data, owner=owner)
+
+    manager = WorkflowManager()
+    driver_task = asyncio.create_task(DemoDriver(runs).serve())
+    envelope = {
+        "agent_request": {
+            "request_id": str(uuid4()),
+            "request": payload(identity, session),
+        }
+    }
+    try:
+        async with manager.bind(runs, resolver):
+            steps = [
+                item
+                async for item in manager.astream(
+                    envelope,
+                    config={"metadata": {"thread_id": "untrusted-thread"}},
+                    stream_mode=["custom", "updates"],
+                )
+            ]
+            assert all(
+                mode == "custom" and isinstance(s, dict) for mode, s in steps
+            )
+            result = steps[-1][1]
+            assert result["status"] == "awaiting_input"
+            assert result["answer"]
+            assert result["inputRequest"]["pattern"] == "review"
+            replay = await manager.ainvoke(envelope)
+            assert replay == result
+            interrupted = result["inputRequest"]
+            followup = {
+                "agent_request": {
+                    "request_id": str(uuid4()),
+                    "request": payload(
+                        identity,
+                        session,
+                        input={
+                            "type": "resume",
+                            "run_id": result["run_id"],
+                            "interrupt_id": interrupted["interrupt_id"],
+                            "response": {
+                                "type": "plan_review",
+                                "decision": "reject",
+                            },
+                        },
+                    ),
+                }
+            }
+            rejected = await manager.ainvoke(followup)
+            assert rejected["status"] == "rejected"
+            assert rejected["inputRequest"] is None
+            assert rejected["input_requests"] == []
+            # A new key cannot consume a stale interrupt a second time.
+            followup["agent_request"]["request_id"] = str(uuid4())
+            with pytest.raises(DomainError):
+                await manager.ainvoke(followup)
+            envelope["agent_request"]["request"]["user_id"] = str(uuid4())
+            with pytest.raises(DomainError) as caught:
+                await manager.ainvoke(envelope)
+            assert caught.value.code == "IDENTITY_MISMATCH"
+    finally:
+        driver_task.cancel()
+        await asyncio.gather(driver_task, return_exceptions=True)
+
+
+@pytest.mark.postgres
+async def test_template_observer_timeout_keeps_durable_work(
+    client, identity, session, runs
+):
+    owner = UUID(identity["X-User-UUID"])
+
+    async def resolver(data, config):
+        return decode_v1(data, owner=owner)
+
+    manager = WorkflowManager()
+    async with manager.bind(runs, resolver):
+        result = await manager.ainvoke(
+            {
+                "agent_request": {
+                    "request_id": str(uuid4()),
+                    "request": payload(identity, session),
+                }
+            }
+        )
+    assert result["status"] == "queued"  # No worker was started.
+    assert result["answer"] == ""
+    assert result["error"] is None
+    assert (
+        await runs.detail(owner, UUID(result["run_id"]))
+    ).status == "queued"
+    await runs.cancel(owner, UUID(result["run_id"]))

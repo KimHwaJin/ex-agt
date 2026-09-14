@@ -39,7 +39,7 @@ export function installChat({ $, state, api, apiBase, requestKey, notice }) {
     $("composer-note").textContent = backend === "demo"
       ? "테스트 실행기입니다. 승인·스트림·취소를 검증하며 실제 분석은 하지 않습니다."
       : backend === "langgraph"
-      ? "질문에는 답변하고 작업 요청에는 계획 초안을 제안합니다. 실제 실행은 아직 미연결입니다."
+      ? "질문에 답변하고 작업 요청의 계획과 셀 코드를 준비합니다. 실제 실행은 아직 미연결입니다."
       : "메시지 실행 기능을 사용하려면 실행기를 설정해 주세요.";
     $("run-panel").hidden = !current;
     $("run-status").textContent = current
@@ -99,6 +99,18 @@ export function installChat({ $, state, api, apiBase, requestKey, notice }) {
       item.textContent = typeof step === "string" ? step
         : `${step.description} — 이유: ${step.reason}`
           + ` / 예상 산출물: ${step.expected_result}`;
+      if (step.tool_id) {
+        const tool = document.createElement("p");
+        tool.textContent = `Skill: ${step.skill_id}@${step.skill_version}`
+          + ` / Tool: ${step.tool_id}@${step.tool_version}`;
+        item.append(tool);
+      }
+      if (step.parameters) {
+        const parameters = document.createElement("p");
+        parameters.textContent = "파라미터: " + JSON.stringify(step.parameters)
+          + (step.input_step ? ` / 입력: ${step.input_step}번 셀 결과` : "");
+        item.append(parameters);
+      }
       steps.append(item);
     }
     plan.append(version, steps);
@@ -116,8 +128,13 @@ export function installChat({ $, state, api, apiBase, requestKey, notice }) {
       const method = document.createElement("p");
       method.textContent = "구현 방식: "
         + (pending.payload.implementation === "generated_code"
-          ? "직접 코드 작성 예정" : "도메인 함수 조합 예정 (카탈로그 미연결)");
+          ? "직접 코드 작성" : "Skill·Tool 카탈로그 조합");
       plan.append(method);
+    }
+    for (const text of pending.payload.generation_risk?.warnings ?? []) {
+      const warning = document.createElement("p");
+      warning.textContent = `생성 전 위험 검토: ${text}`;
+      plan.append(warning);
     }
     if (pending.payload.instruction) {
       const change = document.createElement("p");

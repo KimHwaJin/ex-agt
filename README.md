@@ -4,10 +4,14 @@ Python **3.11** 기반 사용자·프로젝트·세션 및 메시지·Run 관리
 기존 Agent, Worker, 전달 패키지와 구버전 운영 자료는 제거했습니다.
 메시지 저장, Run 접수·재개·취소와 SSE 스트림을 구현했습니다.
 LangGraph·LLM 대화와 PostgreSQL 체크포인트를 연결했습니다.
-LLM 요청 분류와 계획 초안의 실제 HITL 승인·수정·거절을 지원합니다.
+LLM 요청 분류, Skill·Tool 선택/셀 코드 준비와 HITL 승인·수정·거절을 지원합니다.
 Executor·Redis 소비·프로젝트 공유 메모리·파일 분석은 아직 연결하지 않았습니다.
 실제 실행 설정은 [LangGraph 실행기](docs/langgraph-runtime.md)를 참고하세요.
 요청·응답 계약과 제한은 [메시지·Run API](docs/agent-api.md)를 참고하세요.
+계획 코드·버전·원문 저장은 [Skill·Tool 계획](docs/skill-tool-planning.md)을 참고하세요.
+내부 템플릿 이식은 [Gaia 연결 가이드](docs/gaia-template-integration.md)와
+[복사 예제](examples/gaia_template/README.md)를 참고하세요.
+템플릿 연결부는 추가됐지만 private A2A 송수신 검증은 아직 아닙니다.
 
 ## 브랜치 운영
 
@@ -28,11 +32,13 @@ src/
     domain/                  # 엔티티와 도메인 오류
     infrastructure/database/ # PostgreSQL 저장소
     agents/                  # create_agent 정의와 모델 구성
+    catalog/                 # 버전별 Skill 문서·독립 함수·셀 조립
     graphs/assistant/        # 세션 대화 그래프의 builder/nodes/state
     runtime/                 # DB 풀 수명 관리, 실제/DEMO 실행기
     worker_main.py           # 선택적 별도 worker 진입점
     checkpoint_main.py       # 체크포인트 DB 명시적 초기화/업그레이드
     bootstrap/               # YAML 설정·외부 로깅 초기화
+    integrations/            # 템플릿 workflow와 외부 계약 변환
     settings.py              # 설정 검증
 migrations/                  # 관리/Run/메시지 마이그레이션
 tests/                       # 현재 구현만 검증

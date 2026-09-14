@@ -33,6 +33,23 @@ def service(request: Request) -> RunService:
     return request.app.state.management_runtime.resources.runs
 
 
+@router.get("/agent/models")
+async def available_models(request: Request, user: CurrentUser):
+    runs = service(request)
+    # CurrentUser already resolves an active persisted identity.
+    settings = runs.settings
+    names = (
+        settings.selectable_models
+        if settings.agent_backend == "langgraph"
+        else ()
+    )
+    return {
+        "items": [{"name": name} for name in names],
+        "default_model_name": settings.model_name if names else None,
+        "source": "configured",
+    }
+
+
 async def stream_response(
     request: Request, owner: UUID, run_id: UUID, after: int
 ) -> StreamingResponse:

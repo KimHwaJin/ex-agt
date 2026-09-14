@@ -16,11 +16,13 @@ from psycopg_pool import PoolClosed
 from pydantic import Field, ValidationError
 
 from agent_service.agents.assistant import build_assistant
+from agent_service.agents.code_planner import build_code_planners
 from agent_service.agents.intake import build_intake_agents
 from agent_service.application.outputs import OutputWriter
 from agent_service.graphs.assistant.builder import build_graph
 from agent_service.infrastructure.database.checkpoints import Checkpoints
 from agent_service.runtime.graph_driver import GraphDriver
+from agent_service.runtime.management import ManagementRuntime
 from agent_service.settings import Settings
 
 
@@ -35,6 +37,9 @@ class TestModel(BaseChatModel):
     structured_seen: list[str] = Field(default_factory=list)
     plan_implementation: str = "catalog"
     structured_invalid: bool = False
+    planning_inputs: dict[str, str] = Field(default_factory=dict)
+    bad_tool: bool = False
+    risk_warnings: list[str] = Field(default_factory=list)
 
     def bind_tools(self, tools, **kwargs):
         raise AssertionError("Toolless intake must not bind empty tools")
@@ -56,6 +61,9 @@ class TestModel(BaseChatModel):
         if schema:
             name = schema["name"]
             self.structured_seen.append(name)
+            self.planning_inputs[name] = "\n".join(
+                str(m.content) for m in messages
+            )
             value = (
                 {
                     "intent": self.intent,
@@ -75,6 +83,45 @@ class TestModel(BaseChatModel):
                     ],
                 }
             )
+            if name == "RiskAssessment":
+                value = {
+                    "warnings": self.risk_warnings,
+                    "rationale": "테스트 검토",
+                }
+            elif name == "CatalogProposal":
+                value = {
+                    "steps": [
+                        {
+                            "description": "합성 데이터 준비",
+                            "reason": "입력 확보",
+                            "expected_result": "행 목록",
+                            "input_step": None,
+                            "parameters": {"query": "sample", "rows": 50},
+                            "skill_id": "sample-data",
+                            "skill_version": "0.1.0",
+                            "tool_id": "unknown"
+                            if self.bad_tool
+                            else "fetch_sample_data",
+                            "tool_version": "0.1.0",
+                        }
+                    ]
+                }
+            elif name == "GeneratedProposal":
+                value = {
+                    "steps": [
+                        {
+                            "description": "직접 계산",
+                            "reason": "사용자 요청",
+                            "expected_result": "합계",
+                            "input_step": None,
+                            "parameters": {},
+                            "function_lines": [
+                                "def total():",
+                                "    return sum(range(11))",
+                            ],
+                        }
+                    ]
+                }
             text = "not-json" if self.structured_invalid else json.dumps(value)
             yield ChatGenerationChunk(message=AIMessageChunk(content=text))
             return
@@ -163,6 +210,7 @@ async def drive(runtime, identity, run_id, *, model=None):
             build_assistant(model),
             router=router,
             planner=planner,
+            code_planners=build_code_planners(model),
         )
     )
     await driver.run_one(run_id, UUID(identity["X-User-UUID"]))
@@ -188,7 +236,11 @@ async def test_history_survives_new_pool_and_session_isolation(
     async with runtime.checkpoints.session(session["session_id"]) as saver:
         router, planner = build_intake_agents(fresh)
         graph = build_graph(
-            build_assistant(fresh), saver, router=router, planner=planner
+            build_assistant(fresh),
+            saver,
+            router=router,
+            planner=planner,
+            code_planners=build_code_planners(fresh),
         )
         snapshot = await graph.aget_state(
             {
@@ -386,7 +438,15 @@ async def test_readiness_checks_checkpoint_connection(runtime):
 
 
 async def resume_review(
-    client, identity, session, detail, decision, *, instruction=None, key=None
+    client,
+    identity,
+    session,
+    detail,
+    decision,
+    *,
+    instruction=None,
+    key=None,
+    main_model_name=None,
 ):
     response = {"type": "plan_review", "decision": decision}
     if instruction is not None:
@@ -397,6 +457,7 @@ async def resume_review(
         json={
             "user_id": identity["X-User-UUID"],
             "session_id": session["session_id"],
+            "main_model_name": main_model_name,
             "input": {
                 "type": "resume",
                 "run_id": str(detail.run_id),
@@ -451,7 +512,12 @@ async def test_task_review_releases_graph_lock_but_blocks_new_messages(
         assert saver is not None
     # Duplicate workers must not consume recovery attempts while waiting.
     await drive(runtime, identity, run_id)
-    assert model.structured_seen == ["RequestRoute", "PlanDraft"]
+    assert model.structured_seen == [
+        "RequestRoute",
+        "PlanDraft",
+        "RiskAssessment",
+        "GeneratedProposal",
+    ]
     response = await client.post(
         "/api/v1/agent/runs",
         headers={**identity, "Idempotency-Key": str(uuid4())},
@@ -703,3 +769,243 @@ async def test_modified_checkpoint_projection_retry_does_not_reapply_modify(
     assert restored.status == "awaiting_input"
     assert restored.pending_interrupts[0].payload["plan_version"] == 2
     assert fresh.structured_seen == []
+
+
+@pytest.mark.postgres
+async def test_plan_snapshots_audit_code_privacy_and_direct_revision(
+    client, identity, session, runtime, model
+):
+    model.intent = "analysis_task"
+    model.risk_warnings = ["리소스 사용량을 확인하세요."]
+    run_id = await submit(client, identity, session)
+    first = await drive(runtime, identity, run_id)
+    payload = first.pending_interrupts[0].payload
+    assert payload["code_prepared"] is True
+    assert payload["generation_risk"]["warnings"] == model.risk_warnings
+    assert payload["steps"][0]["tool_id"] == "fetch_sample_data"
+    async with runtime.runs.repository() as repo:
+        saved = await repo.one(
+            "SELECT * FROM management.execution_plans WHERE run_id = %s",
+            (run_id,),
+        )
+        assert saved["plan_sha256"] == payload["plan_sha256"]
+        assert saved["snapshot"]["plan"] == payload
+        assert "def fetch_sample_data" in saved["snapshot"]["cells"][0]["code"]
+        assert saved["created_by"] == UUID(identity["X-User-UUID"])
+        assert saved["updated_by"] == saved["created_by"]
+        assert saved["updated_at"] == saved["created_at"]
+        events = await repo.all(
+            "SELECT data FROM management.run_events WHERE run_id = %s",
+            (run_id,),
+        )
+    public = json.dumps(events, default=str)
+    assert "def fetch_sample_data" not in public
+    assert "function_source" not in public
+    response = await resume_review(
+        client,
+        identity,
+        session,
+        first,
+        "modify",
+        instruction="내부 함수 없이 직접 코드를 만들어줘",
+    )
+    assert response.status_code == 202
+    model.plan_implementation = "generated_code"
+    revised = await drive(runtime, identity, run_id)
+    assert revised.pending_interrupts[0].payload["plan_version"] == 2
+    direct_prompt = model.planning_inputs["GeneratedProposal"]
+    assert "parameters_schema" not in direct_prompt
+    assert "fetch_sample_data" not in direct_prompt
+    async with runtime.runs.repository() as repo:
+        versions = await repo.all(
+            "SELECT * FROM management.execution_plans WHERE run_id = %s "
+            "ORDER BY plan_version",
+            (run_id,),
+        )
+    assert len(versions) == 2
+    assert versions[0] == saved
+    assert versions[0]["plan_id"] == versions[1]["plan_id"]
+    assert versions[0]["plan_sha256"] != versions[1]["plan_sha256"]
+    assert "tool_id" not in versions[1]["snapshot"]["cells"][0]
+
+
+@pytest.mark.postgres
+async def test_unknown_tool_never_publishes_approval(
+    client, identity, session, runtime, model
+):
+    model.intent, model.bad_tool = "analysis_task", True
+    run_id = await submit(client, identity, session)
+    detail = await drive(runtime, identity, run_id)
+    assert detail.status == "failed"
+    assert not detail.pending_interrupts and not detail.executions
+    async with runtime.runs.repository() as repo:
+        plans = await repo.all(
+            "SELECT * FROM management.execution_plans WHERE run_id = %s",
+            (run_id,),
+        )
+    assert plans == []
+
+
+@pytest.mark.postgres
+async def test_v2_pending_review_remains_resumable(
+    client, identity, session, runtime, model
+):
+    model.intent = "analysis_task"
+    run_id = await submit(client, identity, session)
+    async with runtime.runs.repository() as repo:
+        run = await repo.run(UUID(identity["X-User-UUID"]), run_id, lock=True)
+        await repo.checkpoint(
+            run, {**run["checkpoint"], "graph_version": "assistant-v2"}, 0
+        )
+    detail = await drive(runtime, identity, run_id)
+    assert detail.pending_interrupts[0].payload["stage"] == "draft"
+    assert model.structured_seen == ["RequestRoute", "PlanDraft"]
+    response = await resume_review(client, identity, session, detail, "reject")
+    assert response.status_code == 202
+    fresh = TestModel()
+    result = await drive(runtime, identity, run_id, model=fresh)
+    assert result.status == "rejected"
+    assert fresh.structured_seen == []
+
+
+@pytest.mark.postgres
+async def test_model_selection_new_message_and_hitl_resume(
+    client, identity, session, runtime, model
+):
+    alternate = TestModel(intent="analysis_task")
+    router, planner = build_intake_agents(alternate)
+    runtime.driver.model_agents["alternate-model"] = (
+        build_assistant(alternate),
+        router,
+        planner,
+        build_code_planners(alternate),
+    )
+    runtime.settings.allowed_model_names = ["alternate-model"]
+    catalog = await client.get("/api/v1/agent/models", headers=identity)
+    assert catalog.status_code == 200
+    assert catalog.json()["items"] == [
+        {"name": "test-model"},
+        {"name": "alternate-model"},
+    ]
+    model.intent = "analysis_task"
+    run_id = await submit(client, identity, session)
+    detail = await drive(runtime, identity, run_id)
+    key = str(uuid4())
+    changed = await resume_review(
+        client,
+        identity,
+        session,
+        detail,
+        "modify",
+        instruction="분석 계획을 변경해줘",
+        key=key,
+        main_model_name="alternate-model",
+    )
+    assert changed.status_code == 202, changed.text
+    replay = await resume_review(
+        client,
+        identity,
+        session,
+        detail,
+        "modify",
+        instruction="분석 계획을 변경해줘",
+        key=key,
+        main_model_name="alternate-model",
+    )
+    assert replay.json() == changed.json()
+    detail = await drive(runtime, identity, run_id)
+    assert detail.status == "awaiting_input"
+    assert alternate.structured_seen == [
+        "PlanDraft",
+        "RiskAssessment",
+        "CatalogProposal",
+    ]
+    assert model.structured_seen.count("PlanDraft") == 1
+    # Invalid model rolls back interrupt consumption and can be retried.
+    invalid = await resume_review(
+        client,
+        identity,
+        session,
+        detail,
+        "reject",
+        main_model_name="unknown",
+    )
+    assert invalid.status_code == 422
+    # Omitted selection on resume keeps the most recently selected model.
+    accepted = await resume_review(client, identity, session, detail, "reject")
+    assert accepted.status_code == 202
+    assert (await drive(runtime, identity, run_id)).status == "rejected"
+    async with runtime.runs.repository() as repo:
+        history = await repo.all(
+            "SELECT data FROM management.run_events WHERE run_id = %s "
+            "AND type = 'model.selected' ORDER BY sequence",
+            (run_id,),
+        )
+    assert [row["data"]["model_name"] for row in history] == [
+        "test-model",
+        "alternate-model",
+        "alternate-model",
+    ]
+    alternate.intent = "general_question"
+    response = await client.post(
+        "/api/v1/agent/runs",
+        headers={**identity, "Idempotency-Key": str(uuid4())},
+        json={
+            "user_id": identity["X-User-UUID"],
+            "session_id": session["session_id"],
+            "main_model_name": "alternate-model",
+            "input": {
+                "type": "message",
+                "content": [{"type": "text", "text": "new-question"}],
+            },
+        },
+    )
+    assert response.status_code == 202
+    result = await drive(runtime, identity, UUID(response.json()["run_id"]))
+    assert result.status == "completed"
+    assert alternate.seen[-1][-1] == "new-question"
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("fail_second", [False, True])
+async def test_runtime_owns_all_selected_model_clients(
+    runtime, monkeypatch, fail_second
+):
+    built, closed = [], []
+
+    def build(settings):
+        if fail_second and settings.model_name == "alternate-model":
+            raise RuntimeError("second model init failed")
+        model = TestModel()
+        built.append(model)
+        return model
+
+    async def close(model):
+        closed.append(model)
+
+    monkeypatch.setattr("agent_service.runtime.management.build_model", build)
+    monkeypatch.setattr("agent_service.runtime.management.close_model", close)
+    fresh = ManagementRuntime.build(
+        runtime.settings.model_copy(
+            update={
+                "allowed_model_names": ["alternate-model"],
+            }
+        )
+    )
+    try:
+        if fail_second:
+            with pytest.raises(RuntimeError, match="second model init"):
+                await fresh.start()
+        else:
+            await fresh.start()
+            assert isinstance(fresh.driver, GraphDriver)
+            assert fresh.driver.model_agents is not None
+            assert set(fresh.driver.model_agents) == {
+                "test-model",
+                "alternate-model",
+            }
+            assert len(built) == 2
+    finally:
+        await fresh.close()
+    assert [id(model) for model in closed] == [id(model) for model in built]
+    assert fresh.pool.closed

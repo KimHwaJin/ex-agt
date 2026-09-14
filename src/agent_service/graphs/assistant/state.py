@@ -17,6 +17,7 @@ class AssistantState(TypedDict):
 class WorkflowState(AssistantState, total=False):
     route: dict
     plan: dict | None
+    prepared_plan: dict | None
     plan_version: int
     instruction: str | None
     decision: str | None

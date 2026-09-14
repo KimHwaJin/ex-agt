@@ -7,10 +7,11 @@ from pathlib import Path
 from agent_service.bootstrap.configuration import load_settings
 from agent_service.bootstrap.logging import initialize_logging
 from agent_service.runtime.management import ManagementRuntime
+from agent_service.settings import Settings
 
 
-async def main() -> None:
-    settings = load_settings(Path.cwd())
+async def main(settings: Settings | None = None) -> None:
+    settings = settings or load_settings(Path.cwd())
     if settings.agent_backend == "disabled":
         raise RuntimeError("No agent backend configured")
     settings = settings.model_copy(update={"embedded_run_worker": False})

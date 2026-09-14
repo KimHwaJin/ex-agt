@@ -55,9 +55,12 @@ async function main() {
   }
   async function review(version) {
     await page.waitForFunction((v) =>
-      document.querySelector(`#hitl-panel [data-version="${v}"]`)
-      && !document.querySelector('#hitl-panel button').disabled,
+      (document.querySelector(`#hitl-panel [data-version="${v}"]`)
+      && !document.querySelector('#hitl-panel button').disabled)
+      || document.querySelector("#run-status").textContent.startsWith("실패"),
     version, { timeout: 180000 });
+    const current = await detail(sessionId);
+    assert.equal(current.status, "awaiting_input", JSON.stringify(current.error));
   }
   async function detail(sessionId) {
     const headers = { "X-User-UUID": owner };
@@ -85,6 +88,10 @@ async function main() {
     const first = await detail(sessionId);
     assert.equal(first.pending_interrupts[0].payload.intent, "analysis_task");
     assert.equal(first.pending_interrupts[0].payload.executable, false);
+    assert.equal(first.pending_interrupts[0].payload.code_prepared, true);
+    assert.ok(first.pending_interrupts[0].payload.steps
+      .every((step) => step.skill_id && step.tool_id && step.parameters));
+    assert.ok(!JSON.stringify(first).includes("function_source"));
     assert.deepEqual(first.executions, []);
     assert.ok(!(await page.locator("#hitl-panel").textContent())
       .includes("[object Object]"));
@@ -110,6 +117,9 @@ async function main() {
       first.pending_interrupts[0].interrupt_id);
     assert.equal(revised.pending_interrupts[0].payload.implementation,
       "generated_code");
+    assert.equal(revised.pending_interrupts[0].payload.code_prepared, true);
+    assert.ok(revised.pending_interrupts[0].payload.steps
+      .every((step) => !step.skill_id && !step.tool_id));
     await page.screenshot({ path: join(artifacts, "revised-plan.png"),
       fullPage: true });
     await page.locator('[data-decision="reject"]').click();
@@ -129,7 +139,7 @@ async function main() {
       fullPage: true });
     assert.deepEqual(errors, []);
     console.log(JSON.stringify({ result: "passed", artifacts,
-      checks: ["real model routing", "draft plan", "restore review",
+      checks: ["real model routing", "catalog/code plan", "restore review",
         "modify", "reject", "approve without false execution"] }, null, 2));
   } finally {
     if (sessionId && owner) {

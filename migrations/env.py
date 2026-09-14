@@ -12,7 +12,12 @@ from agent_service.bootstrap.configuration import load_settings
 
 
 def database_url() -> str:
-    value = os.environ.get("MANAGEMENT_DATABASE_URL")
+    settings = context.config.attributes.get("agent_settings")
+    value = (
+        settings.database_url.get_secret_value()
+        if settings is not None
+        else os.environ.get("MANAGEMENT_DATABASE_URL")
+    )
     if value is None:
         root = Path(__file__).resolve().parents[1]
         value = load_settings(root).database_url.get_secret_value()

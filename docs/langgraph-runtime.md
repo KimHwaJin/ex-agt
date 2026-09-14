@@ -2,7 +2,7 @@
 
 ## 이번 단계에서 가능한 것
 
-일반 대화/분석 설명, 요청 분류, 작업 계획 초안을 실제 LLM으로 처리합니다.
+일반 대화/분석 설명, 요청 분류, 작업 계획과 셀 코드 준비를 실제 LLM으로 처리합니다.
 `create_agent` 정의를
 별도 `agents/`에 두고, `graphs/assistant/`에서 명시적 그래프로 조합합니다.
 API의 신규 메시지 계약은 이전과 같으며 `session_id = thread_id`입니다.
@@ -12,19 +12,19 @@ POST /agent/runs → Run 접수·사용자 메시지 저장 → 실행기
   → 세션 실행 잠금 획득 → PostgreSQL 체크포인트 조회
   → classify(create_agent)
       → 일반/분석 질문: respond(create_agent) → complete → END
-      → 분석/코드 작업: plan(create_agent) → review_plan(interrupt)
-          → modify: plan → review_plan (새 버전)
+      → 분석/코드 작업: plan → prepare_code → review_plan(interrupt)
+          → modify: plan → prepare_code → review_plan (새 버전)
           → reject: review_outcome → complete → END (rejected)
           → approve: review_outcome → complete → END (failed: 실행 미연결)
   → 응답·Run 완료 저장 → 세션 활성 Run 해제
 ```
 
-실제 분석/코드 실행, Skill/Tool 선택, Executor, 리포트 생성은 아직 없습니다.
-일반 대화는 승인 없이 답변합니다. 작업 요청은 LLM이 만든 **계획 초안**을
+실제 분석/코드 실행, Executor, 리포트 생성은 아직 없습니다.
+일반 대화는 승인 없이 답변합니다. 작업 요청은 LLM이 만든 **셀 코드 준비 계획**을
 실제 LangGraph `interrupt`로 검토받습니다. 승인해도 실행 성공으로 처리하지 않고
 `EXECUTOR_NOT_CONFIGURED`를 안내하며 종료합니다. 가짜 Execution ID나 리포트를
-생성하지 않습니다. 이 단계의 승인 카드는 연동 검증용이며 최종 실행계획은 아닙니다.
-Skill/Tool 조합, 워크플로우 검색·single/multi 선택은 다음 단계입니다.
+생성하지 않습니다. 워크플로우 검색·single/multi 선택은 다음 단계입니다.
+Skill·Tool 선택과 코드 원문 저장은 [계획 준비](skill-tool-planning.md)를 참고하세요.
 기존 DEMO의 승인/수정/취소 시나리오는 `agent_backend: demo`로 남겨두었습니다.
 실제 대화 그래프에 DEMO의 승인 응답을 적용하지 않습니다.
 DEMO에서 전환하기 전 활성 테스트 작업을 완료/취소하세요. 기존 Run은 접수 당시
@@ -42,7 +42,8 @@ backend를 유지하며 다른 backend로 재개/비동기 취소를 접수하�
 분류·계획의 구조화 호출은 `temperature=0`을 사용합니다. 의미 분류의 완벽한
 정확성을 보장하지는 않으며, 실제 도메인 평가 사례를 추가하는 작업은 계속 필요합니다.
 분류 호출이 추가되어 질문 응답은 보통 분류 1회+답변 1회, 최초 작업 계획은
-분류 1회+계획 1회의 모델 호출을 사용합니다. 수정은 계획 호출만 수행하며
+분류 1회+초안 1회+생성 전 위험 검토 1회+셀 계획 1회를 사용합니다.
+수정은 초안·위험 검토·셀 계획 3회이며
 승인/거절 자체는 모델 호출 없이 처리합니다.
 
 `agents/intake.py`는 `create_agent`와 `NativeJSONOutput` 미들웨어를 사용합니다.
@@ -56,9 +57,9 @@ backend를 유지하며 다른 backend로 재개/비동기 취소를 접수하�
 `HumanInTheLoopMiddleware`의 Tool 승인이 아니라 전체 계획 검토용 `interrupt`입니다.
 
 계획에는 제목·요약·각 단계의 내용/선택 이유/예상 산출물·구현 방식이 들어갑니다.
-`catalog`는 향후 도메인 함수 조합 예정, `generated_code`는 직접 코드 작성 예정입니다.
-카탈로그가 아직 없으므로 실제 스킬/툴 식별자는 넣지 않습니다. 코드도 생성·실행하지
-않습니다. 수정 요청은 이전 계획과 함께 모델에 전달하고 같은 `plan_id`의 버전을
+`catalog`는 도메인 함수 조합, `generated_code`는 직접 코드 작성입니다.
+원문은 승인 화면과 분리해 저장하며 실행하지 않습니다.
+수정 요청은 이전 계획과 함께 모델에 전달하고 같은 `plan_id`의 버전을
 증가시킵니다. 사용자가 직접 코드 작성을 요청하면 모델이 구현 방식을 바꿉니다.
 
 API 계약은 기존 `input.type=resume`과 `response.type=plan_review`를 유지합니다.
@@ -84,10 +85,10 @@ Executor 연동 때 사용하는 별도 상태이며 이번 단계에서는 설�
 내부 분류/계획 JSON 토큰은 사용자 답변 스트림에 노출하지 않습니다.
 `run.classified`에는 최종 의도와 짧은 공개 분류 근거만 제공합니다.
 
-새 Run은 `assistant-v2`를 사용하며 이미 접수된 `assistant-v1` 대화 Run은 기존
+새 Run은 `assistant-v3`를 사용하며 이미 접수된 v1/v2 Run은 기존
 노드 경로로 완료할 수 있습니다. 세션의 기존 메시지 체크포인트는 계속 활용합니다.
-구버전 코드로 롤백할 때는 v2 활성 Run을 먼저 종료해야 합니다. 구버전 실행기는
-v2를 처리할 수 없습니다. 체크포인트 원본을 자동 변환/삭제하지 않습니다.
+구버전 코드로 롤백할 때는 v3 활성 Run을 먼저 종료해야 합니다. 구버전 실행기는
+v3를 처리할 수 없습니다. 체크포인트 원본을 자동 변환/삭제하지 않습니다.
 
 ## 설정
 
@@ -142,7 +143,8 @@ uv run --locked python app.py
 
 `agent_service.migrate`는 관리 Alembic 적용 후 체크포인트 라이브러리의
 마이그레이션을 수행합니다. 기존 관리 DB는 초기화하지 않습니다.
-이번 변경에는 승인 ID 매핑을 위한 `management_0004`가 포함됩니다.
+승인 ID 매핑의 `management_0004`와 셀 계획 저장의 `management_0005`를
+포함합니다.
 업데이트한 API/worker를 시작하기 전에 적용해야 합니다.
 체크포인트만 초기화/업그레이드하려면 다음 명령을 사용합니다.
 
@@ -237,6 +239,7 @@ worker가 활성 작업만 반복 스캔하지 않게 하고, 중단되면 기�
 | `model_timeout_seconds` | 60초 | 모델 클라이언트 타임아웃 |
 | `model_max_retries` | 1 | 모델 SDK 재시도 설정 |
 | `model_max_tokens` | 2048 | 모델 출력 토큰 상한 |
+| `code_plan_max_tokens` | 8192 | 함수 원문 포함 코드 계획 출력 상한 |
 | `context_message_limit` | 40 | 모델에 전달하는 최근 메시지 수 |
 | `output_flush_chars` | 256자 | 출력 청크 저장 기준 |
 | `output_flush_seconds` | 0.2초 | 다음 청크 도착 시 적용하는 시간 기준 |

@@ -1,5 +1,18 @@
 # 메시지·Run API 계약
 
+## 모델 선택 추가
+
+`GET /api/v1/agent/models`는 인증된 사용자에게 서버 설정 모델 목록을 반환한다.
+`items: [{"name": "..."}]`, `default_model_name`, `source: "configured"`이며
+내부 모델 서버의 실시간 조회 결과는 아니다. endpoint/key는 공개하지 않는다.
+
+Run 요청의 선택 필드 `main_model_name`은 message와 resume 모두 지원한다.
+신규 요청에서 생략하면 기본 모델, resume에서 생략하면 직전 선택 모델이다.
+허용 목록 밖 이름은 422 MODEL_NOT_AVAILABLE로 거절한다. 선택 모델은
+model.selected 이벤트에 남으며 재전송으로 같은 이벤트를 중복 생성하지 않는다.
+실제 모델 호출이 없는 demo/disabled 모드에서는 모델 선택을 제공하지 않는다.
+템플릿 외부 포맷은 [Gaia 연결 계약](gaia-template-integration.md)에 분리했다.
+
 ## 현재 범위와 제한
 
 사용자·프로젝트·세션 관리 위에 메시지 저장, Run 접수·조회·재개·취소,
@@ -13,7 +26,9 @@ SSE 스트림과 개발 화면을 추가했습니다. 아래 계약은 실제 AP
 Executor, Redis Worker, 프로젝트 공유 메모리,
 파일·이미지 업로드, 노트북·리포트 생성은 아직 연결하지 않았습니다.
 DEMO의 실행 ID는 `simulated: true`이며 Executor 조회에 사용하면 안 됩니다.
-실제 그래프의 승인 계획은 LLM이 만든 초안이며 아직 Skill/Tool 선택 결과가 아닙니다.
+신규 그래프의 승인 계획에는 Skill/Tool 선택 결과 또는 직접 코드 준비 결과가
+들어갑니다. 원문 코드는 공개하지 않고 버전별 스냅샷으로 별도 저장합니다.
+[셀 계획 준비](skill-tool-planning.md)의 범위와 제한을 참고하세요.
 승인 후 `failed`와 `EXECUTOR_NOT_CONFIGURED`를 반환하며 실제 실행은 하지 않습니다.
 고정 테스트 계획은 `agent_backend: demo`에서만 사용합니다.
 

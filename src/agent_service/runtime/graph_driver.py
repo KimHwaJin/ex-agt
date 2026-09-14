@@ -13,6 +13,7 @@ from psycopg_pool import PoolTimeout
 
 from agent_service.application.graph_reviews import publish_review
 from agent_service.application.outputs import OutputWriter
+from agent_service.application.plan_snapshots import save_plan_snapshot
 from agent_service.domain.runs import TERMINAL
 from agent_service.graphs.assistant.builder import (
     SUPPORTED_VERSIONS,
@@ -34,7 +35,15 @@ class CancelRequested(Exception):
 
 class GraphDriver:
     def __init__(
-        self, service, checkpoints, agent, *, router=None, planner=None
+        self,
+        service,
+        checkpoints,
+        agent,
+        *,
+        router=None,
+        planner=None,
+        code_planners=None,
+        model_agents=None,
     ):
         self.service = service
         self.settings = service.settings
@@ -42,6 +51,8 @@ class GraphDriver:
         self.agent = agent
         self.router = router
         self.planner = planner
+        self.code_planners = code_planners
+        self.model_agents = model_agents
 
     @asynccontextmanager
     async def owned(self, run_id, owner, attempt):
@@ -182,12 +193,25 @@ class GraphDriver:
 
     async def execute(self, run, attempt, saver):
         run_id, owner = run["run_id"], run["owner_user_uuid"]
+        selected = run["checkpoint"].get("model_name")
+        if (
+            run["checkpoint"].get("model_provider")
+            != self.settings.model_provider
+        ):
+            raise ValueError("Run model provider changed")
+        bundle = (self.agent, self.router, self.planner, self.code_planners)
+        if self.model_agents is not None:
+            bundle = self.model_agents[selected]
+        elif selected != self.settings.model_name:
+            raise ValueError("Run model is not loaded")
+        agent, router, planner, code_planners = bundle
         graph = build_graph(
-            self.agent,
+            agent,
             saver,
             self.settings.context_message_limit,
-            router=self.router,
-            planner=self.planner,
+            router=router,
+            planner=planner,
+            code_planners=code_planners,
             version=run["checkpoint"]["graph_version"],
         )
         config = {
@@ -208,12 +232,6 @@ class GraphDriver:
             if not completed:
                 await output.replace(message_id, "")
         if not completed:
-            if (
-                run["checkpoint"].get("model_name") != self.settings.model_name
-                or run["checkpoint"].get("model_provider")
-                != self.settings.model_provider
-            ):
-                raise ValueError("Run model configuration changed")
             graph_input = (
                 None
                 if same_run
@@ -223,6 +241,7 @@ class GraphDriver:
                     "completed_run_id": None,
                     "route": {},
                     "plan": None,
+                    "prepared_plan": None,
                     "plan_version": 0,
                     "instruction": None,
                     "decision": None,
@@ -303,6 +322,12 @@ class GraphDriver:
             if len(snapshot.interrupts) != 1:
                 raise ValueError("Only one plan review may be pending")
             async with self.owned(run_id, owner, attempt) as output:
+                if run["checkpoint"]["graph_version"] == "assistant-v3":
+                    await save_plan_snapshot(
+                        output,
+                        values.get("prepared_plan"),
+                        snapshot.interrupts[0].value,
+                    )
                 await output.replace(
                     message_id,
                     plan_text(snapshot.interrupts[0].value),

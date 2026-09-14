@@ -50,3 +50,11 @@ select = ["E", "F", "I", "UP", "B", "ASYNC", "RUF"]
 
 [tool.ty.environment]
 python-version = "3.11"
+
+# This entrypoint is copied into a private template; its imports are tested
+# using fake host modules, never replaced by fabricated private libraries.
+[[tool.ty.overrides]]
+include = ["examples/gaia_template/app.py"]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"

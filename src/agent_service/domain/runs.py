@@ -82,6 +82,9 @@ class ResumeInput(StrictModel):
 class RunRequest(StrictModel):
     user_id: UUID
     session_id: UUID
+    main_model_name: str | None = Field(
+        default=None, min_length=1, max_length=200
+    )
     stream: bool = Field(default=False, strict=True)
     input: Annotated[MessageInput | ResumeInput, Field(discriminator="type")]
 
