@@ -1,5 +1,18 @@
 # 메시지·Run API 계약
 
+## 모델 선택 추가
+
+`GET /api/v1/agent/models`는 인증된 사용자에게 서버 설정 모델 목록을 반환한다.
+`items: [{"name": "..."}]`, `default_model_name`, `source: "configured"`이며
+내부 모델 서버의 실시간 조회 결과는 아니다. endpoint/key는 공개하지 않는다.
+
+Run 요청의 선택 필드 `main_model_name`은 message와 resume 모두 지원한다.
+신규 요청에서 생략하면 기본 모델, resume에서 생략하면 직전 선택 모델이다.
+허용 목록 밖 이름은 422 MODEL_NOT_AVAILABLE로 거절한다. 선택 모델은
+model.selected 이벤트에 남으며 재전송으로 같은 이벤트를 중복 생성하지 않는다.
+실제 모델 호출이 없는 demo/disabled 모드에서는 모델 선택을 제공하지 않는다.
+템플릿 외부 포맷은 [Gaia 연결 계약](gaia-template-integration.md)에 분리했다.
+
 ## 현재 범위와 제한
 
 사용자·프로젝트·세션 관리 위에 메시지 저장, Run 접수·조회·재개·취소,

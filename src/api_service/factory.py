@@ -1,15 +1,17 @@
 """Standalone app factory and additive template integration."""
 
 import logging
+from collections.abc import Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from time import monotonic
 from typing import cast
 from uuid import uuid4
 
-from fastapi import FastAPI, Request
+from fastapi import APIRouter, FastAPI, Request
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
+from fastapi.openapi.utils import get_openapi
 from fastapi.responses import JSONResponse
 from psycopg import OperationalError
 from psycopg_pool import PoolTimeout
@@ -49,16 +51,44 @@ def build_identity(settings: Settings) -> IdentityProvider:
     return HeaderIdentityProvider(settings)
 
 
+def get_management_routers() -> list[APIRouter]:
+    """Append to the template's get_routers(), without creating another app."""
+    return [router, run_router]
+
+
 def install_management_api(
     app: FastAPI,
     settings: Settings,
     *,
     identity_provider: IdentityProvider | None = None,
     initialize_host_logging: bool = False,
+    include_routers: bool = True,
+    enable_dev_ui: bool = True,
+    runtime_context: Callable | None = None,
 ) -> None:
     """Call before server startup; preserve the host's existing lifespan."""
     if getattr(app.state, "management_installed", False):
         raise RuntimeError("Management API is already installed")
+    expected = {
+        (getattr(route, "path", None), method)
+        for item in get_management_routers()
+        for route in item.routes
+        for method in getattr(route, "methods", ())
+    }
+    # FastAPI may retain included routers lazily. Use its public schema
+    # builder rather than relying on private _IncludedRouter internals.
+    paths = get_openapi(title="route-check", version="1", routes=app.routes)[
+        "paths"
+    ]
+    actual = {
+        (path, method.upper())
+        for path, methods in paths.items()
+        for method in methods
+    }
+    if include_routers and expected & actual:
+        raise RuntimeError("Management route collision")
+    if not include_routers and not expected <= actual:
+        raise RuntimeError("Register all management routers before installing")
     app.state.management_installed = True
     previous_lifespan = app.router.lifespan_context
 
@@ -67,28 +97,39 @@ def install_management_api(
         if initialize_host_logging:
             initialize_logging(settings)
         async with previous_lifespan(application) as state:
-            resources = ManagementRuntime.build(settings)
             provider = (
                 identity_provider
                 if identity_provider is not None
                 else build_identity(settings)
             )
+            resources = ManagementRuntime.build(settings)
             application.state.management_runtime = ApiRuntime(
                 resources=resources, identity=provider
             )
             try:
                 await resources.start()
                 logger.info("management_api_started")
-                yield state
+                if runtime_context is None:
+                    yield state
+                else:
+                    async with runtime_context(
+                        application.state.management_runtime
+                    ):
+                        yield state
             finally:
-                await resources.close()
-                logger.info("management_api_stopped")
+                try:
+                    await resources.close()
+                finally:
+                    del application.state.management_runtime
+                    logger.info("management_api_stopped")
 
     app.router.lifespan_context = lifespan
-    app.include_router(router)
-    app.include_router(run_router)
+    if include_routers:
+        for item in get_management_routers():
+            app.include_router(item)
     app.add_middleware(RunBodyLimit)
-    install_dev_ui(app, settings)
+    if enable_dev_ui:
+        install_dev_ui(app, settings)
 
     @app.middleware("http")
     async def trace_request(request: Request, call_next):

@@ -16,6 +16,7 @@ COPY migrations ./migrations
 FROM base AS test
 RUN uv sync --frozen --no-editable --no-cache
 COPY tests ./tests
+COPY examples ./examples
 CMD ["python", "-m", "pytest"]
 
 FROM base AS runtime

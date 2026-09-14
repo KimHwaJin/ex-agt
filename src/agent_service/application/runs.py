@@ -9,7 +9,11 @@ from psycopg.types.json import Jsonb
 from agent_service.application.cursors import CursorCodec
 from agent_service.application.management import active_user, fingerprint
 from agent_service.application.outputs import OutputWriter
-from agent_service.application.run_backends import initial_state, resumed_state
+from agent_service.application.run_backends import (
+    initial_state,
+    resumed_state,
+    select_model,
+)
 from agent_service.domain.management import DomainError, Page
 from agent_service.domain.runs import (
     TERMINAL,
@@ -44,14 +48,11 @@ class RunService:
             raise DomainError("IDENTITY_MISMATCH", "사용자가 다릅니다.", 403)
         async with self.repository() as repo:
             active_user(await repo.user(owner))
-            digest = fingerprint(
-                request.model_dump(
-                    mode="json",
-                    exclude={
-                        "stream",
-                    },
-                )
-            )
+            request_data = request.model_dump(mode="json", exclude={"stream"})
+            if request.main_model_name is None:
+                # Preserve fingerprints admitted before model selection.
+                request_data.pop("main_model_name")
+            digest = fingerprint(request_data)
             previous = await repo.reserve(owner, "agent.runs", key, digest)
             session = await repo.session(owner, request.session_id, lock=True)
             if previous:
@@ -65,6 +66,9 @@ class RunService:
                     503,
                 )
             if isinstance(request.input, MessageInput):
+                model_name = select_model(
+                    self.settings, request.main_model_name
+                )
                 if session["active_run_id"]:
                     code = (
                         "SESSION_LOCKED"
@@ -80,7 +84,7 @@ class RunService:
                 )
                 await repo.checkpoint(
                     run,
-                    initial_state(self.settings),
+                    initial_state(self.settings, model_name),
                     0,
                 )
                 after = 0
@@ -136,6 +140,13 @@ class RunService:
                     (Jsonb(response), owner, request.input.interrupt_id),
                 )
                 cp = resumed_state(run, response, pending[0])
+                model_name = select_model(
+                    self.settings,
+                    request.main_model_name,
+                    run["checkpoint"].get("model_name"),
+                )
+                if model_name is not None:
+                    cp["model_name"] = model_name
                 await repo.checkpoint(run, cp, 0)
                 await repo.set_status(run, "queued")
                 await repo.emit(
@@ -147,6 +158,17 @@ class RunService:
                         "status": "queued",
                         "resumed": True,
                         "backend": run["backend"],
+                    },
+                )
+            if model_name is not None:
+                await repo.emit(
+                    run,
+                    "model.selected",
+                    {
+                        "model_name": model_name,
+                        "model_provider": self.settings.model_provider,
+                        "selected_by": str(owner),
+                        "resumed": not isinstance(request.input, MessageInput),
                     },
                 )
             receipt = RunReceipt.model_validate(run)

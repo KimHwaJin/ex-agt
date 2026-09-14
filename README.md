@@ -9,6 +9,9 @@ Executor·Redis 소비·프로젝트 공유 메모리·파일 분석은 아직 �
 실제 실행 설정은 [LangGraph 실행기](docs/langgraph-runtime.md)를 참고하세요.
 요청·응답 계약과 제한은 [메시지·Run API](docs/agent-api.md)를 참고하세요.
 계획 코드·버전·원문 저장은 [Skill·Tool 계획](docs/skill-tool-planning.md)을 참고하세요.
+내부 템플릿 이식은 [Gaia 연결 가이드](docs/gaia-template-integration.md)와
+[복사 예제](examples/gaia_template/README.md)를 참고하세요.
+템플릿 연결부는 추가됐지만 private A2A 송수신 검증은 아직 아닙니다.
 
 ## 브랜치 운영
 
@@ -35,6 +38,7 @@ src/
     worker_main.py           # 선택적 별도 worker 진입점
     checkpoint_main.py       # 체크포인트 DB 명시적 초기화/업그레이드
     bootstrap/               # YAML 설정·외부 로깅 초기화
+    integrations/            # 템플릿 workflow와 외부 계약 변환
     settings.py              # 설정 검증
 migrations/                  # 관리/Run/메시지 마이그레이션
 tests/                       # 현재 구현만 검증

@@ -1,0 +1,18 @@
+# Merge this section into the EXISTING template YAML. Do not replace its file.
+# common.config must expose this section as config.AGENT_SERVICE (dict).
+AGENT_SERVICE:
+  database_url: postgresql://management:management@localhost:55439/chatapp
+  cursor_secret: development-change-this-cursor-secret-before-production
+  auth_mode: development_header
+  agent_backend: langgraph
+  # Local one-process test. Use false when a separate worker is deployed.
+  embedded_run_worker: true
+  model_name: qwen38-27b-nvfp4
+  allowed_model_names: []
+  model_provider: openai
+  model_base_url: http://model.frodo.com/v1
+  model_api_key: EMPTY
+  model_extra_body:
+    chat_template_kwargs:
+      enable_thinking: false
+  logging_mode: preconfigured

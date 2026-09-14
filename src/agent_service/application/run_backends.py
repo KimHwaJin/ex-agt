@@ -3,7 +3,22 @@
 from agent_service.domain.management import DomainError
 
 
-def initial_state(settings):
+def select_model(settings, requested=None, previous=None):
+    if settings.agent_backend != "langgraph":
+        if requested is not None:
+            raise DomainError(
+                "MODEL_SELECTION_UNAVAILABLE", "모델 선택이 불가능합니다.", 422
+            )
+        return None
+    name = requested or previous or settings.model_name
+    if name not in settings.selectable_models:
+        raise DomainError(
+            "MODEL_NOT_AVAILABLE", "사용할 수 없는 모델입니다.", 422
+        )
+    return name
+
+
+def initial_state(settings, model_name=None):
     if settings.agent_backend == "demo":
         return {
             "phase": "start",
@@ -13,7 +28,7 @@ def initial_state(settings):
     return {
         "graph_version": "assistant-v3",
         "attempts": 0,
-        "model_name": settings.model_name,
+        "model_name": model_name or settings.model_name,
         "model_provider": settings.model_provider,
     }
 

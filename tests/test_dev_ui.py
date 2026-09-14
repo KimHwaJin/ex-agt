@@ -39,7 +39,7 @@ async def test_dev_console_assets_and_redirect(settings):
         # Development UI does not expand the public management API contract.
         paths = app.openapi()["paths"]
         assert not any(path.startswith("/dev") for path in paths)
-        assert sum(len(methods) for methods in paths.values()) == 18
+        assert sum(len(methods) for methods in paths.values()) == 19
 
 
 @pytest.mark.parametrize(

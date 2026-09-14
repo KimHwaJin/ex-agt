@@ -1,7 +1,7 @@
 """Process-local pool and service; caller owns startup and shutdown."""
 
 import asyncio
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from langchain_core.language_models import BaseChatModel
 
@@ -36,6 +36,7 @@ class ManagementRuntime:
     checkpoints: Checkpoints | None = None
     driver: DemoDriver | GraphDriver | None = None
     model: BaseChatModel | None = None
+    models: list[BaseChatModel] = field(default_factory=list)
 
     @classmethod
     def build(cls, settings: Settings) -> "ManagementRuntime":
@@ -80,22 +81,39 @@ class ManagementRuntime:
                 )
             self.checkpoints = Checkpoints(self.settings)
             await self.checkpoints.open()
-            self.model = build_model(self.settings)
-            router, planner = build_intake_agents(
-                self.model, self.settings.context_message_limit
-            )
+            bundles = {}
+            for name in self.settings.selectable_models:
+                configured = self.settings.model_copy(
+                    update={"model_name": name}
+                )
+                model = build_model(configured)
+                self.models.append(model)
+                router, planner = build_intake_agents(
+                    model, self.settings.context_message_limit
+                )
+                bundles[name] = (
+                    build_assistant(model),
+                    router,
+                    planner,
+                    await asyncio.to_thread(
+                        build_code_planners,
+                        model,
+                        self.settings.context_message_limit,
+                        self.settings.code_plan_max_tokens,
+                    ),
+                )
+            self.model = self.models[0]
+            agent, router, planner, code_planners = bundles[
+                self.settings.selectable_models[0]
+            ]
             self.driver = GraphDriver(
                 self.runs,
                 self.checkpoints,
-                build_assistant(self.model),
+                agent,
                 router=router,
                 planner=planner,
-                code_planners=await asyncio.to_thread(
-                    build_code_planners,
-                    self.model,
-                    self.settings.context_message_limit,
-                    self.settings.code_plan_max_tokens,
-                ),
+                code_planners=code_planners,
+                model_agents=bundles,
             )
         elif self.settings.agent_backend == "demo":
             self.driver = DemoDriver(self.runs)
@@ -114,8 +132,14 @@ class ManagementRuntime:
                     pass
         finally:
             try:
-                if self.model is not None:
-                    await close_model(self.model)
+                results = await asyncio.gather(
+                    *(close_model(model) for model in self.models),
+                    return_exceptions=True,
+                )
+                self.models.clear()
+                for result in results:
+                    if isinstance(result, BaseException):
+                        raise result
             finally:
                 try:
                     if self.checkpoints:

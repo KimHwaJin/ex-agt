@@ -20,6 +20,9 @@ def import_callable(path: str) -> Callable:
 
 
 def initialize_logging(settings: Settings) -> None:
+    if settings.logging_mode == "preconfigured":
+        # GaiaService 등 진입점이 이미 logger.yml을 적용한 경우만 사용.
+        return
     if settings.logging_mode == "host":
         path = Path(settings.logging_yaml or "")
         if not path.is_file():

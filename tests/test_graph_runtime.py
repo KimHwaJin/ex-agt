@@ -22,6 +22,7 @@ from agent_service.application.outputs import OutputWriter
 from agent_service.graphs.assistant.builder import build_graph
 from agent_service.infrastructure.database.checkpoints import Checkpoints
 from agent_service.runtime.graph_driver import GraphDriver
+from agent_service.runtime.management import ManagementRuntime
 from agent_service.settings import Settings
 
 
@@ -437,7 +438,15 @@ async def test_readiness_checks_checkpoint_connection(runtime):
 
 
 async def resume_review(
-    client, identity, session, detail, decision, *, instruction=None, key=None
+    client,
+    identity,
+    session,
+    detail,
+    decision,
+    *,
+    instruction=None,
+    key=None,
+    main_model_name=None,
 ):
     response = {"type": "plan_review", "decision": decision}
     if instruction is not None:
@@ -448,6 +457,7 @@ async def resume_review(
         json={
             "user_id": identity["X-User-UUID"],
             "session_id": session["session_id"],
+            "main_model_name": main_model_name,
             "input": {
                 "type": "resume",
                 "run_id": str(detail.run_id),
@@ -856,3 +866,146 @@ async def test_v2_pending_review_remains_resumable(
     result = await drive(runtime, identity, run_id, model=fresh)
     assert result.status == "rejected"
     assert fresh.structured_seen == []
+
+
+@pytest.mark.postgres
+async def test_model_selection_new_message_and_hitl_resume(
+    client, identity, session, runtime, model
+):
+    alternate = TestModel(intent="analysis_task")
+    router, planner = build_intake_agents(alternate)
+    runtime.driver.model_agents["alternate-model"] = (
+        build_assistant(alternate),
+        router,
+        planner,
+        build_code_planners(alternate),
+    )
+    runtime.settings.allowed_model_names = ["alternate-model"]
+    catalog = await client.get("/api/v1/agent/models", headers=identity)
+    assert catalog.status_code == 200
+    assert catalog.json()["items"] == [
+        {"name": "test-model"},
+        {"name": "alternate-model"},
+    ]
+    model.intent = "analysis_task"
+    run_id = await submit(client, identity, session)
+    detail = await drive(runtime, identity, run_id)
+    key = str(uuid4())
+    changed = await resume_review(
+        client,
+        identity,
+        session,
+        detail,
+        "modify",
+        instruction="분석 계획을 변경해줘",
+        key=key,
+        main_model_name="alternate-model",
+    )
+    assert changed.status_code == 202, changed.text
+    replay = await resume_review(
+        client,
+        identity,
+        session,
+        detail,
+        "modify",
+        instruction="분석 계획을 변경해줘",
+        key=key,
+        main_model_name="alternate-model",
+    )
+    assert replay.json() == changed.json()
+    detail = await drive(runtime, identity, run_id)
+    assert detail.status == "awaiting_input"
+    assert alternate.structured_seen == [
+        "PlanDraft",
+        "RiskAssessment",
+        "CatalogProposal",
+    ]
+    assert model.structured_seen.count("PlanDraft") == 1
+    # Invalid model rolls back interrupt consumption and can be retried.
+    invalid = await resume_review(
+        client,
+        identity,
+        session,
+        detail,
+        "reject",
+        main_model_name="unknown",
+    )
+    assert invalid.status_code == 422
+    # Omitted selection on resume keeps the most recently selected model.
+    accepted = await resume_review(client, identity, session, detail, "reject")
+    assert accepted.status_code == 202
+    assert (await drive(runtime, identity, run_id)).status == "rejected"
+    async with runtime.runs.repository() as repo:
+        history = await repo.all(
+            "SELECT data FROM management.run_events WHERE run_id = %s "
+            "AND type = 'model.selected' ORDER BY sequence",
+            (run_id,),
+        )
+    assert [row["data"]["model_name"] for row in history] == [
+        "test-model",
+        "alternate-model",
+        "alternate-model",
+    ]
+    alternate.intent = "general_question"
+    response = await client.post(
+        "/api/v1/agent/runs",
+        headers={**identity, "Idempotency-Key": str(uuid4())},
+        json={
+            "user_id": identity["X-User-UUID"],
+            "session_id": session["session_id"],
+            "main_model_name": "alternate-model",
+            "input": {
+                "type": "message",
+                "content": [{"type": "text", "text": "new-question"}],
+            },
+        },
+    )
+    assert response.status_code == 202
+    result = await drive(runtime, identity, UUID(response.json()["run_id"]))
+    assert result.status == "completed"
+    assert alternate.seen[-1][-1] == "new-question"
+
+
+@pytest.mark.postgres
+@pytest.mark.parametrize("fail_second", [False, True])
+async def test_runtime_owns_all_selected_model_clients(
+    runtime, monkeypatch, fail_second
+):
+    built, closed = [], []
+
+    def build(settings):
+        if fail_second and settings.model_name == "alternate-model":
+            raise RuntimeError("second model init failed")
+        model = TestModel()
+        built.append(model)
+        return model
+
+    async def close(model):
+        closed.append(model)
+
+    monkeypatch.setattr("agent_service.runtime.management.build_model", build)
+    monkeypatch.setattr("agent_service.runtime.management.close_model", close)
+    fresh = ManagementRuntime.build(
+        runtime.settings.model_copy(
+            update={
+                "allowed_model_names": ["alternate-model"],
+            }
+        )
+    )
+    try:
+        if fail_second:
+            with pytest.raises(RuntimeError, match="second model init"):
+                await fresh.start()
+        else:
+            await fresh.start()
+            assert isinstance(fresh.driver, GraphDriver)
+            assert fresh.driver.model_agents is not None
+            assert set(fresh.driver.model_agents) == {
+                "test-model",
+                "alternate-model",
+            }
+            assert len(built) == 2
+    finally:
+        await fresh.close()
+    assert [id(model) for model in closed] == [id(model) for model in built]
+    assert fresh.pool.closed

@@ -43,6 +43,7 @@ class GraphDriver:
         router=None,
         planner=None,
         code_planners=None,
+        model_agents=None,
     ):
         self.service = service
         self.settings = service.settings
@@ -51,6 +52,7 @@ class GraphDriver:
         self.router = router
         self.planner = planner
         self.code_planners = code_planners
+        self.model_agents = model_agents
 
     @asynccontextmanager
     async def owned(self, run_id, owner, attempt):
@@ -191,13 +193,25 @@ class GraphDriver:
 
     async def execute(self, run, attempt, saver):
         run_id, owner = run["run_id"], run["owner_user_uuid"]
+        selected = run["checkpoint"].get("model_name")
+        if (
+            run["checkpoint"].get("model_provider")
+            != self.settings.model_provider
+        ):
+            raise ValueError("Run model provider changed")
+        bundle = (self.agent, self.router, self.planner, self.code_planners)
+        if self.model_agents is not None:
+            bundle = self.model_agents[selected]
+        elif selected != self.settings.model_name:
+            raise ValueError("Run model is not loaded")
+        agent, router, planner, code_planners = bundle
         graph = build_graph(
-            self.agent,
+            agent,
             saver,
             self.settings.context_message_limit,
-            router=self.router,
-            planner=self.planner,
-            code_planners=self.code_planners,
+            router=router,
+            planner=planner,
+            code_planners=code_planners,
             version=run["checkpoint"]["graph_version"],
         )
         config = {
@@ -218,12 +232,6 @@ class GraphDriver:
             if not completed:
                 await output.replace(message_id, "")
         if not completed:
-            if (
-                run["checkpoint"].get("model_name") != self.settings.model_name
-                or run["checkpoint"].get("model_provider")
-                != self.settings.model_provider
-            ):
-                raise ValueError("Run model configuration changed")
             graph_input = (
                 None
                 if same_run
