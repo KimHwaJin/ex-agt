@@ -1,4 +1,4 @@
-"""Read YAML without falling back from production to development."""
+"""Read one of four explicit runtime profiles without unsafe fallback."""
 
 import os
 from pathlib import Path
@@ -10,12 +10,16 @@ from d_test.agent_service.settings import Settings
 
 
 def load_settings(base_dir: Path) -> Settings:
-    environment = os.environ.get("SERVICE_ENV", "development")
-    if environment not in {"development", "production"}:
-        raise RuntimeError("SERVICE_ENV must be development or production")
-    filename = (
-        "config_dev.yaml" if environment == "development" else "config.yaml"
-    )
+    environment = os.environ.get("SERVICE_ENV", "local")
+    profiles = {
+        "local": "config_local.yaml",
+        "dev": "config_dev.yaml",
+        "stg": "config_stg.yaml",
+        "prd": "config.yaml",
+    }
+    if environment not in profiles:
+        raise RuntimeError("SERVICE_ENV must be local, dev, stg or prd")
+    filename = profiles[environment]
     selected = Path(os.environ.get("SERVICE_CONFIG", str(base_dir / filename)))
     if not selected.is_absolute():
         selected = base_dir / selected

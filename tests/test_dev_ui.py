@@ -53,11 +53,12 @@ async def test_dev_console_assets_and_redirect(settings):
         "/dev/runtime",
     ],
 )
-async def test_production_has_no_dev_routes(settings, path):
+@pytest.mark.parametrize("profile", ["stg", "prd"])
+async def test_deployed_profiles_have_no_dev_routes(settings, path, profile):
     production = Settings.model_validate(
         {
             **settings.model_dump(),
-            "environment": "production",
+            "environment": profile,
             "auth_mode": "trusted_header",
             "trusted_proxy_cidrs": ["127.0.0.1/32"],
             "logging_mode": "host",

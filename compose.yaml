@@ -3,7 +3,7 @@ x-build: &build
   context: .
   target: runtime
 x-environment: &environment
-  SERVICE_ENV: development
+  SERVICE_ENV: local
   MANAGEMENT_DATABASE_URL: >-
     postgresql://management:management@postgres:5432/chatapp
   MANAGEMENT_CURSOR_SECRET: development-compose-only-cursor-secret-000001

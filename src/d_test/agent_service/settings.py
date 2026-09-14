@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 class Settings(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    environment: Literal["development", "production"] = "development"
+    environment: Literal["local", "dev", "stg", "prd"] = "local"
     database_url: SecretStr
     cursor_secret: SecretStr
     # 기본은 별도 migration. 명시적으로 켠 경우에만 빈 스키마를 생성.
@@ -88,15 +88,17 @@ class Settings(BaseModel):
         if self.auth_mode == "external":
             if not self.identity_provider_factory:
                 raise ValueError("external identity provider is required")
-        if self.environment == "production":
+        if self.is_deployed:
             if self.agent_backend == "demo":
-                raise ValueError("demo agent is forbidden in production")
+                raise ValueError("demo agent is forbidden in stg/prd")
             if self.auth_mode == "development_header":
-                raise ValueError("development identity is not production auth")
+                raise ValueError(
+                    "development identity is forbidden in stg/prd"
+                )
             if self.logging_mode not in {"host", "preconfigured"}:
-                raise ValueError("production requires host logging")
+                raise ValueError("stg/prd requires host logging")
             if self.cursor_secret.get_secret_value().startswith("development"):
-                raise ValueError("replace the development cursor secret")
+                raise ValueError("replace the development cursor in stg/prd")
         if self.embedded_run_worker and self.agent_backend == "disabled":
             raise ValueError("embedded worker requires an enabled backend")
         if self.checkpoint_database_url and not (
@@ -116,6 +118,14 @@ class Settings(BaseModel):
             if not self.logging_initializer or not self.logging_yaml:
                 raise ValueError("host logging initializer and YAML required")
         return self
+
+    @property
+    def is_development(self) -> bool:
+        return self.environment in {"local", "dev"}
+
+    @property
+    def is_deployed(self) -> bool:
+        return self.environment in {"stg", "prd"}
 
     @property
     def selectable_models(self) -> tuple[str, ...]:

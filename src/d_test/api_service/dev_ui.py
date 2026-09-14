@@ -22,7 +22,7 @@ HEADERS = {
 
 
 def install_dev_ui(app: FastAPI, settings: Settings) -> None:
-    if settings.environment != "development":
+    if not settings.is_development:
         return
 
     @app.get("/dev/runtime", include_in_schema=False)

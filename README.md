@@ -56,8 +56,9 @@ YAML 로깅 필터 호환을 위해 명시적 로거 이름 `api_service`,
 `agent_service.graph`, `agent_service.demo`는 그대로 유지합니다.
 
 `uv sync --locked --python 3.11`로 설치합니다.
-설정 프로파일은 `SERVICE_ENV=development`(기본값),
-`SERVICE_ENV=production`에 따라 선택됩니다.
+설정 프로파일은 `SERVICE_ENV=local`(기본값), `dev`, `stg`, `prd` 중 하나입니다.
+각각 `config_local.yaml`, `config_dev.yaml`, `config_stg.yaml`, `config.yaml`을
+선택합니다. `local/dev`는 개발 기능을, `stg/prd`는 운영 안전 검증을 사용합니다.
 운영 설정이 잘못되면 개발 설정으로 대체하지 않고 시작을 중단합니다.
 
 DB 연결은 YAML `database_url` 또는 `MANAGEMENT_DATABASE_URL`,
@@ -169,7 +170,7 @@ API 기록 패널은 일반 JSON 요청을 기록하며 스트림 프레임은 �
 브라우저 저장소에는 사용자 정보나 응답을 저장하지 않습니다.
 
 이 화면은 실제 DB를 변경하는 **개발용 도구**입니다.
-`environment: development`일 때만 `/dev`와 정적 파일 경로를 등록하며,
+`environment: local/dev`일 때만 `/dev`와 정적 파일 경로를 등록하며,
 운영 환경에서는 모두 404입니다. 화면을 숨기는 것이 API 인증을 대체하지는
 않습니다. 현재 화면은 헤더 식별 방식이며 SSO 로그인 UI는 아닙니다.
 템플릿 경로 아래 마운트해도 상대 경로로 동일 서비스 API를 호출합니다.

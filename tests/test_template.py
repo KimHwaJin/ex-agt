@@ -26,37 +26,43 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_profiles_and_preconfigured_logging(settings, monkeypatch):
-    values = settings.model_dump(exclude={"environment", "logging_mode"})
-    configured = settings_from_template(values, profile="dev")
-    assert configured.logging_mode == "preconfigured"
+    values = settings.model_dump(exclude={"logging_mode"})
+    for profile in ("local", "dev"):
+        configured = settings_from_template({**values, "environment": profile})
+        assert configured.environment == profile
+        assert configured.logging_mode == "preconfigured"
 
     def forbidden_logging(**kwargs):
         raise AssertionError("logging reset")
 
     monkeypatch.setattr(logging, "basicConfig", forbidden_logging)
-    initialize_logging(configured)
+    initialize_logging(settings_from_template(values))
     for profile in ("stg", "prd"):
         with pytest.raises(RuntimeError, match="Invalid AGENT_SERVICE"):
-            settings_from_template(values, profile=profile)
+            settings_from_template({**values, "environment": profile})
         production = settings_from_template(
             {
                 **values,
+                "environment": profile,
                 "auth_mode": "trusted_header",
                 "trusted_proxy_cidrs": ["10.0.0.0/24"],
-            },
-            profile=profile,
+            }
         )
-        assert production.environment == "production"
-    with pytest.raises(RuntimeError, match="HCP_ACTIVE_PROFILE"):
-        settings_from_template(values, profile="unknown")
+        assert production.environment == profile
+    with pytest.raises(RuntimeError, match="Invalid AGENT_SERVICE"):
+        settings_from_template({**values, "environment": "unknown"})
     with pytest.raises(RuntimeError, match="must be a mapping"):
-        settings_from_template(None, profile="dev")  # ty: ignore
-    with pytest.raises(RuntimeError, match="environment differ"):
-        settings_from_template(settings.model_dump(), profile="prd")
-    with pytest.raises(RuntimeError) as caught:
+        settings_from_template(None)  # ty: ignore
+    with pytest.raises(RuntimeError, match="environment is required"):
         settings_from_template(
-            {**values, "unexpected": "secret-password"}, profile="dev"
+            {
+                key: value
+                for key, value in values.items()
+                if key != "environment"
+            }
         )
+    with pytest.raises(RuntimeError) as caught:
+        settings_from_template({**values, "unexpected": "secret-password"})
     assert "secret-password" not in str(caught.value)
 
 
@@ -228,7 +234,6 @@ def test_example_entrypoint_uses_host_app_not_main(settings, monkeypatch):
     for name, module in modules.items():
         monkeypatch.setitem(sys.modules, name, module)
     monkeypatch.setattr(sys, "path", list(sys.path))
-    monkeypatch.setenv("HCP_ACTIVE_PROFILE", "dev")
 
     def run(target, **kwargs):
         assert target is app

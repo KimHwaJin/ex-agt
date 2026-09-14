@@ -10,7 +10,8 @@ ENV UV_COMPILE_BYTECODE=1 \
 COPY pyproject.toml uv.lock README.md ./
 COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable --no-cache
-COPY app.py config.yaml config_dev.yaml alembic.ini ./
+COPY app.py config.yaml config_dev.yaml config_local.yaml config_stg.yaml ./
+COPY alembic.ini ./
 COPY migrations ./migrations
 
 FROM base AS test
@@ -24,5 +25,5 @@ RUN useradd --uid 10001 --create-home appuser
 USER appuser
 EXPOSE 8020
 # Fail closed without explicit deployment configuration.
-ENV SERVICE_ENV=production
+ENV SERVICE_ENV=prd
 CMD ["python", "app.py"]
