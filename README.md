@@ -26,25 +26,34 @@ app.py                       # 외부 템플릿과 동일한 루트 실행 진�
 config_dev.yaml              # 개발 설정
 config.yaml                  # 운영 설정 (인증·로깅 연결 후 사용)
 src/
-  api_service/               # HTTP, 요청 스키마, 인증 의존성
-  agent_service/
-    application/             # 관리/Run 유스케이스와 메시지 출력 저장
-    domain/                  # 엔티티와 도메인 오류
-    infrastructure/database/ # PostgreSQL 저장소
-    agents/                  # create_agent 정의와 모델 구성
-    catalog/                 # 버전별 Skill 문서·독립 함수·셀 조립
-    graphs/assistant/        # 세션 대화 그래프의 builder/nodes/state
-    runtime/                 # DB 풀 수명 관리, 실제/DEMO 실행기
-    worker_main.py           # 선택적 별도 worker 진입점
-    checkpoint_main.py       # 체크포인트 DB 명시적 초기화/업그레이드
-    bootstrap/               # YAML 설정·외부 로깅 초기화
-    integrations/            # 템플릿 workflow와 외부 계약 변환
-    settings.py              # 설정 검증
+  d_test/                    # 내부 템플릿과 구분되는 우리 패키지
+    api_service/             # HTTP, 요청 스키마, 인증 의존성
+    agent_service/
+      application/           # 관리/Run 유스케이스와 메시지 출력 저장
+      domain/                # 엔티티와 도메인 오류
+      infrastructure/database/ # PostgreSQL 저장소
+      agents/                # create_agent 정의와 모델 구성
+      catalog/               # 버전별 Skill 문서·독립 함수·셀 조립
+      graphs/assistant/      # 세션 대화 그래프의 builder/nodes/state
+      runtime/               # DB 풀 수명 관리, 실제/DEMO 실행기
+      worker_main.py         # 선택적 별도 worker 진입점
+      checkpoint_main.py     # 체크포인트 DB 명시적 초기화/업그레이드
+      bootstrap/             # YAML 설정·외부 로깅 초기화
+      integrations/          # 템플릿 workflow와 외부 계약 변환
+      settings.py            # 설정 검증
 migrations/                  # 관리/Run/메시지 마이그레이션
 tests/                       # 현재 구현만 검증
 ```
 
 ## 개발 환경
+
+우리 소스는 `src/d_test/` 아래에 모았습니다. 내부 템플릿에는 이 디렉토리
+전체를 옮기고, 기존 `src/routers`·`src/workflows`에서 연결 코드만 추가합니다.
+기존 최상위 `api_service`/`agent_service` import 별칭은 제공하지 않습니다.
+외부 설정에 우리 factory 경로를 문자열로 넣었다면 `d_test.` 접두사를
+추가해야 합니다. HTTP 경로·DB 테이블·체크포인트 스키마는 변경하지 않았습니다.
+YAML 로깅 필터 호환을 위해 명시적 로거 이름 `api_service`,
+`agent_service.graph`, `agent_service.demo`는 그대로 유지합니다.
 
 `uv sync --locked --python 3.11`로 설치합니다.
 설정 프로파일은 `SERVICE_ENV=development`(기본값),
@@ -64,7 +73,7 @@ DB 연결은 YAML `database_url` 또는 `MANAGEMENT_DATABASE_URL`,
 ```sh
 uv sync --locked --python 3.11
 docker compose up -d postgres
-uv run --locked python -m agent_service.migrate
+uv run --locked python -m d_test.agent_service.migrate
 uv run --locked python app.py
 ```
 
@@ -162,7 +171,7 @@ API 기록 패널은 일반 JSON 요청을 기록하며 스트림 프레임은 �
 않습니다. 현재 화면은 헤더 식별 방식이며 SSO 로그인 UI는 아닙니다.
 템플릿 경로 아래 마운트해도 상대 경로로 동일 서비스 API를 호출합니다.
 
-구현 파일은 `src/api_service/dev_ui.py`와 `static/dev/` 아래에 있습니다.
+구현 파일은 `src/d_test/api_service/dev_ui.py`와 `static/dev/` 아래에 있습니다.
 
 브라우저 회귀 검증은 `tests/browser/dev-ui.cjs`에 있습니다.
 일반 API/화면 실행에는 Node.js가 필요하지 않으며, 이 검증을 실행할 때만
@@ -228,11 +237,15 @@ body/query에 섞지 않고 인증 의존성을 통해 전달합니다.
 
 ## 외부 템플릿 연동
 
-템플릿의 루트 `app.py`와 기존 FastAPI 앱을 그대로 두고, 시작 전에
-`api_service.factory.install_management_api(app, settings)`를 호출합니다.
-기존 lifespan을 보존하며, API 코드는 Agent/Worker를 import하지 않습니다.
+일반 FastAPI 호스트에는 시작 전에
+`d_test.api_service.factory.install_management_api(app, settings)`를 호출합니다.
+Gaia처럼 `get_routers()`에서 미리 등록하는 템플릿은
+`d_test.api_service.template.install_template_runtime()`으로 연결합니다.
+기존 FastAPI 객체와 lifespan은 보존하고, API 라우터가 그래프를 직접
+실행하지는 않습니다. 루트 진입점에서 GaiaService.main()을 대신하는 방법은
+[Gaia 연결 가이드](docs/gaia-template-integration.md)를 참고하세요.
 
-인증은 `api_service.security.IdentityProvider`의 비동기 메서드
+인증은 `d_test.api_service.security.IdentityProvider`의 비동기 메서드
 `employee_id(request) -> str`, `user_uuid(request) -> UUID`를 구현해
 교체합니다. 팩토리는 `factory(settings) -> IdentityProvider` 형식이며,
 YAML의 `identity_provider_factory: package.module:function`으로 연결합니다.

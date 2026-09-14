@@ -1,0 +1,10 @@
+# Isolated root-app boot smoke test; no model calls or Run consumers.
+environment: development
+database_url: postgresql://unused:unused@localhost/chatapp
+database_url_env: MANAGEMENT_DATABASE_URL
+cursor_secret: test-layout-boot-cursor-secret-0123456789
+auth_mode: development_header
+agent_backend: disabled
+embedded_run_worker: false
+bind_host: 0.0.0.0
+bind_port: 8020

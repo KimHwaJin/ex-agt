@@ -15,15 +15,17 @@ from psycopg import OperationalError
 from psycopg_pool import PoolClosed
 from pydantic import Field, ValidationError
 
-from agent_service.agents.assistant import build_assistant
-from agent_service.agents.code_planner import build_code_planners
-from agent_service.agents.intake import build_intake_agents
-from agent_service.application.outputs import OutputWriter
-from agent_service.graphs.assistant.builder import build_graph
-from agent_service.infrastructure.database.checkpoints import Checkpoints
-from agent_service.runtime.graph_driver import GraphDriver
-from agent_service.runtime.management import ManagementRuntime
-from agent_service.settings import Settings
+from d_test.agent_service.agents.assistant import build_assistant
+from d_test.agent_service.agents.code_planner import build_code_planners
+from d_test.agent_service.agents.intake import build_intake_agents
+from d_test.agent_service.application.outputs import OutputWriter
+from d_test.agent_service.graphs.assistant.builder import build_graph
+from d_test.agent_service.infrastructure.database.checkpoints import (
+    Checkpoints,
+)
+from d_test.agent_service.runtime.graph_driver import GraphDriver
+from d_test.agent_service.runtime.management import ManagementRuntime
+from d_test.agent_service.settings import Settings
 
 
 class TestModel(BaseChatModel):
@@ -142,7 +144,7 @@ class TestModel(BaseChatModel):
 def model(monkeypatch):
     model = TestModel()
     monkeypatch.setattr(
-        "agent_service.runtime.management.build_model", lambda _: model
+        "d_test.agent_service.runtime.management.build_model", lambda _: model
     )
     return model
 
@@ -622,7 +624,7 @@ async def test_restart_resume_no_extra_model_or_execution(
 async def test_interrupt_projection_failure_recovers_without_replanning(
     client, identity, session, runtime, model, monkeypatch
 ):
-    from agent_service.runtime import graph_driver
+    from d_test.agent_service.runtime import graph_driver
 
     model.intent = "analysis_task"
     original = graph_driver.publish_review
@@ -742,7 +744,7 @@ async def test_resume_completion_projection_retry_does_not_repeat_decision(
 async def test_modified_checkpoint_projection_retry_does_not_reapply_modify(
     client, identity, session, runtime, model, monkeypatch
 ):
-    from agent_service.runtime import graph_driver
+    from d_test.agent_service.runtime import graph_driver
 
     model.intent = "analysis_task"
     run_id = await submit(client, identity, session)
@@ -983,8 +985,12 @@ async def test_runtime_owns_all_selected_model_clients(
     async def close(model):
         closed.append(model)
 
-    monkeypatch.setattr("agent_service.runtime.management.build_model", build)
-    monkeypatch.setattr("agent_service.runtime.management.close_model", close)
+    monkeypatch.setattr(
+        "d_test.agent_service.runtime.management.build_model", build
+    )
+    monkeypatch.setattr(
+        "d_test.agent_service.runtime.management.close_model", close
+    )
     fresh = ManagementRuntime.build(
         runtime.settings.model_copy(
             update={

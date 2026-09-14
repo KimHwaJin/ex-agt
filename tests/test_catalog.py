@@ -5,13 +5,16 @@ import ast
 import pytest
 from pydantic import ValidationError
 
-from agent_service.catalog.compiler import (
+from d_test.agent_service.catalog.compiler import (
     compile_proposal,
     parse_arguments,
     render_cell,
 )
-from agent_service.catalog.registry import digest, load_catalog
-from agent_service.domain.code_plans import CatalogProposal, GeneratedProposal
+from d_test.agent_service.catalog.registry import digest, load_catalog
+from d_test.agent_service.domain.code_plans import (
+    CatalogProposal,
+    GeneratedProposal,
+)
 
 
 def catalog_proposal():
@@ -105,7 +108,7 @@ def test_generated_compilation_does_not_load_catalog(monkeypatch):
         raise AssertionError("Free code must not load Skill/Tool catalog")
 
     monkeypatch.setattr(
-        "agent_service.catalog.compiler.load_catalog", forbidden
+        "d_test.agent_service.catalog.compiler.load_catalog", forbidden
     )
     proposal = GeneratedProposal.model_validate(
         {

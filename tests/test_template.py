@@ -12,12 +12,15 @@ import pytest
 from fastapi import FastAPI
 from pydantic import ValidationError
 
-from agent_service.bootstrap.logging import initialize_logging
-from agent_service.bootstrap.template import settings_from_template
-from agent_service.integrations.template_protocol import decode_v1
-from agent_service.integrations.template_workflow import WorkflowManager
-from api_service.factory import get_management_routers, install_management_api
-from api_service.template import install_template_runtime
+from d_test.agent_service.bootstrap.logging import initialize_logging
+from d_test.agent_service.bootstrap.template import settings_from_template
+from d_test.agent_service.integrations.template_protocol import decode_v1
+from d_test.agent_service.integrations.template_workflow import WorkflowManager
+from d_test.api_service.factory import (
+    get_management_routers,
+    install_management_api,
+)
+from d_test.api_service.template import install_template_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -94,7 +97,8 @@ async def test_template_lifespan_composes_and_releases(
 
     resources = SimpleNamespace(start=start, close=close, runs=object())
     monkeypatch.setattr(
-        "api_service.factory.ManagementRuntime.build", lambda _: resources
+        "d_test.api_service.factory.ManagementRuntime.build",
+        lambda _: resources,
     )
     app = FastAPI(lifespan=original)
     for router in get_management_routers():

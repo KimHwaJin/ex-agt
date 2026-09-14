@@ -7,12 +7,12 @@ from uuid import UUID, uuid4
 import pytest
 from pydantic import ValidationError
 
-from agent_service.application.outputs import OutputWriter
-from agent_service.domain.management import DomainError
-from agent_service.domain.runs import RunRequest
-from agent_service.integrations.template_protocol import decode_v1
-from agent_service.integrations.template_workflow import WorkflowManager
-from agent_service.runtime.demo_driver import DemoDriver
+from d_test.agent_service.application.outputs import OutputWriter
+from d_test.agent_service.domain.management import DomainError
+from d_test.agent_service.domain.runs import RunRequest
+from d_test.agent_service.integrations.template_protocol import decode_v1
+from d_test.agent_service.integrations.template_workflow import WorkflowManager
+from d_test.agent_service.runtime.demo_driver import DemoDriver
 
 
 @pytest.fixture

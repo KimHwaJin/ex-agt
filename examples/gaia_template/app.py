@@ -17,8 +17,8 @@ def main():
     from template_bindings import resolve_request
     from workflows.analysis import manager
 
-    from agent_service.bootstrap.template import settings_from_template
-    from api_service.template import install_template_runtime
+    from d_test.agent_service.bootstrap.template import settings_from_template
+    from d_test.api_service.template import install_template_runtime
 
     # Constructor initializes the host logger and existing routes/middleware.
     service = GaiaService()

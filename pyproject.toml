@@ -24,7 +24,7 @@ requires = ["uv_build>=0.11.29,<0.12"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
-module-name = ["api_service", "agent_service"]
+module-name = "d_test"
 
 [dependency-groups]
 dev = [

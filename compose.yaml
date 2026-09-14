@@ -29,7 +29,7 @@ services:
   migrate:
     build: *build
     environment: *environment
-    command: ["python", "-m", "agent_service.migrate"]
+    command: ["python", "-m", "d_test.agent_service.migrate"]
     depends_on:
       postgres:
         condition: service_healthy

@@ -8,7 +8,7 @@ from alembic import context
 from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
-from agent_service.bootstrap.configuration import load_settings
+from d_test.agent_service.bootstrap.configuration import load_settings
 
 
 def database_url() -> str:

@@ -1,7 +1,9 @@
 """Replace only this private-auth/protocol boundary during migration."""
 
-from agent_service.domain.management import DomainError
-from agent_service.integrations.template_protocol import AuthorizedRequest
+from d_test.agent_service.domain.management import DomainError
+from d_test.agent_service.integrations.template_protocol import (
+    AuthorizedRequest,
+)
 
 
 async def resolve_request(payload: dict, config: dict) -> AuthorizedRequest:

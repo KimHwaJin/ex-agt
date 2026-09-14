@@ -6,7 +6,7 @@
 
 ## 옮길 파일
 
-- 정식 구현: `src/api_service/`, `src/agent_service/`, DB 마이그레이션.
+- 정식 구현: `src/d_test/` 전체 (`__init__.py` 포함), DB 마이그레이션.
 - 이 예제의 `app.py`: 내부 루트 진입점에 반영.
 - `src/workflows/analysis.py`: 실제 workflow 탐색 디렉토리에 반영.
 - `src/template_bindings.py`: 인증·세션 매핑 및 외부 프로토콜 변환 구현.
@@ -19,7 +19,7 @@
 ## 기존 routers/__init__.py에 추가
 
 ```python
-from api_service.factory import get_management_routers
+from d_test.api_service.factory import get_management_routers
 
 
 def get_routers():
