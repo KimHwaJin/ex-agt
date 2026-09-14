@@ -3,6 +3,7 @@
 from langgraph.graph import END, START, StateGraph
 
 from .nodes import complete, response_node
+from .preparation import preparation_node
 from .review import (
     classification_node,
     next_after_classification,
@@ -13,8 +14,8 @@ from .review import (
 )
 from .state import WorkflowState
 
-GRAPH_VERSION = "assistant-v2"
-SUPPORTED_VERSIONS = {"assistant-v1", GRAPH_VERSION}
+GRAPH_VERSION = "assistant-v3"
+SUPPORTED_VERSIONS = {"assistant-v1", "assistant-v2", GRAPH_VERSION}
 
 
 def build_graph(
@@ -24,6 +25,7 @@ def build_graph(
     *,
     router=None,
     planner=None,
+    code_planners=None,
     version=GRAPH_VERSION,
 ):
     # ty currently cannot match TypedDict classes to LangGraph's protocol.
@@ -33,7 +35,9 @@ def build_graph(
     if version == "assistant-v1":
         builder.add_edge(START, "respond")
     elif (
-        version == GRAPH_VERSION and router is not None and planner is not None
+        version in {"assistant-v2", GRAPH_VERSION}
+        and router is not None
+        and planner is not None
     ):
         builder.add_node("classify", classification_node(router))
         builder.add_node("plan", planning_node(planner))
@@ -43,7 +47,14 @@ def build_graph(
         builder.add_conditional_edges(
             "classify", next_after_classification, ["respond", "plan"]
         )
-        builder.add_edge("plan", "review_plan")
+        if version == GRAPH_VERSION:
+            if code_planners is None:
+                raise ValueError("Code planning agents are required")
+            builder.add_node("prepare_code", preparation_node(code_planners))
+            builder.add_edge("plan", "prepare_code")
+            builder.add_edge("prepare_code", "review_plan")
+        else:
+            builder.add_edge("plan", "review_plan")
         builder.add_conditional_edges(
             "review_plan", next_after_review, ["plan", "review_outcome"]
         )

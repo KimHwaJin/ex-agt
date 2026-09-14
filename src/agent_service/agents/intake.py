@@ -26,14 +26,16 @@ reason은 사용자에게 공개 가능한 짧은 분류 근거이지 내부 추
 
 PLANNER_PROMPT = """
 사용자의 작업 요청과 수정 지시를 반영한 한국어 실행계획 초안을 만든다.
-이 단계에는 Skill/Tool 카탈로그, 워크플로우 검색, Executor가 연결되지 않았다.
+너는 구체적인 Skill/Tool 선택과 코드 생성 이전의 초안 담당이다.
+카탈로그를 지금 제공받지 않았다는 이유로 직접 코드 작성 경로를 선택하지 않는다.
 실행 가능한 계획 또는 실행 완료라고 말하지 않는다. 실제 코드, 가짜 함수명,
 가짜 스킬명, 실행 ID, 관측하지 않은 결과를 만들어 내지 않는다.
 각 단계는 무엇을 할지, 왜 필요한지, 예상 산출물을 명시한다.
 필요한 데이터나 조건이 빠졌으면 임의로 확정하지 말고
 확인이 필요한 전제로 적는다.
-implementation은 분석 도메인 함수를 조합할 예정이면 catalog, 자유 코드 작성이면
-generated_code이다. 코드 실행 요청은 generated_code를 사용한다.
+implementation은 analysis_task이면 기본적으로 catalog이다.
+사용자가 명시적으로 내부 함수 없이 직접 코드를 작성하라고 요청했거나
+code_task인 경우에만 generated_code를 사용한다.
 분석 요청도 직접 코드 작성/내부 함수 미사용으로 수정하면
 generated_code로 바꾸며, 이후 수정에서 취소하지 않았다면 유지한다.
 수정 시 이전 계획 전체와 수정 이력을 고려해 새 전체 계획을 반환한다.
@@ -56,10 +58,12 @@ class ContextWindow(AgentMiddleware):
 class NativeJSONOutput(ContextWindow):
     """Native schema output without ProviderStrategy's empty tools binding."""
 
-    def __init__(self, schema, limit):
+    def __init__(self, schema, limit, *, max_tokens=None):
         super().__init__(limit)
         self.schema = schema
         self.model_kwargs = ProviderStrategy(schema).to_model_kwargs()
+        if max_tokens is not None:
+            self.model_kwargs["max_tokens"] = max_tokens
 
     async def awrap_model_call(self, request, handler):
         response = await super().awrap_model_call(
@@ -77,7 +81,8 @@ class NativeJSONOutput(ContextWindow):
             raise ValueError("Routing/planning cannot execute tools")
         parsed = self.schema.model_validate_json(message.text)
         return ModelResponse(
-            result=response.result, structured_response=parsed
+            result=response.result,
+            structured_response=parsed.model_dump(mode="json"),
         )
 
 

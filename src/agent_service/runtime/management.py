@@ -10,6 +10,7 @@ from agent_service.agents.assistant import (
     build_model,
     close_model,
 )
+from agent_service.agents.code_planner import build_code_planners
 from agent_service.agents.intake import build_intake_agents
 from agent_service.application.cursors import CursorCodec
 from agent_service.application.management import ManagementService
@@ -74,6 +75,9 @@ class ManagementRuntime:
                     "SELECT graph_interrupt_id "
                     "FROM management.run_interrupts LIMIT 0"
                 )
+                await connection.execute(
+                    "SELECT 1 FROM management.execution_plans LIMIT 0"
+                )
             self.checkpoints = Checkpoints(self.settings)
             await self.checkpoints.open()
             self.model = build_model(self.settings)
@@ -86,6 +90,12 @@ class ManagementRuntime:
                 build_assistant(self.model),
                 router=router,
                 planner=planner,
+                code_planners=await asyncio.to_thread(
+                    build_code_planners,
+                    self.model,
+                    self.settings.context_message_limit,
+                    self.settings.code_plan_max_tokens,
+                ),
             )
         elif self.settings.agent_backend == "demo":
             self.driver = DemoDriver(self.runs)

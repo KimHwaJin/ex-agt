@@ -47,6 +47,8 @@ class Settings(BaseModel):
     model_timeout_seconds: float = Field(default=60, ge=1, le=600)
     model_max_retries: int = Field(default=1, ge=0, le=5)
     model_max_tokens: int = Field(default=2048, ge=1, le=16384)
+    # 함수 원문을 포함하는 코드 계획에만 적용되는 출력 상한.
+    code_plan_max_tokens: int = Field(default=8192, ge=512, le=16384)
     model_extra_body: dict = Field(default_factory=dict)
     context_message_limit: int = Field(default=40, ge=2, le=200)
     output_flush_chars: int = Field(default=256, ge=1, le=4096)

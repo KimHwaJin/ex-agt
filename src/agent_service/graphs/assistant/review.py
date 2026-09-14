@@ -89,6 +89,18 @@ def plan_text(plan):
             f"{index}. {step['description']}\n"
             f"이유: {step['reason']}\n예상 산출물: {step['expected_result']}"
         )
+        if step.get("tool_id"):
+            lines.append(
+                f"Skill: {step['skill_id']}@{step['skill_version']} / "
+                f"Tool: {step['tool_id']}@{step['tool_version']}"
+            )
+        if "parameters" in step:
+            lines.append(
+                "파라미터: "
+                + json.dumps(step["parameters"], ensure_ascii=False)
+            )
+    for warning in plan.get("generation_risk", {}).get("warnings", []):
+        lines.append(f"경고: {warning}")
     return "\n\n".join(lines)
 
 

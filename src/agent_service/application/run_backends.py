@@ -11,7 +11,7 @@ def initial_state(settings):
             "revision": 1,
         }
     return {
-        "graph_version": "assistant-v2",
+        "graph_version": "assistant-v3",
         "attempts": 0,
         "model_name": settings.model_name,
         "model_provider": settings.model_provider,
@@ -21,7 +21,8 @@ def initial_state(settings):
 def resumed_state(run, response, pending=None):
     if (
         run["backend"] == "langgraph"
-        and run["checkpoint"].get("graph_version") == "assistant-v2"
+        and run["checkpoint"].get("graph_version")
+        in {"assistant-v2", "assistant-v3"}
         and pending
         and pending.get("graph_interrupt_id")
     ):

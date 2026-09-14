@@ -13,7 +13,9 @@ SSE 스트림과 개발 화면을 추가했습니다. 아래 계약은 실제 AP
 Executor, Redis Worker, 프로젝트 공유 메모리,
 파일·이미지 업로드, 노트북·리포트 생성은 아직 연결하지 않았습니다.
 DEMO의 실행 ID는 `simulated: true`이며 Executor 조회에 사용하면 안 됩니다.
-실제 그래프의 승인 계획은 LLM이 만든 초안이며 아직 Skill/Tool 선택 결과가 아닙니다.
+신규 그래프의 승인 계획에는 Skill/Tool 선택 결과 또는 직접 코드 준비 결과가
+들어갑니다. 원문 코드는 공개하지 않고 버전별 스냅샷으로 별도 저장합니다.
+[셀 계획 준비](skill-tool-planning.md)의 범위와 제한을 참고하세요.
 승인 후 `failed`와 `EXECUTOR_NOT_CONFIGURED`를 반환하며 실제 실행은 하지 않습니다.
 고정 테스트 계획은 `agent_backend: demo`에서만 사용합니다.
 

@@ -13,6 +13,7 @@ from psycopg_pool import PoolTimeout
 
 from agent_service.application.graph_reviews import publish_review
 from agent_service.application.outputs import OutputWriter
+from agent_service.application.plan_snapshots import save_plan_snapshot
 from agent_service.domain.runs import TERMINAL
 from agent_service.graphs.assistant.builder import (
     SUPPORTED_VERSIONS,
@@ -34,7 +35,14 @@ class CancelRequested(Exception):
 
 class GraphDriver:
     def __init__(
-        self, service, checkpoints, agent, *, router=None, planner=None
+        self,
+        service,
+        checkpoints,
+        agent,
+        *,
+        router=None,
+        planner=None,
+        code_planners=None,
     ):
         self.service = service
         self.settings = service.settings
@@ -42,6 +50,7 @@ class GraphDriver:
         self.agent = agent
         self.router = router
         self.planner = planner
+        self.code_planners = code_planners
 
     @asynccontextmanager
     async def owned(self, run_id, owner, attempt):
@@ -188,6 +197,7 @@ class GraphDriver:
             self.settings.context_message_limit,
             router=self.router,
             planner=self.planner,
+            code_planners=self.code_planners,
             version=run["checkpoint"]["graph_version"],
         )
         config = {
@@ -223,6 +233,7 @@ class GraphDriver:
                     "completed_run_id": None,
                     "route": {},
                     "plan": None,
+                    "prepared_plan": None,
                     "plan_version": 0,
                     "instruction": None,
                     "decision": None,
@@ -303,6 +314,12 @@ class GraphDriver:
             if len(snapshot.interrupts) != 1:
                 raise ValueError("Only one plan review may be pending")
             async with self.owned(run_id, owner, attempt) as output:
+                if run["checkpoint"]["graph_version"] == "assistant-v3":
+                    await save_plan_snapshot(
+                        output,
+                        values.get("prepared_plan"),
+                        snapshot.interrupts[0].value,
+                    )
                 await output.replace(
                     message_id,
                     plan_text(snapshot.interrupts[0].value),
