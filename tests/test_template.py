@@ -3,6 +3,7 @@
 import importlib.util
 import logging
 import sys
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from types import SimpleNamespace
@@ -104,6 +105,51 @@ def test_uppercase_settings_preserve_deployment_checks(settings, profile):
 def test_duplicate_setting_casing_is_not_silently_overwritten(settings):
     with pytest.raises(RuntimeError, match="duplicate AGENT_SERVICE"):
         settings_from_template({**settings.model_dump(), "ENVIRONMENT": "prd"})
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected"),
+    [
+        ({"environment": "secret-invalid-value"}, "ENVIRONMENT: 허용값"),
+        ({"pool_timeout": "secret-invalid-value"}, "POOL_TIMEOUT:"),
+        ({"database_url": "secret-invalid-value"}, "DATABASE_URL:"),
+        ({"cursor_secret": "secret-invalid-value"}, "CURSOR_SECRET:"),
+        ({"auth_mode": "external"}, "IDENTITY_PROVIDER_FACTORY:"),
+        ({"environment": "stg"}, "AUTH_MODE:"),
+        (
+            {
+                "auth_mode": "trusted_header",
+                "trusted_proxy_cidrs": ["secret-invalid-value"],
+            },
+            "TRUSTED_PROXY_CIDRS:",
+        ),
+        ({"secret-unknown-key": "secret-invalid-value"}, "<UNKNOWN_FIELD>"),
+    ],
+)
+def test_template_diagnostics_name_issue_without_exposing_input(
+    settings, overrides, expected
+):
+    values = settings.model_dump(exclude={"logging_mode"})
+    values.update(overrides, model_api_key="secret-model-api-key")
+    with pytest.raises(RuntimeError) as caught:
+        settings_from_template(values)
+    output = "".join(traceback.format_exception(caught.value))
+    assert expected in str(caught.value)
+    assert "secret-invalid-value" not in output
+    assert "secret-model-api-key" not in output
+    assert "secret-unknown-key" not in output
+    assert "input_value" not in output
+
+
+def test_template_diagnostics_report_multiple_field_errors(settings):
+    values = settings.model_dump(exclude={"logging_mode", "database_url"})
+    values.update(environment="bad-profile", pool_timeout="bad-timeout")
+    with pytest.raises(RuntimeError) as caught:
+        settings_from_template(values)
+    message = str(caught.value)
+    assert "ENVIRONMENT: 허용값: local, dev, stg, prd" in message
+    assert "DATABASE_URL: 필수 항목이 없습니다" in message
+    assert "POOL_TIMEOUT:" in message
 
 
 def test_router_collision_and_missing_registration(settings):
