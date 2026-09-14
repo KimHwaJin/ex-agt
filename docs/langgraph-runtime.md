@@ -1,26 +1,93 @@
-# 실제 대화 실행기와 PostgreSQL 체크포인트
+# 요청 분기·계획 검토 실행기와 PostgreSQL 체크포인트
 
 ## 이번 단계에서 가능한 것
 
-일반 대화/분석 관련 설명을 실제 LLM으로 처리합니다. `create_agent` 정의를
+일반 대화/분석 설명, 요청 분류, 작업 계획 초안을 실제 LLM으로 처리합니다.
+`create_agent` 정의를
 별도 `agents/`에 두고, `graphs/assistant/`에서 명시적 그래프로 조합합니다.
 API의 신규 메시지 계약은 이전과 같으며 `session_id = thread_id`입니다.
 
 ```text
 POST /agent/runs → Run 접수·사용자 메시지 저장 → 실행기
   → 세션 실행 잠금 획득 → PostgreSQL 체크포인트 조회
-  → START → respond(create_agent) → complete → END
+  → classify(create_agent)
+      → 일반/분석 질문: respond(create_agent) → complete → END
+      → 분석/코드 작업: plan(create_agent) → review_plan(interrupt)
+          → modify: plan → review_plan (새 버전)
+          → reject: review_outcome → complete → END (rejected)
+          → approve: review_outcome → complete → END (failed: 실행 미연결)
   → 응답·Run 완료 저장 → 세션 활성 Run 해제
 ```
 
 실제 분석/코드 실행, Skill/Tool 선택, Executor, 리포트 생성은 아직 없습니다.
-따라서 이 그래프에는 HITL 노드가 없고, 일반 대화는 승인 없이 답변합니다.
+일반 대화는 승인 없이 답변합니다. 작업 요청은 LLM이 만든 **계획 초안**을
+실제 LangGraph `interrupt`로 검토받습니다. 승인해도 실행 성공으로 처리하지 않고
+`EXECUTOR_NOT_CONFIGURED`를 안내하며 종료합니다. 가짜 Execution ID나 리포트를
+생성하지 않습니다. 이 단계의 승인 카드는 연동 검증용이며 최종 실행계획은 아닙니다.
+Skill/Tool 조합, 워크플로우 검색·single/multi 선택은 다음 단계입니다.
 기존 DEMO의 승인/수정/취소 시나리오는 `agent_backend: demo`로 남겨두었습니다.
 실제 대화 그래프에 DEMO의 승인 응답을 적용하지 않습니다.
 DEMO에서 전환하기 전 활성 테스트 작업을 완료/취소하세요. 기존 Run은 접수 당시
 backend를 유지하며 다른 backend로 재개/비동기 취소를 접수하지 않습니다.
 남은 작업은 해당 backend 실행기를 다시 구동해 처리합니다. 실행 제출 전의
 단순 승인 대기는 다른 backend 상태에서도 즉시 취소할 수 있습니다.
+
+## 요청 분류와 실제 HITL
+
+분류 결과는 `general_question`, `analysis_question`, `analysis_task`,
+`code_task` 중 하나이며 키워드/정규식 규칙 없이 모델이 대화 의미로 판단합니다.
+단순 설명·코드 예시는 질문 경로이고 실제 수행 요청만 계획 검토로 보냅니다.
+분류가 불명확하면 질문 경로에서 확인하도록 프롬프트에 명시합니다.
+모델 출력은 Pydantic 구조 검증에 실패하면 종료하며 임의 분류로 대체하지 않습니다.
+분류·계획의 구조화 호출은 `temperature=0`을 사용합니다. 의미 분류의 완벽한
+정확성을 보장하지는 않으며, 실제 도메인 평가 사례를 추가하는 작업은 계속 필요합니다.
+분류 호출이 추가되어 질문 응답은 보통 분류 1회+답변 1회, 최초 작업 계획은
+분류 1회+계획 1회의 모델 호출을 사용합니다. 수정은 계획 호출만 수행하며
+승인/거절 자체는 모델 호출 없이 처리합니다.
+
+`agents/intake.py`는 `create_agent`와 `NativeJSONOutput` 미들웨어를 사용합니다.
+미들웨어가 `ProviderStrategy`의 JSON Schema 요청 형식을 적용하고 Pydantic으로
+응답을 검증합니다. 기본 ProviderStrategy 실행 경로는 `tools: []`를 전송하는데,
+현재 모델 게이트웨이가 이를 거절하므로 도구 필드를 보내지 않는 경로를 사용합니다.
+모델 서버는 JSON Schema 구조화 출력을 지원해야 합니다. 현재 vLLM 구성으로
+검증하며 제공자를 바꿀 경우 이 기능도 확인해야 합니다. 모델 호출의 컨텍스트 제한은
+`ContextWindow` 미들웨어로 처리하고 원본 대화 체크포인트는 삭제하지 않습니다.
+실행 도구가 없으므로 승인받기 위한 가짜 Tool은 만들지 않았습니다.
+`HumanInTheLoopMiddleware`의 Tool 승인이 아니라 전체 계획 검토용 `interrupt`입니다.
+
+계획에는 제목·요약·각 단계의 내용/선택 이유/예상 산출물·구현 방식이 들어갑니다.
+`catalog`는 향후 도메인 함수 조합 예정, `generated_code`는 직접 코드 작성 예정입니다.
+카탈로그가 아직 없으므로 실제 스킬/툴 식별자는 넣지 않습니다. 코드도 생성·실행하지
+않습니다. 수정 요청은 이전 계획과 함께 모델에 전달하고 같은 `plan_id`의 버전을
+증가시킵니다. 사용자가 직접 코드 작성을 요청하면 모델이 구현 방식을 바꿉니다.
+
+API 계약은 기존 `input.type=resume`과 `response.type=plan_review`를 유지합니다.
+
+1. LangGraph가 계획을 체크포인트에 저장하고 `interrupt(plan)`으로 멈춥니다.
+2. 실행기가 interrupt를 `management.run_interrupts`와 `run.interrupted`에
+   동일 트랜잭션으로 반영합니다. 실제 graph ID는 내부 컬럼 `graph_interrupt_id`에
+   보관하고 공개 UUID는 해당 Run/interrupt로부터 안정적으로 생성합니다.
+3. API는 소유자·세션·활성 Run·현재 승인 ID를 검증하고 응답을 영속 저장합니다.
+4. 실행기는 정확한 graph ID를 대상으로 `Command(resume={id: value})`를 보냅니다.
+5. 그래프는 적용한 공개 승인 ID를 상태에 남깁니다. 장애 재시도에서 이미 적용한
+   승인으로 다음 계획을 승인하지 않으며, 수정 후 이전 카드의 응답은 409입니다.
+
+`review_plan`은 외부 쓰기/모델 호출이 없는 노드입니다. 재개 시 노드가 처음부터
+실행된다는 LangGraph 규칙에 맞게 계획 생성 노드와 분리했습니다.
+대기 중에는 연결/그래프 잠금을 반납하지만 서비스의 `active_run_id`는 유지합니다.
+따라서 새 메시지는 막고 승인 응답/취소만 받습니다. `is_locked=execution`은 실제
+Executor 연동 때 사용하는 별도 상태이며 이번 단계에서는 설정하지 않습니다.
+사람의 응답을 기다리는 시간에는 모델/Run 타임아웃과 worker 슬롯을 점유하지 않습니다.
+새 승인 응답마다 복구 시도 횟수를 초기화하므로 정상적인 반복 수정은 실패 횟수가 아닙니다.
+
+계획 버전과 응답은 승인 테이블에 남고 각 검토 단계는 별도 화면 메시지로 보존합니다.
+내부 분류/계획 JSON 토큰은 사용자 답변 스트림에 노출하지 않습니다.
+`run.classified`에는 최종 의도와 짧은 공개 분류 근거만 제공합니다.
+
+새 Run은 `assistant-v2`를 사용하며 이미 접수된 `assistant-v1` 대화 Run은 기존
+노드 경로로 완료할 수 있습니다. 세션의 기존 메시지 체크포인트는 계속 활용합니다.
+구버전 코드로 롤백할 때는 v2 활성 Run을 먼저 종료해야 합니다. 구버전 실행기는
+v2를 처리할 수 없습니다. 체크포인트 원본을 자동 변환/삭제하지 않습니다.
 
 ## 설정
 
@@ -75,6 +142,8 @@ uv run --locked python app.py
 
 `agent_service.migrate`는 관리 Alembic 적용 후 체크포인트 라이브러리의
 마이그레이션을 수행합니다. 기존 관리 DB는 초기화하지 않습니다.
+이번 변경에는 승인 ID 매핑을 위한 `management_0004`가 포함됩니다.
+업데이트한 API/worker를 시작하기 전에 적용해야 합니다.
 체크포인트만 초기화/업그레이드하려면 다음 명령을 사용합니다.
 
 ```sh
@@ -144,6 +213,8 @@ worker가 활성 작업만 반복 스캔하지 않게 하고, 중단되면 기�
 
 복구 때 해당 Run이 그래프에 이미 들어갔다면 `None` 입력으로 저장 위치에서
 이어갑니다. 신규 Run만 새 HumanMessage를 넣으며 ID도 Run에서 안정적으로 만듭니다.
+단, 아직 적용되지 않은 HITL 응답이 있으면 해당 interrupt에 `Command(resume=...)`를
+전달합니다. 승인 대기를 일반적인 `None` 재실행으로 해제하지 않습니다.
 `completed_run_id`가 일치하면 LLM을 다시 호출하지 않고 저장된 답변을 메시지 DB에
 반영합니다. 단, LLM 호출 도중 프로세스가 종료돼 완료 체크포인트가 없다면 모델을
 다시 호출할 수 있습니다. 외부 호출의 exactly-once는 보장하지 않습니다.
@@ -200,12 +271,23 @@ docker compose up --build -d api
 
 ```sh
 CHATAPP_UI_TEST_URL=http://127.0.0.1:8020 \
-  node tests/browser/langgraph-chat.cjs
+node tests/browser/langgraph-chat.cjs
 # 다른 사용자가 개발 API를 사용하지 않을 때만:
 CHATAPP_RESTART_TEST=1 CHATAPP_UI_TEST_URL=http://127.0.0.1:8020 \
   node tests/browser/langgraph-chat.cjs
 ```
 
+실제 모델의 요청 분류·계획 수정·거절·승인 미연결 안내는 아래로 확인합니다.
+
+```sh
+CHATAPP_UI_TEST_URL=http://127.0.0.1:8020 node tests/browser/hitl-chat.cjs
+```
+
+HITL 브라우저 테스트의 재시작 옵션은 8021 포트의 별도 테스트 컨테이너
+`ex-agent-hitl-test-api`에만 허용됩니다. 8020 개발 API를 재시작하지 않습니다.
+
 설계 참고: [LangGraph 메모리/체크포인터](https://docs.langchain.com/oss/python/langgraph/add-memory),
 [영속성](https://docs.langchain.com/oss/python/langgraph/persistence).
 실제 동작은 `uv.lock`에 고정된 패키지와 설치 소스로 확인했습니다.
+HITL 참고: [interrupt/resume](https://docs.langchain.com/oss/python/langgraph/interrupts),
+[구조화 출력](https://docs.langchain.com/oss/python/langchain/structured-output).

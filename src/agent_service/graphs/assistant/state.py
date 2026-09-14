@@ -12,3 +12,14 @@ class AssistantState(TypedDict):
     run_id: str
     answer: str
     completed_run_id: str | None
+
+
+class WorkflowState(AssistantState, total=False):
+    route: dict
+    plan: dict | None
+    plan_version: int
+    instruction: str | None
+    decision: str | None
+    applied_review_id: str | None
+    outcome: str
+    error: dict | None

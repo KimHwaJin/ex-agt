@@ -34,12 +34,12 @@ export function installChat({ $, state, api, apiBase, requestKey, notice }) {
       : "실행기가 연결되지 않았습니다";
     $("agent-mode").textContent = backend === "demo"
       ? "DEMO · 실제 LLM/Executor 미연결"
-      : backend === "langgraph" ? "Agent · 대화 기능 / 실행 미연결"
+      : backend === "langgraph" ? "Agent · 대화·계획 검토 / 실행 미연결"
       : "에이전트 미연결";
     $("composer-note").textContent = backend === "demo"
       ? "테스트 실행기입니다. 승인·스트림·취소를 검증하며 실제 분석은 하지 않습니다."
       : backend === "langgraph"
-      ? "대화는 세션에 저장됩니다. 현재 코드 실행과 파일 분석은 지원하지 않습니다."
+      ? "질문에는 답변하고 작업 요청에는 계획 초안을 제안합니다. 실제 실행은 아직 미연결입니다."
       : "메시지 실행 기능을 사용하려면 실행기를 설정해 주세요.";
     $("run-panel").hidden = !current;
     $("run-status").textContent = current
@@ -96,10 +96,29 @@ export function installChat({ $, state, api, apiBase, requestKey, notice }) {
     const steps = document.createElement("ol");
     for (const step of pending.payload.steps) {
       const item = document.createElement("li");
-      item.textContent = step;
+      item.textContent = typeof step === "string" ? step
+        : `${step.description} — 이유: ${step.reason}`
+          + ` / 예상 산출물: ${step.expected_result}`;
       steps.append(item);
     }
     plan.append(version, steps);
+    if (pending.payload.summary) {
+      const summary = document.createElement("p");
+      summary.textContent = pending.payload.summary;
+      plan.prepend(summary);
+    }
+    if (pending.payload.notice) {
+      const warning = document.createElement("p");
+      warning.textContent = pending.payload.notice;
+      plan.prepend(warning);
+    }
+    if (pending.payload.implementation) {
+      const method = document.createElement("p");
+      method.textContent = "구현 방식: "
+        + (pending.payload.implementation === "generated_code"
+          ? "직접 코드 작성 예정" : "도메인 함수 조합 예정 (카탈로그 미연결)");
+      plan.append(method);
+    }
     if (pending.payload.instruction) {
       const change = document.createElement("p");
       change.textContent = `수정 요청: ${pending.payload.instruction}`;
