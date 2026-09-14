@@ -68,6 +68,12 @@ app.py에서 명시적 dict로 만들어 전달한다.
 않는다. 설정값과 `MODEL_EXTRA_BODY` 내부의 모델 요청 키는 그대로 전달한다.
 기존 Gaia `PRIVATE_LLM_*`를 우리 `MODEL_*`로 자동 복사하지는 않는다.
 
+`Invalid AGENT_SERVICE settings`에는 이제 실패한 설정 항목과 이유가 붙는다.
+입력값과 원본 ValidationError를 출력하지 않으므로 DB URI/비밀값은 포함하지
+않는다. 이 진단 메시지 개선만 이관하려면
+`src/d_test/agent_service/bootstrap/template.py`를 같은 위치에 교체한다.
+새 오류 메시지의 필드명과 이유로 실제 설정 오류를 확인한다.
+
 | HCP_ACTIVE_PROFILE | 호스트가 읽을 파일 | AGENT_SERVICE.ENVIRONMENT |
 |---|---|---|
 | local | config.local.yml | local |
