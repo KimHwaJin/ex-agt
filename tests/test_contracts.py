@@ -13,13 +13,13 @@ from d_test.agent_service.application.cursors import CursorCodec
 from d_test.agent_service.bootstrap.configuration import load_settings
 from d_test.agent_service.domain.management import DomainError, Page
 from d_test.agent_service.settings import Settings
-from d_test.api_service.factory import install_management_api
+from d_test.api_service import install_management_api
+from d_test.api_service.auth.providers import HeaderIdentityProvider
 from d_test.api_service.schemas import (
     ProjectCreate,
     ProjectUpdate,
     SessionCreate,
 )
-from d_test.api_service.security import HeaderIdentityProvider
 
 
 def test_page_generic_on_python_311():

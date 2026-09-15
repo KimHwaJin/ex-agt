@@ -18,13 +18,16 @@
   `MODEL_BASE_URL`, `MODEL_API_KEY`를 해당 환경 값으로 채운다.
 
 기존 `common`, `gaia`, `lib`, `middleware`, `routers`를 덮어쓰지 않는다.
+API 구조 변경 후에는 예전 `api_service/factory.py` 등의 파일을 남긴 채
+새 디렉토리를 덧씌우지 않는다. 제거 대상과 새 import 경로는
+`docs/api-service-layout.md`의 내부 템플릿 이식 절차를 참고한다.
 예제 app.py의 workflow import 경로는 실제 탐색 경로와 일치시킨다.
 서로 다른 이름으로 모듈을 중복 import하면 서로 다른 manager가 생성된다.
 
 ## 기존 routers/__init__.py에 추가
 
 ```python
-from d_test.api_service.factory import get_management_routers
+from d_test.api_service import get_management_routers
 
 
 def get_routers():
@@ -57,7 +60,7 @@ HCP_ACTIVE_PROFILE=dev python app.py
 ```
 
 윈도우에서도 `python app.py` 또는 `uv run python app.py`로 실행한다.
-예제는 `d_test.api_service.server.run_server()`를 사용해 윈도우에서만
+예제는 `d_test.api_service.run_server()`를 사용해 윈도우에서만
 `SelectorEventLoop`로 서버와 lifespan 전체를 실행한다. Psycopg 비동기
 연결은 윈도우 기본 Proactor 루프와 호환되지 않기 때문이다.
 Linux에서는 기존 `uvicorn.run()` 경로를 유지한다. `gaia/core.py` 변경이나

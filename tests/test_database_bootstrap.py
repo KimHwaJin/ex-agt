@@ -19,7 +19,7 @@ from d_test.agent_service.infrastructure.database.bootstrap import (
 from d_test.agent_service.infrastructure.database.setup_locks import (
     MANAGEMENT_LOCK,
 )
-from d_test.api_service.factory import create_app
+from d_test.api_service import create_app
 
 
 @pytest.fixture

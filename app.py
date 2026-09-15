@@ -6,8 +6,7 @@ An existing template can instead call install_management_api().
 from pathlib import Path
 
 from d_test.agent_service.bootstrap.configuration import load_settings
-from d_test.api_service.factory import create_app
-from d_test.api_service.server import run_server
+from d_test.api_service import create_app, run_server
 
 settings = load_settings(Path(__file__).resolve().parent)
 app = create_app(settings)

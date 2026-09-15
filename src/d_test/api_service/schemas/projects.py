@@ -1,27 +1,18 @@
-"""HTTP write contracts: callers cannot set ownership or audit fields."""
+"""Project request contracts and shared response models."""
 
 from typing import Annotated
-from uuid import UUID
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    StringConstraints,
-    model_validator,
-)
+from pydantic import Field, StringConstraints, model_validator
+
+from d_test.agent_service.domain.management import Project as Project
+
+from .common import WriteRequest
 
 ProjectName = Annotated[
     str, StringConstraints(strip_whitespace=True, min_length=1, max_length=100)
 ]
-SessionTitle = Annotated[
-    str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)
-]
+
 Description = Annotated[str, StringConstraints(max_length=2000)]
-
-
-class WriteRequest(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
 
 class ProjectCreate(WriteRequest):
@@ -41,13 +32,3 @@ class ProjectUpdate(WriteRequest):
         if "name" in self.model_fields_set and self.name is None:
             raise ValueError("이름은 null일 수 없습니다.")
         return self
-
-
-class SessionCreate(WriteRequest):
-    project_id: UUID
-    title: SessionTitle = "새 대화"
-
-
-class SessionUpdate(WriteRequest):
-    version: int = Field(ge=1, strict=True)
-    title: SessionTitle

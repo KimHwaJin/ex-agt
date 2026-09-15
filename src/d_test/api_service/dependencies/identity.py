@@ -8,13 +8,8 @@ from fastapi import Depends, Header, Request
 from d_test.agent_service.application.management import ManagementService
 from d_test.agent_service.domain.management import DomainError, User
 
-from .security import IdentityProvider
-
-
-def service(request: Request) -> ManagementService:
-    return cast(
-        ManagementService, request.app.state.management_runtime.service
-    )
+from ..auth.providers import IdentityProvider
+from .services import service
 
 
 def identity(request: Request) -> IdentityProvider:
@@ -60,14 +55,4 @@ async def employee_id(
 
 
 CurrentUser = Annotated[User, Depends(current_user)]
-Service = Annotated[ManagementService, Depends(service)]
 EmployeeId = Annotated[str, Depends(employee_id)]
-IdempotencyKey = Annotated[
-    str,
-    Header(
-        alias="Idempotency-Key",
-        min_length=1,
-        max_length=200,
-        pattern=r"^[A-Za-z0-9._:-]+$",
-    ),
-]
