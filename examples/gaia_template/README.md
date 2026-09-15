@@ -56,6 +56,18 @@ OpenAPI·instrumentation·uvicorn 설정은 예제 진입점에 명시했다.
 HCP_ACTIVE_PROFILE=dev python app.py
 ```
 
+윈도우에서도 `python app.py` 또는 `uv run python app.py`로 실행한다.
+예제는 `d_test.api_service.server.run_server()`를 사용해 윈도우에서만
+`SelectorEventLoop`로 서버와 lifespan 전체를 실행한다. Psycopg 비동기
+연결은 윈도우 기본 Proactor 루프와 호환되지 않기 때문이다.
+Linux에서는 기존 `uvicorn.run()` 경로를 유지한다. `gaia/core.py` 변경이나
+추가 환경변수는 필요 없다. 이미 이식했다면 `src/d_test/` 변경과 함께
+루트 app.py의 `uvicorn.run(...)`도 `run_server(...)`로 교체해야 한다.
+윈도우에서 `uvicorn app:app`으로 직접 실행하면 이 처리를 우회한다.
+이 진입점은 단일 프로세스용이며 Windows reload/다중 worker는 지원하지 않는다.
+독립 migration/checkpoint/worker CLI에도 호환 루프가 적용된다.
+Windows worker 종료는 콘솔 Ctrl+C를 사용한다. Linux SIGTERM 처리는 유지된다.
+
 설정 키는 `ENVIRONMENT`, `DATABASE_URL`, `MODEL_NAME`처럼 대문자로 쓴다.
 로더는 이 키만 내부 Settings의 소문자 필드에 대응시킨다. 이전 소문자 키도
 호환되지만 같은 항목을 대소문자 두 가지로 중복 작성하면 오류가 발생한다.

@@ -2,9 +2,11 @@
 
 import asyncio
 import signal
+import sys
 from pathlib import Path
 
 from d_test.agent_service.bootstrap.configuration import load_settings
+from d_test.agent_service.bootstrap.event_loop import run_async
 from d_test.agent_service.bootstrap.logging import initialize_logging
 from d_test.agent_service.runtime.management import ManagementRuntime
 from d_test.agent_service.settings import Settings
@@ -22,8 +24,10 @@ async def main(settings: Settings | None = None) -> None:
         assert runtime.driver is not None
         task = asyncio.create_task(runtime.driver.serve())
         loop = asyncio.get_running_loop()
-        for signum in (signal.SIGTERM, signal.SIGINT):
-            loop.add_signal_handler(signum, task.cancel)
+        # Windows has no add_signal_handler; Runner handles console Ctrl+C.
+        if sys.platform != "win32":
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                loop.add_signal_handler(signum, task.cancel)
         try:
             await task
         except asyncio.CancelledError:
@@ -33,4 +37,4 @@ async def main(settings: Settings | None = None) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_async(main())

@@ -332,7 +332,7 @@ def test_example_entrypoint_uses_host_app_not_main(settings, monkeypatch):
         assert kwargs["proxy_headers"] is False
         calls.append("uvicorn")
 
-    monkeypatch.setattr("uvicorn.run", run)
+    monkeypatch.setattr("d_test.api_service.server.run_server", run)
     spec = importlib.util.spec_from_file_location(
         "template_entrypoint", ROOT / "examples/gaia_template/app.py"
     )

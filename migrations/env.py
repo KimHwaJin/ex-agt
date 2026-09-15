@@ -1,6 +1,5 @@
 """Explicit upgrade or an injected, locked empty-database bootstrap."""
 
-import asyncio
 import os
 from pathlib import Path
 
@@ -9,6 +8,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from d_test.agent_service.bootstrap.configuration import load_settings
+from d_test.agent_service.bootstrap.event_loop import run_async
 from d_test.agent_service.infrastructure.database.setup_locks import (
     acquire_management_lock,
 )
@@ -62,4 +62,4 @@ if context.is_offline_mode():
 elif context.config.attributes.get("connection") is not None:
     configure(context.config.attributes["connection"])
 else:
-    asyncio.run(online())
+    run_async(online())

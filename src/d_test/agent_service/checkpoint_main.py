@@ -1,9 +1,9 @@
 """Checkpoint setup: python -m d_test.agent_service.checkpoint_main."""
 
-import asyncio
 from pathlib import Path
 
 from d_test.agent_service.bootstrap.configuration import load_settings
+from d_test.agent_service.bootstrap.event_loop import run_async
 from d_test.agent_service.infrastructure.database.checkpoints import (
     Checkpoints,
 )
@@ -20,4 +20,4 @@ async def main(settings: Settings | None = None):
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    run_async(main())
