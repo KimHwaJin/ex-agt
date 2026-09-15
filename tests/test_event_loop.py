@@ -10,7 +10,7 @@ from fastapi import FastAPI
 
 from d_test.agent_service import migrate, worker_main
 from d_test.agent_service.bootstrap import event_loop
-from d_test.api_service import server
+from d_test.api_service.bootstrap import server
 
 
 @pytest.fixture

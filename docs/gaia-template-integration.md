@@ -20,7 +20,7 @@ app.py                              # GaiaService 생성 후 우리 runtime 부�
 src/routers/__init__.py              # 기존 get_routers()에 라우터 추가
 src/workflows/analysis.py            # manager = WorkflowManager()
 src/template_bindings.py             # private 인증/외부 요청 변환
-src/d_test/api_service/template.py          # 같은 FastAPI에 lifecycle 연결
+src/d_test/api_service/integrations/gaia.py          # 같은 FastAPI에 lifecycle 연결
 src/d_test/agent_service/bootstrap/template.py
 src/d_test/agent_service/integrations/
   template_protocol.py              # 변경 가능한 외부 계약 v1

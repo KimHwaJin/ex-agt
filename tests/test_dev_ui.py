@@ -5,7 +5,7 @@ import pytest
 from fastapi import FastAPI
 
 from d_test.agent_service.settings import Settings
-from d_test.api_service.factory import create_app
+from d_test.api_service import create_app
 
 
 async def test_dev_console_assets_and_redirect(settings):

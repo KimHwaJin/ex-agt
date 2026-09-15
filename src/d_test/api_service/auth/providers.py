@@ -1,11 +1,12 @@
 """Replaceable identity boundary, not a home-grown SSO implementation."""
 
 from ipaddress import ip_address, ip_network
-from typing import Protocol
+from typing import Protocol, cast
 from uuid import UUID
 
 from fastapi import Request
 
+from d_test.agent_service.bootstrap.logging import import_callable
 from d_test.agent_service.domain.management import DomainError
 from d_test.agent_service.settings import Settings
 
@@ -75,3 +76,10 @@ class HeaderIdentityProvider:
             raise DomainError(
                 "INVALID_USER_UUID", "유효한 사용자 UUID가 필요합니다.", 422
             ) from None
+
+
+def build_identity(settings: Settings) -> IdentityProvider:
+    if settings.auth_mode == "external":
+        factory = import_callable(settings.identity_provider_factory or "")
+        return cast(IdentityProvider, factory(settings))
+    return HeaderIdentityProvider(settings)

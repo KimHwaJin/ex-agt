@@ -9,8 +9,8 @@ from d_test.agent_service.integrations.template_workflow import (
     WorkflowManager,
 )
 from d_test.agent_service.settings import Settings
-from d_test.api_service.factory import install_management_api
-from d_test.api_service.security import IdentityProvider
+from d_test.api_service.auth.providers import IdentityProvider
+from d_test.api_service.bootstrap.application import install_management_api
 
 
 def install_template_runtime(

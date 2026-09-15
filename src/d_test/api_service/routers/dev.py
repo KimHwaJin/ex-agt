@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse, RedirectResponse
 
 from d_test.agent_service.settings import Settings
 
-ASSETS = Path(__file__).parent / "static" / "dev"
+ASSETS = Path(__file__).resolve().parents[1] / "static" / "dev"
 HEADERS = {
     "Cache-Control": "no-store",
     "X-Content-Type-Options": "nosniff",

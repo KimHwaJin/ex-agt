@@ -18,11 +18,11 @@ from d_test.agent_service.bootstrap.logging import initialize_logging
 from d_test.agent_service.bootstrap.template import settings_from_template
 from d_test.agent_service.integrations.template_protocol import decode_v1
 from d_test.agent_service.integrations.template_workflow import WorkflowManager
-from d_test.api_service.factory import (
+from d_test.api_service import (
     get_management_routers,
     install_management_api,
+    install_template_runtime,
 )
-from d_test.api_service.template import install_template_runtime
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -189,7 +189,7 @@ async def test_template_lifespan_composes_and_releases(
 
     resources = SimpleNamespace(start=start, close=close, runs=object())
     monkeypatch.setattr(
-        "d_test.api_service.factory.ManagementRuntime.build",
+        "d_test.api_service.bootstrap.application.ManagementRuntime.build",
         lambda _: resources,
     )
     app = FastAPI(lifespan=original)
@@ -332,7 +332,7 @@ def test_example_entrypoint_uses_host_app_not_main(settings, monkeypatch):
         assert kwargs["proxy_headers"] is False
         calls.append("uvicorn")
 
-    monkeypatch.setattr("d_test.api_service.server.run_server", run)
+    monkeypatch.setattr("d_test.api_service.run_server", run)
     spec = importlib.util.spec_from_file_location(
         "template_entrypoint", ROOT / "examples/gaia_template/app.py"
     )

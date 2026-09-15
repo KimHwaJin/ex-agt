@@ -35,7 +35,17 @@ config_dev.yaml              # 개발 설정
 config.yaml                  # 운영 설정 (인증·로깅 연결 후 사용)
 src/
   d_test/                    # 내부 템플릿과 구분되는 우리 패키지
-    api_service/             # HTTP, 요청 스키마, 인증 의존성
+    api_service/             # HTTP 계층: 공개 설치 함수는 __init__.py
+      bootstrap/             # 앱 조립, lifespan, 서버 실행
+      routers/               # 사용자·프로젝트·세션·메시지·Run API
+      schemas/               # 자원별 요청/응답 계약
+      dependencies/          # 인증 사용자, 서비스, 공통 파라미터
+      auth/                  # 교체 가능한 인증 제공자
+      middleware/            # 요청 추적, 본문 제한
+      handlers/              # 공통 예외 응답
+      streaming/             # SSE 전송
+      integrations/          # Gaia workflow 연결
+      static/                # 개발 UI
     agent_service/
       application/           # 관리/Run 유스케이스와 메시지 출력 저장
       domain/                # 엔티티와 도메인 오류
@@ -54,6 +64,9 @@ tests/                       # 현재 구현만 검증
 ```
 
 ## 개발 환경
+
+API별 수정 위치와 내부 이식 방법은
+[API 서비스 구조](docs/api-service-layout.md)를 참고하세요.
 
 우리 소스는 `src/d_test/` 아래에 모았습니다. 내부 템플릿에는 이 디렉토리
 전체를 옮기고, 기존 `src/routers`·`src/workflows`에서 연결 코드만 추가합니다.
@@ -183,7 +196,7 @@ API 기록 패널은 일반 JSON 요청을 기록하며 스트림 프레임은 �
 않습니다. 현재 화면은 헤더 식별 방식이며 SSO 로그인 UI는 아닙니다.
 템플릿 경로 아래 마운트해도 상대 경로로 동일 서비스 API를 호출합니다.
 
-구현 파일은 `src/d_test/api_service/dev_ui.py`와 `static/dev/` 아래에 있습니다.
+구현 파일은 `src/d_test/api_service/routers/dev.py`와 `static/dev/` 아래에 있습니다.
 
 브라우저 회귀 검증은 `tests/browser/dev-ui.cjs`에 있습니다.
 일반 API/화면 실행에는 Node.js가 필요하지 않으며, 이 검증을 실행할 때만
@@ -250,14 +263,14 @@ body/query에 섞지 않고 인증 의존성을 통해 전달합니다.
 ## 외부 템플릿 연동
 
 일반 FastAPI 호스트에는 시작 전에
-`d_test.api_service.factory.install_management_api(app, settings)`를 호출합니다.
+`d_test.api_service.install_management_api(app, settings)`를 호출합니다.
 Gaia처럼 `get_routers()`에서 미리 등록하는 템플릿은
-`d_test.api_service.template.install_template_runtime()`으로 연결합니다.
+`d_test.api_service.install_template_runtime()`으로 연결합니다.
 기존 FastAPI 객체와 lifespan은 보존하고, API 라우터가 그래프를 직접
 실행하지는 않습니다. 루트 진입점에서 GaiaService.main()을 대신하는 방법은
 [Gaia 연결 가이드](docs/gaia-template-integration.md)를 참고하세요.
 
-인증은 `d_test.api_service.security.IdentityProvider`의 비동기 메서드
+인증은 `d_test.api_service.auth.providers.IdentityProvider`의 비동기 메서드
 `employee_id(request) -> str`, `user_uuid(request) -> UUID`를 구현해
 교체합니다. 팩토리는 `factory(settings) -> IdentityProvider` 형식이며,
 YAML의 `identity_provider_factory: package.module:function`으로 연결합니다.
