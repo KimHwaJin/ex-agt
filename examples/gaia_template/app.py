@@ -3,8 +3,6 @@
 import sys
 from pathlib import Path
 
-import uvicorn
-
 sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 
 
@@ -17,6 +15,7 @@ def main():
     from workflows.analysis import manager
 
     from d_test.agent_service.bootstrap.template import settings_from_template
+    from d_test.api_service.server import run_server
     from d_test.api_service.template import install_template_runtime
 
     # Constructor initializes the host logger and existing routes/middleware.
@@ -32,7 +31,7 @@ def main():
         app, settings, manager=manager, resolve=resolve_request
     )
     # Do not call service.main(): it overwrites our composed lifespan.
-    uvicorn.run(
+    run_server(
         app,
         host="0.0.0.0",
         port=int(config.PORT),

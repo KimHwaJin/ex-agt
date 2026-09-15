@@ -13,6 +13,14 @@ Executor·Redis 소비·프로젝트 공유 메모리·파일 분석은 아직 �
 [복사 예제](examples/gaia_template/README.md)를 참고하세요.
 템플릿 연결부는 추가됐지만 private A2A 송수신 검증은 아직 아닙니다.
 
+## Windows 로컬 실행
+
+Windows 로컬 실행은 `uv run python app.py`를 사용하세요. 서버와 독립
+마이그레이션/체크포인트/워커 진입점에서 Psycopg 호환 Selector 루프를
+선택합니다. `uvicorn app:app` 직접 실행은 이 설정을 우회합니다.
+Linux/Compose 실행 경로는 유지됩니다. Gaia 이식 시 예제 app.py의
+`run_server` 호출도 함께 반영해야 합니다.
+
 ## 브랜치 운영
 
 이후 개발의 기준 브랜치는 `agt`입니다. 새 작업은 최신 `agt`에서

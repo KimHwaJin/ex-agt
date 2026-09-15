@@ -5,16 +5,15 @@ An existing template can instead call install_management_api().
 
 from pathlib import Path
 
-import uvicorn
-
 from d_test.agent_service.bootstrap.configuration import load_settings
 from d_test.api_service.factory import create_app
+from d_test.api_service.server import run_server
 
 settings = load_settings(Path(__file__).resolve().parent)
 app = create_app(settings)
 
 if __name__ == "__main__":
-    uvicorn.run(
+    run_server(
         app,
         host=settings.bind_host,
         port=settings.bind_port,
